@@ -1,0 +1,35 @@
+# Export files
+*.csv
+*.xlsx
+
+# PowerShell
+*.ps1xml
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
+*~
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# OS generated
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Azure credentials (never commit!)
+*.publishsettings
+*.azureauth
+azureauth.json
+
+# Output directories
+/output/
+/exports/
+/reports/
+
+# Dev folder (keep for local development only)
+/dev/

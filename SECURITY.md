@@ -1,0 +1,34 @@
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 1.0.x   | :white_check_mark: |
+
+## Reporting a Vulnerability
+
+If you discover a security vulnerability within this project, please send an email to [zachary.luz@microsoft.com](mailto:zachary.luz@microsoft.com).
+
+**Please do not report security vulnerabilities through public GitHub issues.**
+
+You should receive a response within 48 hours. If the issue is confirmed, we will release a patch as soon as possible depending on complexity.
+
+## Security Best Practices
+
+When using this tool:
+
+1. **Never commit Azure credentials** to version control
+2. **Use managed identities** when running in Azure environments
+3. **Limit subscription access** to only what's needed
+4. **Review exported files** before sharing - they contain subscription IDs and region data
+5. **Don't run untrusted scripts** - always review code before execution
+
+## Scope
+
+This tool:
+- ✅ Reads Azure VM SKU information (read-only)
+- ✅ Reads quota/usage information (read-only)
+- ❌ Does NOT create, modify, or delete any Azure resources
+- ❌ Does NOT store or transmit credentials
+- ❌ Does NOT access sensitive data beyond SKU/quota info
