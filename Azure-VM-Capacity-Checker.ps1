@@ -58,7 +58,7 @@
     Company:        Microsoft
     Contact:        zachary.luz@microsoft.com
     Created:        2026-01-21
-    Version:        1.0.0
+    Version:        1.1.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Azure-VM-Capacity-Checker
 
@@ -123,7 +123,7 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 # === Configuration ==================================================
 # Script metadata
-$ScriptVersion = "1.0.0"
+$ScriptVersion = "1.1.0"
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -416,19 +416,70 @@ if (-not $Regions) {
         Write-Host "Using default regions: $($Regions -join ', ')" -ForegroundColor Cyan
     } else {
         Write-Host "`nSTEP 2: SELECT REGION(S)" -ForegroundColor Green
-        Write-Host ("=" * 60) -ForegroundColor Gray
-        Write-Host "Enter region codes (e.g., eastus westus2 centralus)" -ForegroundColor Yellow
+        Write-Host ("=" * 80) -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "FAST PATH: Type region codes now to skip the long list (comma/space separated)" -ForegroundColor Yellow
+        Write-Host "Examples: eastus eastus2 westus3  |  Press Enter to show full menu" -ForegroundColor DarkGray
         Write-Host "Press Enter for defaults: eastus, eastus2, centralus" -ForegroundColor DarkGray
+        $quickRegions = Read-Host "Enter region codes or press Enter to load the menu"
 
-        $regionInput = Read-Host "Regions"
-
-        if ([string]::IsNullOrWhiteSpace($regionInput)) {
-            $Regions = @('eastus', 'eastus2', 'centralus')
+        if (-not [string]::IsNullOrWhiteSpace($quickRegions)) {
+            $Regions = @($quickRegions -split '[,\s]+' | Where-Object { $_ -ne '' } | ForEach-Object { $_.ToLower() })
+            Write-Host "`nSelected regions (fast path): $($Regions -join ', ')" -ForegroundColor Green
         } else {
-            $Regions = @($regionInput -split '[,\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToLower() })
-        }
+            # Show full region menu with geo-grouping
+            Write-Host ""
+            Write-Host "Available regions (filtered for Compute):" -ForegroundColor Cyan
 
-        Write-Host "`nSelected: $($Regions -join ', ')" -ForegroundColor Green
+            $geoOrder = @('Americas-US', 'Americas-Canada', 'Americas-LatAm', 'Europe', 'Asia-Pacific', 'India', 'Middle East', 'Africa', 'Australia', 'Other')
+
+            $locations = Get-AzLocation | Where-Object { $_.Providers -contains 'Microsoft.Compute' } |
+                ForEach-Object { $_ | Add-Member -NotePropertyName GeoGroup -NotePropertyValue (Get-GeoGroup $_.Location) -PassThru } |
+                Sort-Object @{e = { $idx = $geoOrder.IndexOf($_.GeoGroup); if ($idx -ge 0) { $idx } else { 999 } }}, @{e = { $_.DisplayName }}
+
+            Write-Host ""
+            for ($i = 0; $i -lt $locations.Count; $i++) {
+                Write-Host "$($i + 1). [$($locations[$i].GeoGroup)] $($locations[$i].DisplayName)" -ForegroundColor Cyan
+                Write-Host "   Code: $($locations[$i].Location)" -ForegroundColor DarkGray
+            }
+
+            Write-Host ""
+            Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
+            Write-Host "  - Enter number(s) separated by commas (e.g., '1,5,10')" -ForegroundColor White
+            Write-Host "  - Or use spaces (e.g., '1 5 10')" -ForegroundColor White
+            Write-Host "  - Press Enter for defaults: eastus, eastus2, centralus" -ForegroundColor White
+            Write-Host ""
+            $regionsInput = Read-Host "Select region(s)"
+
+            if ([string]::IsNullOrWhiteSpace($regionsInput)) {
+                $Regions = @('eastus', 'eastus2', 'centralus')
+                Write-Host "`nSelected regions (default): $($Regions -join ', ')" -ForegroundColor Green
+            } else {
+                $selectedNumbers = $regionsInput -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
+
+                if ($selectedNumbers.Count -eq 0) {
+                    Write-Host "ERROR: No valid selections entered" -ForegroundColor Red
+                    exit 1
+                }
+
+                $invalidNumbers = $selectedNumbers | Where-Object { $_ -lt 1 -or $_ -gt $locations.Count }
+                if ($invalidNumbers.Count -gt 0) {
+                    Write-Host "ERROR: Invalid selection(s): $($invalidNumbers -join ', '). Valid range is 1-$($locations.Count)" -ForegroundColor Red
+                    exit 1
+                }
+
+                $selectedNumbers = @($selectedNumbers | Sort-Object -Unique)
+                $Regions = @()
+                foreach ($num in $selectedNumbers) {
+                    $Regions += $locations[$num - 1].Location
+                }
+
+                Write-Host "`nSelected regions:" -ForegroundColor Green
+                foreach ($num in $selectedNumbers) {
+                    Write-Host "  $($Icons.Check) $($locations[$num - 1].DisplayName) ($($locations[$num - 1].Location))" -ForegroundColor Green
+                }
+            }
+        }
     }
 } else {
     $Regions = @($Regions | ForEach-Object { $_.ToLower() })
@@ -616,30 +667,105 @@ foreach ($subscriptionData in $allSubscriptionData) {
 
 if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
     Write-Host "`n" -NoNewline
-    Write-Host ("=" * 70) -ForegroundColor Gray
+    Write-Host ("=" * 80) -ForegroundColor Gray
     Write-Host "DRILL-DOWN: SELECT FAMILIES" -ForegroundColor Green
-    Write-Host ("=" * 70) -ForegroundColor Gray
+    Write-Host ("=" * 80) -ForegroundColor Gray
 
     $familyList = @($familySkuIndex.Keys | Sort-Object)
     for ($i = 0; $i -lt $familyList.Count; $i++) {
-        Write-Host "$($i + 1). $($familyList[$i]) ($($familySkuIndex[$familyList[$i]].Keys.Count) SKUs)" -ForegroundColor Cyan
+        $fam = $familyList[$i]
+        $skuCount = $familySkuIndex[$fam].Keys.Count
+        Write-Host "$($i + 1). $fam (SKUs: $skuCount)" -ForegroundColor Cyan
     }
 
-    Write-Host "`nEnter numbers (e.g., 1,3,5) or Enter for all:" -ForegroundColor Yellow
-    $famSel = Read-Host
+    Write-Host ""
+    Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
+    Write-Host "  - Enter numbers to pick one or more families (e.g., '1', '1,3,5', '1 3 5')" -ForegroundColor White
+    Write-Host "  - Press Enter to include ALL families" -ForegroundColor White
+    $famSel = Read-Host "Select families"
 
     if ([string]::IsNullOrWhiteSpace($famSel)) {
         $SelectedFamilyFilter = $familyList
     } else {
         $nums = $famSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
+        $nums = @($nums | Sort-Object -Unique)
+        $invalidNums = $nums | Where-Object { $_ -lt 1 -or $_ -gt $familyList.Count }
+        if ($invalidNums.Count -gt 0) {
+            Write-Host "ERROR: Invalid family selection(s): $($invalidNums -join ', ')" -ForegroundColor Red
+            exit 1
+        }
         $SelectedFamilyFilter = @($nums | ForEach-Object { $familyList[$_ - 1] })
     }
 
-    foreach ($fam in $SelectedFamilyFilter) {
-        Write-Host "`nFamily: $fam" -ForegroundColor Cyan
-        $detailRows = $familyDetails | Where-Object { $_.Family -eq $fam }
-        if ($detailRows.Count -gt 0) {
-            $detailRows | Sort-Object Region, SKU | Format-Table Region, SKU, vCPU, MemGiB, Capacity, Reason -AutoSize
+    # SKU selection mode
+    Write-Host ""
+    Write-Host "SKU SELECTION MODE" -ForegroundColor Green
+    Write-Host "  - Press Enter: pick SKUs per family (prompts for each)" -ForegroundColor White
+    Write-Host "  - Type 'all' : include ALL SKUs for every selected family (skip prompts)" -ForegroundColor White
+    Write-Host "  - Type 'none': cancel SKU drill-down and return to reports" -ForegroundColor White
+    $skuMode = Read-Host "Choose SKU selection mode"
+
+    if ($skuMode -match '^(none|cancel|skip)$') {
+        Write-Host "Skipping SKU drill-down as requested." -ForegroundColor Yellow
+        $SelectedFamilyFilter = @()
+    } elseif ($skuMode -match '^(all)$') {
+        foreach ($fam in $SelectedFamilyFilter) {
+            $SelectedSkuFilter[$fam] = $null  # null means all SKUs
+        }
+    } else {
+        foreach ($fam in $SelectedFamilyFilter) {
+            $skus = @($familySkuIndex[$fam].Keys | Sort-Object)
+            Write-Host ""
+            Write-Host "Family: $fam" -ForegroundColor Green
+            for ($j = 0; $j -lt $skus.Count; $j++) {
+                Write-Host "   $($j + 1). $($skus[$j])" -ForegroundColor Cyan
+            }
+            Write-Host ""
+            Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
+            Write-Host "  - Enter numbers to focus on specific SKUs (e.g., '1', '1,2', '1 2')" -ForegroundColor White
+            Write-Host "  - Press Enter to include ALL SKUs in this family" -ForegroundColor White
+            $skuSel = Read-Host "Select SKUs for family $fam"
+
+            if ([string]::IsNullOrWhiteSpace($skuSel)) {
+                $SelectedSkuFilter[$fam] = $null  # null means all
+            } else {
+                $skuNums = $skuSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
+                $skuNums = @($skuNums | Sort-Object -Unique)
+                $invalidSku = $skuNums | Where-Object { $_ -lt 1 -or $_ -gt $skus.Count }
+                if ($invalidSku.Count -gt 0) {
+                    Write-Host "ERROR: Invalid SKU selection(s): $($invalidSku -join ', ')" -ForegroundColor Red
+                    exit 1
+                }
+                $SelectedSkuFilter[$fam] = @($skuNums | ForEach-Object { $skus[$_ - 1] })
+            }
+        }
+    }
+
+    # Display drill-down results
+    if ($SelectedFamilyFilter.Count -gt 0) {
+        Write-Host ""
+        Write-Host ("=" * 80) -ForegroundColor Gray
+        Write-Host "FAMILY / SKU DRILL-DOWN RESULTS" -ForegroundColor Green
+        Write-Host ("=" * 80) -ForegroundColor Gray
+
+        foreach ($fam in $SelectedFamilyFilter) {
+            Write-Host "`nFamily: $fam" -ForegroundColor Cyan
+            Write-Host ("-" * 40) -ForegroundColor Gray
+
+            $skuFilter = $null
+            if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
+
+            $detailRows = $familyDetails | Where-Object {
+                $_.Family -eq $fam -and (
+                    -not $skuFilter -or $skuFilter -contains $_.SKU
+                )
+            }
+
+            if ($detailRows.Count -gt 0) {
+                $detailRows | Sort-Object Region, SKU | Format-Table Region, SKU, vCPU, MemGiB, ZoneStatus, Capacity, Reason -AutoSize
+            } else {
+                Write-Host "No matching SKUs found for selection." -ForegroundColor DarkYellow
+            }
         }
     }
 }

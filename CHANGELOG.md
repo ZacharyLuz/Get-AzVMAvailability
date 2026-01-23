@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-01-23
+
+### Added
+- **Enhanced region selection**: Full interactive menu showing all Azure regions grouped by geography (Americas-US, Europe, Asia-Pacific, etc.)
+- **Fast path for regions**: Type region codes directly to skip the menu, or press Enter for the full list
+- **Enhanced family drill-down**: SKU selection within each family with numbered list
+- **SKU selection modes**: Choose 'all' SKUs, 'none' to skip, or pick specific SKUs per family
+- **Improved instructions**: Clear guidance at each prompt for better user experience
+
+### Changed
+- Region selection now shows display names with region codes (e.g., "East US (eastus)")
+- Drill-down now shows SKU counts per family
+- Added ZoneStatus column to drill-down output
+
 ## [1.0.0] - 2026-01-21
 
 ### Added
