@@ -8,7 +8,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within this project, please send an email to [zachary.luz@microsoft.com](mailto:zachary.luz@microsoft.com).
+If you discover a security vulnerability within this project, please report it via [GitHub Security Advisories](https://github.com/ZacharyLuz/Azure-VM-Capacity-Checker/security/advisories/new).
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 

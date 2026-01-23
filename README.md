@@ -205,7 +205,6 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 **Zachary Luz**
 Microsoft
-📧 zachary.luz@microsoft.com
 
 ## Changelog
 

@@ -58,4 +58,4 @@ Before submitting a PR, test with:
 
 ## Questions?
 
-Feel free to open an issue or contact zachary.luz@microsoft.com.
+Feel free to [open an issue](https://github.com/ZacharyLuz/Azure-VM-Capacity-Checker/issues) on GitHub.

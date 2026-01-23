@@ -56,7 +56,6 @@
     Name:           Azure VM Capacity Checker
     Author:         Zachary Luz
     Company:        Microsoft
-    Contact:        zachary.luz@microsoft.com
     Created:        2026-01-21
     Version:        1.1.0
     License:        MIT
