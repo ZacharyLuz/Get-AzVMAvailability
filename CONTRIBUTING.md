@@ -1,4 +1,4 @@
-# Contributing to Azure VM Capacity Checker
+# Contributing to Get-AzVMAvailability
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to this project.
 
@@ -31,8 +31,8 @@ Thank you for your interest in contributing! This document provides guidelines f
 ## Development Setup
 
     # Clone your fork
-    git clone https://github.com/zacharyluz/Azure-VM-Capacity-Checker.git
-    cd Azure-VM-Capacity-Checker
+    git clone https://github.com/zacharyluz/Get-AzVMAvailability.git
+    cd Get-AzVMAvailability
 
     # Install dependencies
     Install-Module -Name Az.Compute -Scope CurrentUser
@@ -58,4 +58,4 @@ Before submitting a PR, test with:
 
 ## Questions?
 
-Feel free to [open an issue](https://github.com/ZacharyLuz/Azure-VM-Capacity-Checker/issues) on GitHub.
+Feel free to [open an issue](https://github.com/ZacharyLuz/Get-AzVMAvailability/issues) on GitHub.

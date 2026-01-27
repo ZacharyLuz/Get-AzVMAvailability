@@ -4,11 +4,15 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 1.4.x   | :white_check_mark: |
+| 1.3.x   | :white_check_mark: |
+| 1.2.x   | :white_check_mark: |
+| 1.1.x   | :white_check_mark: |
 | 1.0.x   | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within this project, please report it via [GitHub Security Advisories](https://github.com/ZacharyLuz/Azure-VM-Capacity-Checker/security/advisories/new).
+If you discover a security vulnerability within this project, please report it via [GitHub Security Advisories](https://github.com/ZacharyLuz/Get-AzVMAvailability/security/advisories/new).
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 

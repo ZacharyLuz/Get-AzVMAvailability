@@ -1,6 +1,12 @@
 # Roadmap
 
-## Version 1.0.0 (Current Release)
+## Current Release: v1.4.0
+
+See [CHANGELOG.md](CHANGELOG.md) for full version history.
+
+---
+
+## Version 1.0.0 (Initial Release)
 - ✅ Multi-region parallel scanning
 - ✅ SKU availability and capacity status
 - ✅ Zone-level restriction details
@@ -47,17 +53,21 @@
 
 ---
 
-## Version 1.4.0 (In Planning)
+## Version 1.4.0 (Released)
 **Theme: Image Compatibility**
 
-### Planned Features
-- [ ] **Image Compatibility Check** - Verify if VM images work with selected SKUs
-- [ ] **Generation Support** - Show Gen1/Gen2 VM support per SKU
-- [ ] **Architecture Support** - Show x64/ARM64 support per SKU
+### Completed Features
+- [x] **Image Compatibility Check** - Verify if VM images work with selected SKUs
+- [x] **Generation Support** - Show Gen1/Gen2 VM support per SKU
+- [x] **Architecture Support** - Show x64/ARM64 support per SKU
+- [x] **Interactive Image Picker** - 16 common images organized by category
+- [x] **Marketplace Search** - Search by publisher or offer name
+- [x] **Data Science VMs** - DSVM Ubuntu, DSVM Windows, Azure ML Workstation
+- [x] **HPC Images** - Ubuntu HPC, AlmaLinux HPC
 
-### Planned Parameters
-- `-ImageURN` - Check compatibility with specific image (e.g., 'Canonical:UbuntuServer:22.04-LTS:latest')
-- `-VMGeneration` - Filter by VM generation (Gen1, Gen2, or Both)
+### New Parameters
+- `-ImageURN` - Check compatibility with specific image (e.g., 'Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest')
+- `-CompactOutput` - Use compact output for narrow terminals
 
 ---
 

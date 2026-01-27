@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-01-27
+
+### Added
+- **Image Compatibility** - New `-ImageURN` parameter to check SKU compatibility with VM images
+  - Validates VM Generation (Gen1 vs Gen2) requirements
+  - Validates CPU Architecture (x64 vs ARM64) requirements
+  - Shows Gen/Arch columns in drill-down view
+  - Shows Img compatibility column (✓/✗) when image is specified
+  - Color-coded rows: green for compatible, dark yellow for incompatible
+- **Interactive Image Selection** - When not using `-NoPrompt`, offers image picker
+  - 16 pre-configured common images organized by category:
+    - Linux: Ubuntu, RHEL, Debian, Azure Linux (Mariner)
+    - Windows: Server 2022/2019, Windows 11 Enterprise
+    - Data Science: DSVM Ubuntu, DSVM Windows, Azure ML Workstation
+    - HPC: Ubuntu HPC, AlmaLinux HPC
+    - Gen1: Legacy images for older SKUs
+  - `custom` option for manual URN entry
+  - `search` option to browse Azure Marketplace
+- **Enhanced Marketplace Search** - Search finds both publishers AND offer names
+  - Searching "dsvm" or "data science" finds relevant images directly
+  - Results show whether match is a Publisher or Offer for faster navigation
+- **CompactOutput Parameter** - New `-CompactOutput` switch for narrow terminals
+
+### Changed
+- Drill-down tables expanded to 185 characters to accommodate Gen/Arch/Img columns
+- Header now shows image URN and requirements when image compatibility is enabled
+- Image requirements displayed at start of each family drill-down section
+
+### Renamed
+- **Script renamed** from `Azure-VM-Capacity-Checker.ps1` to `Get-AzVMAvailability.ps1`
+- **Repository renamed** from `Azure-VM-Capacity-Checker` to `Get-AzVMAvailability`
+- Export filenames now use `AzVMAvailability-` prefix instead of `Azure-VM-Capacity-`
+- Default export folder changed to `C:\Temp\AzVMAvailability`
+
+### Fixed
+- `-NoPrompt` now works correctly with `-EnableDrillDown` - auto-selects all families and SKUs
+
+### Technical
+- New `Get-ImageRequirements` function to parse image URN and detect Gen/Arch
+- New `Get-SkuCapabilities` function to extract HyperVGenerations and CpuArchitectureType
+- New `Test-ImageSkuCompatibility` function to compare requirements against capabilities
+- Detail objects now include Gen, Arch, ImgCompat, and ImgReason properties
+
 ## [1.3.0] - 2026-01-26
 
 ### Added

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Azure VM Capacity Checker - Comprehensive SKU availability and capacity scanner.
+    Get-AzVMAvailability - Comprehensive SKU availability and capacity scanner.
 
 .DESCRIPTION
     Scans Azure regions for VM SKU availability and capacity status to help plan deployments.
@@ -30,7 +30,7 @@
 .PARAMETER ExportPath
     Directory path for CSV/XLSX export. If not specified with -AutoExport, uses:
     - Cloud Shell: /home/system
-    - Local: C:\Temp\AzureVMCapacityChecker
+    - Local: C:\Temp\AzVMAvailability
 
 .PARAMETER AutoExport
     Automatically export results without prompting.
@@ -48,6 +48,19 @@
     Include estimated hourly pricing for VM SKUs from Azure Retail Prices API.
     Adds ~5-10 seconds to execution time. Without -NoPrompt, prompts interactively.
 
+.PARAMETER UseActualPricing
+    Use actual negotiated pricing from Cost Management API instead of retail prices.
+    Requires Billing Reader or Cost Management Reader role on the subscription.
+
+.PARAMETER ImageURN
+    Check SKU compatibility with a specific VM image.
+    Format: Publisher:Offer:Sku:Version (e.g., 'Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest')
+    Shows Gen/Arch columns and Img compatibility in drill-down view.
+
+.PARAMETER CompactOutput
+    Use compact output format for narrow terminals.
+    Automatically enabled when terminal width is less than 150 characters.
+
 .PARAMETER NoPrompt
     Skip all interactive prompts. Uses defaults or provided parameters.
 
@@ -60,51 +73,59 @@
     By default, auto-detects terminal capability.
 
 .NOTES
-    Name:           Azure VM Capacity Checker
+    Name:           Get-AzVMAvailability
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.3.0
+    Version:        1.4.0
     License:        MIT
-    Repository:     https://github.com/zacharyluz/Azure-VM-Capacity-Checker
+    Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
     Requirements:   Az.Compute, Az.Resources modules
                     PowerShell 7+ (for parallel execution)
 
 .EXAMPLE
-    .\Azure-VM-Capacity-Checker.ps1
+    .\Get-AzVMAvailability.ps1
     Run interactively with prompts for all options.
 
 .EXAMPLE
-    .\Azure-VM-Capacity-Checker.ps1 -Region "eastus","westus2" -AutoExport
+    .\Get-AzVMAvailability.ps1 -Region "eastus","westus2" -AutoExport
     Scan specified regions with current subscription, auto-export results.
 
 .EXAMPLE
-    .\Azure-VM-Capacity-Checker.ps1 -NoPrompt -Region "eastus","centralus","westus2"
+    .\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","centralus","westus2"
     Fully automated scan of three regions using current subscription context.
 
 .EXAMPLE
-    .\Azure-VM-Capacity-Checker.ps1 -EnableDrillDown -FamilyFilter "D","E","M"
+    .\Get-AzVMAvailability.ps1 -EnableDrillDown -FamilyFilter "D","E","M"
     Interactive mode focused on D, E, and M series families.
 
 .EXAMPLE
-    .\Azure-VM-Capacity-Checker.ps1 -SkuFilter "Standard_D2s_v3","Standard_E4s_v5" -Region "eastus"
+    .\Get-AzVMAvailability.ps1 -SkuFilter "Standard_D2s_v3","Standard_E4s_v5" -Region "eastus"
     Filter to show only specific SKUs in eastus region.
 
 .EXAMPLE
-    .\Azure-VM-Capacity-Checker.ps1 -SkuFilter "Standard_D*_v5" -Region "eastus","westus2"
+    .\Get-AzVMAvailability.ps1 -SkuFilter "Standard_D*_v5" -Region "eastus","westus2"
     Use wildcard to filter all D-series v5 SKUs across multiple regions.
 
 .EXAMPLE
-    .\Azure-VM-Capacity-Checker.ps1 -ShowPricing -Region "eastus"
+    .\Get-AzVMAvailability.ps1 -ShowPricing -Region "eastus"
     Include estimated hourly pricing for VM SKUs in eastus.
 
 .EXAMPLE
-    .\Azure-VM-Capacity-Checker.ps1 -NoPrompt -ShowPricing -Region "eastus","westus2"
+    .\Get-AzVMAvailability.ps1 -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" -Region "eastus"
+    Check SKU compatibility with Ubuntu 22.04 Gen2 image.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -SkuFilter "Standard_D*ps*"
+    Find ARM64-compatible SKUs for Ubuntu ARM64 image.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -NoPrompt -ShowPricing -Region "eastus","westus2"
     Automated scan with pricing enabled, no interactive prompts.
 
 .LINK
-    https://github.com/zacharyluz/Azure-VM-Capacity-Checker
+    https://github.com/zacharyluz/Get-AzVMAvailability
 #>
 
 [CmdletBinding()]
@@ -138,6 +159,12 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Use actual pricing from Cost Management API (requires billing permissions)")]
     [switch]$UseActualPricing,
 
+    [Parameter(Mandatory = $false, HelpMessage = "VM image URN to check compatibility (format: Publisher:Offer:Sku:Version)")]
+    [string]$ImageURN,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Use compact output for narrow terminals")]
+    [switch]$CompactOutput,
+
     [Parameter(Mandatory = $false, HelpMessage = "Skip all interactive prompts")]
     [switch]$NoPrompt,
 
@@ -154,7 +181,7 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 # === Configuration ==================================================
 # Script metadata
-$ScriptVersion = "1.3.0"
+$ScriptVersion = "1.4.0"
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -165,7 +192,7 @@ $SelectedSkuFilter = @{}
 
 # Detect execution environment (Azure Cloud Shell vs local)
 $isCloudShell = $env:CLOUD_SHELL -eq "true" -or (Test-Path "/home/system" -ErrorAction SilentlyContinue)
-$defaultExportPath = if ($isCloudShell) { "/home/system" } else { "C:\Temp\AzureVMCapacityChecker" }
+$defaultExportPath = if ($isCloudShell) { "/home/system" } else { "C:\Temp\AzVMAvailability" }
 
 # Auto-detect Unicode support for status icons
 # Checks for modern terminals that support Unicode characters
@@ -433,6 +460,146 @@ function Test-SkuMatchesFilter {
     }
 
     return $false
+}
+
+# === Image Compatibility Functions ==================================
+
+function Get-ImageRequirements {
+    <#
+    .SYNOPSIS
+        Parses an image URN and determines its Generation and Architecture requirements.
+    .DESCRIPTION
+        Analyzes the image URN (Publisher:Offer:Sku:Version) to determine if the image
+        requires Gen1 or Gen2 VMs, and whether it needs x64 or ARM64 architecture.
+        Uses pattern matching on SKU names for common Azure Marketplace images.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ImageURN
+    )
+
+    $parts = $ImageURN -split ':'
+    if ($parts.Count -lt 3) {
+        return @{ Gen = 'Unknown'; Arch = 'Unknown'; Valid = $false; Error = "Invalid URN format" }
+    }
+
+    $publisher = $parts[0]
+    $offer = $parts[1]
+    $sku = $parts[2]
+
+    # Determine Generation from SKU name patterns
+    $gen = 'Gen1'  # Default to Gen1 for compatibility
+    if ($sku -match '-gen2|-g2|gen2|_gen2|arm64') {
+        $gen = 'Gen2'
+    }
+    elseif ($sku -match '-gen1|-g1|gen1|_gen1') {
+        $gen = 'Gen1'
+    }
+    # Some publishers use different patterns
+    elseif ($offer -match 'gen2' -or $publisher -match 'gen2') {
+        $gen = 'Gen2'
+    }
+
+    # Determine Architecture from SKU name patterns
+    $arch = 'x64'  # Default to x64
+    if ($sku -match 'arm64|aarch64') {
+        $arch = 'ARM64'
+    }
+
+    return @{
+        Gen       = $gen
+        Arch      = $arch
+        Publisher = $publisher
+        Offer     = $offer
+        Sku       = $sku
+        Valid     = $true
+    }
+}
+
+function Get-SkuCapabilities {
+    <#
+    .SYNOPSIS
+        Extracts VM Generation and Architecture capabilities from a SKU object.
+    .DESCRIPTION
+        Parses the SKU's Capabilities array to find HyperVGenerations and
+        CpuArchitectureType values that indicate what the SKU supports.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Sku
+    )
+
+    $capabilities = @{
+        HyperVGenerations = 'V1'  # Default
+        CpuArchitecture   = 'x64' # Default
+    }
+
+    if ($Sku.Capabilities) {
+        foreach ($cap in $Sku.Capabilities) {
+            switch ($cap.Name) {
+                'HyperVGenerations' { $capabilities.HyperVGenerations = $cap.Value }
+                'CpuArchitectureType' { $capabilities.CpuArchitecture = $cap.Value }
+            }
+        }
+    }
+
+    return $capabilities
+}
+
+function Test-ImageSkuCompatibility {
+    <#
+    .SYNOPSIS
+        Tests if a VM SKU is compatible with the specified image requirements.
+    .DESCRIPTION
+        Compares the image's Generation and Architecture requirements against
+        the SKU's capabilities to determine compatibility.
+    .OUTPUTS
+        Hashtable with Compatible (bool), Reason (string), Gen (string), Arch (string)
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ImageReqs,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$SkuCapabilities
+    )
+
+    $compatible = $true
+    $reasons = @()
+
+    # Check Generation compatibility
+    $skuGens = $SkuCapabilities.HyperVGenerations -split ','
+    $requiredGen = $ImageReqs.Gen
+    if ($requiredGen -eq 'Gen2' -and $skuGens -notcontains 'V2') {
+        $compatible = $false
+        $reasons += "Gen2 required"
+    }
+    elseif ($requiredGen -eq 'Gen1' -and $skuGens -notcontains 'V1') {
+        $compatible = $false
+        $reasons += "Gen1 required"
+    }
+
+    # Check Architecture compatibility
+    $skuArch = $SkuCapabilities.CpuArchitecture
+    $requiredArch = $ImageReqs.Arch
+    if ($requiredArch -eq 'ARM64' -and $skuArch -ne 'Arm64') {
+        $compatible = $false
+        $reasons += "ARM64 required"
+    }
+    elseif ($requiredArch -eq 'x64' -and $skuArch -eq 'Arm64') {
+        $compatible = $false
+        $reasons += "x64 required"
+    }
+
+    # Format the SKU's supported generations for display
+    $genDisplay = ($skuGens | ForEach-Object { $_ -replace 'V', '' }) -join ','
+
+    return @{
+        Compatible = $compatible
+        Reason     = if ($reasons.Count -gt 0) { $reasons -join '; ' } else { 'OK' }
+        Gen        = $genDisplay
+        Arch       = $skuArch
+    }
 }
 
 function Get-AzVMPricing {
@@ -811,6 +978,223 @@ if (-not $ShowPricing -and -not $NoPrompt) {
     if ($pricingInput -match '^y(es)?$') { $FetchPricing = $true }
 }
 
+# Image compatibility prompt
+if (-not $ImageURN -and -not $NoPrompt) {
+    Write-Host "`nCheck SKU compatibility with a specific VM image? (y/N): " -ForegroundColor Yellow -NoNewline
+    $imageInput = Read-Host
+    if ($imageInput -match '^y(es)?$') {
+        # Common images list for easy selection - organized by category
+        $commonImages = @(
+            # Linux - General Purpose
+            @{ Num = 1; Name = "Ubuntu 22.04 LTS (Gen2)"; URN = "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Linux" }
+            @{ Num = 2; Name = "Ubuntu 24.04 LTS (Gen2)"; URN = "Canonical:ubuntu-24_04-lts:server-gen2:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Linux" }
+            @{ Num = 3; Name = "Ubuntu 22.04 ARM64"; URN = "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest"; Gen = "Gen2"; Arch = "ARM64"; Cat = "Linux" }
+            @{ Num = 4; Name = "RHEL 9 (Gen2)"; URN = "RedHat:RHEL:9-lvm-gen2:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Linux" }
+            @{ Num = 5; Name = "Debian 12 (Gen2)"; URN = "Debian:debian-12:12-gen2:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Linux" }
+            @{ Num = 6; Name = "Azure Linux (Mariner)"; URN = "MicrosoftCBLMariner:cbl-mariner:cbl-mariner-2-gen2:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Linux" }
+            # Windows
+            @{ Num = 7; Name = "Windows Server 2022 (Gen2)"; URN = "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Windows" }
+            @{ Num = 8; Name = "Windows Server 2019 (Gen2)"; URN = "MicrosoftWindowsServer:WindowsServer:2019-datacenter-gensecond:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Windows" }
+            @{ Num = 9; Name = "Windows 11 Enterprise (Gen2)"; URN = "MicrosoftWindowsDesktop:windows-11:win11-22h2-ent:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Windows" }
+            # Data Science & ML
+            @{ Num = 10; Name = "Data Science VM Ubuntu 22.04"; URN = "microsoft-dsvm:ubuntu-2204:2204-gen2:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Data Science" }
+            @{ Num = 11; Name = "Data Science VM Windows 2022"; URN = "microsoft-dsvm:dsvm-win-2022:winserver-2022:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Data Science" }
+            @{ Num = 12; Name = "Azure ML Workstation Ubuntu"; URN = "microsoft-dsvm:aml-workstation:ubuntu22:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "Data Science" }
+            # HPC & GPU Optimized
+            @{ Num = 13; Name = "Ubuntu HPC 22.04"; URN = "microsoft-dsvm:ubuntu-hpc:2204:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "HPC" }
+            @{ Num = 14; Name = "AlmaLinux HPC"; URN = "almalinux:almalinux-hpc:8_7-hpc-gen2:latest"; Gen = "Gen2"; Arch = "x64"; Cat = "HPC" }
+            # Legacy/Gen1 (for older SKUs)
+            @{ Num = 15; Name = "Ubuntu 22.04 LTS (Gen1)"; URN = "Canonical:0001-com-ubuntu-server-jammy:22_04-lts:latest"; Gen = "Gen1"; Arch = "x64"; Cat = "Gen1" }
+            @{ Num = 16; Name = "Windows Server 2022 (Gen1)"; URN = "MicrosoftWindowsServer:WindowsServer:2022-datacenter:latest"; Gen = "Gen1"; Arch = "x64"; Cat = "Gen1" }
+        )
+
+        Write-Host ""
+        Write-Host "COMMON VM IMAGES:" -ForegroundColor Cyan
+        Write-Host ("-" * 85) -ForegroundColor Gray
+        Write-Host ("{0,-4} {1,-40} {2,-6} {3,-7} {4}" -f "#", "Image Name", "Gen", "Arch", "Category") -ForegroundColor White
+        Write-Host ("-" * 85) -ForegroundColor Gray
+        foreach ($img in $commonImages) {
+            $catColor = switch ($img.Cat) { "Linux" { "Cyan" } "Windows" { "Blue" } "Data Science" { "Magenta" } "HPC" { "Yellow" } "Gen1" { "DarkGray" } default { "Gray" } }
+            Write-Host ("{0,-4} {1,-40} {2,-6} {3,-7} {4}" -f $img.Num, $img.Name, $img.Gen, $img.Arch, $img.Cat) -ForegroundColor $catColor
+        }
+        Write-Host ("-" * 85) -ForegroundColor Gray
+        Write-Host "Or type: 'custom' for manual URN | 'search' to browse Azure Marketplace | Enter to skip" -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host "Select image (1-16, custom, search, or Enter to skip): " -ForegroundColor Yellow -NoNewline
+        $imageSelection = Read-Host
+
+        if ($imageSelection -match '^\d+$' -and [int]$imageSelection -ge 1 -and [int]$imageSelection -le $commonImages.Count) {
+            $selectedImage = $commonImages[[int]$imageSelection - 1]
+            $ImageURN = $selectedImage.URN
+            Write-Host "Selected: $($selectedImage.Name)" -ForegroundColor Green
+            Write-Host "URN: $ImageURN" -ForegroundColor DarkGray
+        }
+        elseif ($imageSelection -match '^custom$') {
+            Write-Host "Enter image URN (Publisher:Offer:Sku:Version): " -ForegroundColor Yellow -NoNewline
+            $customURN = Read-Host
+            if (-not [string]::IsNullOrWhiteSpace($customURN)) {
+                $ImageURN = $customURN
+                Write-Host "Using custom URN: $ImageURN" -ForegroundColor Green
+            }
+            else {
+                $ImageURN = $null
+                Write-Host "No image specified - skipping compatibility check" -ForegroundColor DarkGray
+            }
+        }
+        elseif ($imageSelection -match '^search$') {
+            Write-Host ""
+            Write-Host "Enter search term (e.g., 'ubuntu', 'data science', 'windows', 'dsvm'): " -ForegroundColor Yellow -NoNewline
+            $searchTerm = Read-Host
+            if (-not [string]::IsNullOrWhiteSpace($searchTerm) -and $Regions.Count -gt 0) {
+                Write-Host "Searching Azure Marketplace..." -ForegroundColor DarkGray
+                try {
+                    # Search publishers first
+                    $publishers = Get-AzVMImagePublisher -Location $Regions[0] -ErrorAction SilentlyContinue |
+                    Where-Object { $_.PublisherName -match $searchTerm }
+
+                    # Also search common publishers for offers matching the term
+                    $offerResults = @()
+                    $searchPublishers = @('Canonical', 'MicrosoftWindowsServer', 'RedHat', 'microsoft-dsvm', 'MicrosoftCBLMariner', 'Debian', 'SUSE', 'Oracle', 'OpenLogic')
+                    foreach ($pub in $searchPublishers) {
+                        try {
+                            $offers = Get-AzVMImageOffer -Location $Regions[0] -PublisherName $pub -ErrorAction SilentlyContinue |
+                            Where-Object { $_.Offer -match $searchTerm }
+                            foreach ($offer in $offers) {
+                                $offerResults += @{ Publisher = $pub; Offer = $offer.Offer }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if ($publishers -or $offerResults) {
+                        $allResults = @()
+                        $idx = 1
+
+                        # Add publisher matches
+                        if ($publishers) {
+                            $publishers | Select-Object -First 5 | ForEach-Object {
+                                $allResults += @{ Num = $idx; Type = "Publisher"; Name = $_.PublisherName; Publisher = $_.PublisherName; Offer = $null }
+                                $idx++
+                            }
+                        }
+
+                        # Add offer matches
+                        $offerResults | Select-Object -First 5 | ForEach-Object {
+                            $allResults += @{ Num = $idx; Type = "Offer"; Name = "$($_.Publisher) > $($_.Offer)"; Publisher = $_.Publisher; Offer = $_.Offer }
+                            $idx++
+                        }
+
+                        Write-Host ""
+                        Write-Host "Results matching '$searchTerm':" -ForegroundColor Cyan
+                        Write-Host ("-" * 60) -ForegroundColor Gray
+                        foreach ($result in $allResults) {
+                            $color = if ($result.Type -eq "Offer") { "White" } else { "Gray" }
+                            Write-Host ("  {0,2}. [{1,-9}] {2}" -f $result.Num, $result.Type, $result.Name) -ForegroundColor $color
+                        }
+                        Write-Host ""
+                        Write-Host "Select (1-$($allResults.Count)) or Enter to skip: " -ForegroundColor Yellow -NoNewline
+                        $resultSelect = Read-Host
+
+                        if ($resultSelect -match '^\d+$' -and [int]$resultSelect -le $allResults.Count) {
+                            $selected = $allResults[[int]$resultSelect - 1]
+
+                            if ($selected.Type -eq "Offer") {
+                                # Already have publisher and offer, just need SKU
+                                $skus = Get-AzVMImageSku -Location $Regions[0] -PublisherName $selected.Publisher -Offer $selected.Offer -ErrorAction SilentlyContinue |
+                                Select-Object -First 15
+
+                                if ($skus) {
+                                    Write-Host ""
+                                    Write-Host "SKUs for $($selected.Offer):" -ForegroundColor Cyan
+                                    for ($i = 0; $i -lt $skus.Count; $i++) {
+                                        Write-Host "  $($i + 1). $($skus[$i].Skus)" -ForegroundColor White
+                                    }
+                                    Write-Host ""
+                                    Write-Host "Select SKU (1-$($skus.Count)) or Enter to skip: " -ForegroundColor Yellow -NoNewline
+                                    $skuSelect = Read-Host
+
+                                    if ($skuSelect -match '^\d+$' -and [int]$skuSelect -le $skus.Count) {
+                                        $selectedSku = $skus[[int]$skuSelect - 1]
+                                        $ImageURN = "$($selected.Publisher):$($selected.Offer):$($selectedSku.Skus):latest"
+                                        Write-Host "Selected: $ImageURN" -ForegroundColor Green
+                                    }
+                                }
+                            }
+                            else {
+                                # Publisher selected - show offers
+                                $offers = Get-AzVMImageOffer -Location $Regions[0] -PublisherName $selected.Publisher -ErrorAction SilentlyContinue |
+                                Select-Object -First 10
+
+                                if ($offers) {
+                                    Write-Host ""
+                                    Write-Host "Offers from $($selected.Publisher):" -ForegroundColor Cyan
+                                    for ($i = 0; $i -lt $offers.Count; $i++) {
+                                        Write-Host "  $($i + 1). $($offers[$i].Offer)" -ForegroundColor White
+                                    }
+                                    Write-Host ""
+                                    Write-Host "Select offer (1-$($offers.Count)) or Enter to skip: " -ForegroundColor Yellow -NoNewline
+                                    $offerSelect = Read-Host
+
+                                    if ($offerSelect -match '^\d+$' -and [int]$offerSelect -le $offers.Count) {
+                                        $selectedOffer = $offers[[int]$offerSelect - 1]
+                                        $skus = Get-AzVMImageSku -Location $Regions[0] -PublisherName $selected.Publisher -Offer $selectedOffer.Offer -ErrorAction SilentlyContinue |
+                                        Select-Object -First 15
+
+                                        if ($skus) {
+                                            Write-Host ""
+                                            Write-Host "SKUs for $($selectedOffer.Offer):" -ForegroundColor Cyan
+                                            for ($i = 0; $i -lt $skus.Count; $i++) {
+                                                Write-Host "  $($i + 1). $($skus[$i].Skus)" -ForegroundColor White
+                                            }
+                                            Write-Host ""
+                                            Write-Host "Select SKU (1-$($skus.Count)) or Enter to skip: " -ForegroundColor Yellow -NoNewline
+                                            $skuSelect = Read-Host
+
+                                            if ($skuSelect -match '^\d+$' -and [int]$skuSelect -le $skus.Count) {
+                                                $selectedSku = $skus[[int]$skuSelect - 1]
+                                                $ImageURN = "$($selected.Publisher):$($selectedOffer.Offer):$($selectedSku.Skus):latest"
+                                                Write-Host "Selected: $ImageURN" -ForegroundColor Green
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        Write-Host "No results found matching '$searchTerm'" -ForegroundColor DarkYellow
+                        Write-Host "Try: 'ubuntu', 'windows', 'rhel', 'dsvm', 'mariner', 'debian', 'suse'" -ForegroundColor DarkGray
+                    }
+                }
+                catch {
+                    Write-Host "Search failed: $_" -ForegroundColor Red
+                }
+
+                if (-not $ImageURN) {
+                    Write-Host "No image selected - skipping compatibility check" -ForegroundColor DarkGray
+                }
+            }
+        }
+        else {
+            # Assume they entered a URN directly or pressed Enter to skip
+            if (-not [string]::IsNullOrWhiteSpace($imageSelection)) {
+                $ImageURN = $imageSelection
+                Write-Host "Using: $ImageURN" -ForegroundColor Green
+            }
+        }
+    }
+}
+
+# Parse image requirements if an image was specified
+$script:ImageReqs = $null
+if ($ImageURN) {
+    $script:ImageReqs = Get-ImageRequirements -ImageURN $ImageURN
+    if (-not $script:ImageReqs.Valid) {
+        Write-Host "Warning: Could not parse image URN - $($script:ImageReqs.Error)" -ForegroundColor DarkYellow
+        $script:ImageReqs = $null
+    }
+}
+
 if ($ExportPath -and -not (Test-Path $ExportPath)) {
     New-Item -Path $ExportPath -ItemType Directory -Force | Out-Null
     Write-Host "Created: $ExportPath" -ForegroundColor Green
@@ -820,13 +1204,17 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * 175) -ForegroundColor Gray
-Write-Host "AZURE VM CAPACITY CHECKER v$ScriptVersion" -ForegroundColor Green
+Write-Host "GET-AZVMAVAILABILITY v$ScriptVersion" -ForegroundColor Green
 Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
 if ($SkuFilter -and $SkuFilter.Count -gt 0) {
     Write-Host "SKU Filter: $($SkuFilter -join ', ')" -ForegroundColor Yellow
 }
 Write-Host "Icons: $(if ($supportsUnicode) { 'Unicode' } else { 'ASCII' }) | Pricing: $(if ($FetchPricing) { 'Enabled' } else { 'Disabled' })" -ForegroundColor DarkGray
+if ($script:ImageReqs) {
+    Write-Host "Image: $ImageURN" -ForegroundColor Cyan
+    Write-Host "Requirements: $($script:ImageReqs.Gen) | $($script:ImageReqs.Arch)" -ForegroundColor DarkCyan
+}
 Write-Host ""
 
 # Fetch pricing data if enabled
@@ -1062,6 +1450,25 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     }
                 }
 
+                # Get SKU capabilities for Gen/Arch
+                $skuCaps = Get-SkuCapabilities -Sku $sku
+                $genDisplay = $skuCaps.HyperVGenerations -replace 'V', '' -replace ',', ','
+                $archDisplay = $skuCaps.CpuArchitecture
+
+                # Check image compatibility if image was specified
+                $imgCompat = '–'
+                $imgReason = ''
+                if ($script:ImageReqs) {
+                    $compatResult = Test-ImageSkuCompatibility -ImageReqs $script:ImageReqs -SkuCapabilities $skuCaps
+                    if ($compatResult.Compatible) {
+                        $imgCompat = if ($supportsUnicode) { '✓' } else { '[+]' }
+                    }
+                    else {
+                        $imgCompat = if ($supportsUnicode) { '✗' } else { '[-]' }
+                        $imgReason = $compatResult.Reason
+                    }
+                }
+
                 $detailObj = [pscustomobject]@{
                     Subscription = [string]$subName
                     Region       = Get-SafeString $region
@@ -1069,10 +1476,14 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     SKU          = [string]$sku.Name
                     vCPU         = Get-CapValue $sku 'vCPUs'
                     MemGiB       = Get-CapValue $sku 'MemoryGB'
+                    Gen          = $genDisplay
+                    Arch         = $archDisplay
                     ZoneStatus   = Format-ZoneStatus $skuRestrictions.ZonesOK $skuRestrictions.ZonesLimited $skuRestrictions.ZonesRestricted
                     Capacity     = [string]$skuRestrictions.Status
                     Reason       = ($skuRestrictions.RestrictionReasons -join ', ')
                     QuotaAvail   = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
+                    ImgCompat    = $imgCompat
+                    ImgReason    = $imgReason
                 }
 
                 if ($FetchPricing) {
@@ -1142,84 +1553,100 @@ foreach ($subscriptionData in $allSubscriptionData) {
 # === Drill-Down (if enabled) ========================================
 
 if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
-    Write-Host "`n" -NoNewline
-    Write-Host ("=" * 175) -ForegroundColor Gray
-    Write-Host "DRILL-DOWN: SELECT FAMILIES" -ForegroundColor Green
-    Write-Host ("=" * 175) -ForegroundColor Gray
-
     $familyList = @($familySkuIndex.Keys | Sort-Object)
-    for ($i = 0; $i -lt $familyList.Count; $i++) {
-        $fam = $familyList[$i]
-        $skuCount = $familySkuIndex[$fam].Keys.Count
-        Write-Host "$($i + 1). $fam (SKUs: $skuCount)" -ForegroundColor Cyan
-    }
 
-    Write-Host ""
-    Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
-    Write-Host "  - Enter numbers to pick one or more families (e.g., '1', '1,3,5', '1 3 5')" -ForegroundColor White
-    Write-Host "  - Press Enter to include ALL families" -ForegroundColor White
-    $famSel = Read-Host "Select families"
-
-    if ([string]::IsNullOrWhiteSpace($famSel)) {
-        $SelectedFamilyFilter = $familyList
+    if ($NoPrompt) {
+        # Auto-select all families and all SKUs when -NoPrompt is used
+        $SelectedFamilyFilter = if ($FamilyFilter -and $FamilyFilter.Count -gt 0) {
+            # Use provided family filter
+            $FamilyFilter | Where-Object { $familyList -contains $_ }
+        }
+        else {
+            # Select all families
+            $familyList
+        }
+        # Don't populate SelectedSkuFilter - this means all SKUs will be included
     }
     else {
-        $nums = $famSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
-        $nums = @($nums | Sort-Object -Unique)
-        $invalidNums = $nums | Where-Object { $_ -lt 1 -or $_ -gt $familyList.Count }
-        if ($invalidNums.Count -gt 0) {
-            Write-Host "ERROR: Invalid family selection(s): $($invalidNums -join ', ')" -ForegroundColor Red
-            exit 1
+        # Interactive mode
+        Write-Host "`n" -NoNewline
+        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host "DRILL-DOWN: SELECT FAMILIES" -ForegroundColor Green
+        Write-Host ("=" * 175) -ForegroundColor Gray
+
+        for ($i = 0; $i -lt $familyList.Count; $i++) {
+            $fam = $familyList[$i]
+            $skuCount = $familySkuIndex[$fam].Keys.Count
+            Write-Host "$($i + 1). $fam (SKUs: $skuCount)" -ForegroundColor Cyan
         }
-        $SelectedFamilyFilter = @($nums | ForEach-Object { $familyList[$_ - 1] })
-    }
 
-    # SKU selection mode
-    Write-Host ""
-    Write-Host "SKU SELECTION MODE" -ForegroundColor Green
-    Write-Host "  - Press Enter: pick SKUs per family (prompts for each)" -ForegroundColor White
-    Write-Host "  - Type 'all' : include ALL SKUs for every selected family (skip prompts)" -ForegroundColor White
-    Write-Host "  - Type 'none': cancel SKU drill-down and return to reports" -ForegroundColor White
-    $skuMode = Read-Host "Choose SKU selection mode"
+        Write-Host ""
+        Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
+        Write-Host "  - Enter numbers to pick one or more families (e.g., '1', '1,3,5', '1 3 5')" -ForegroundColor White
+        Write-Host "  - Press Enter to include ALL families" -ForegroundColor White
+        $famSel = Read-Host "Select families"
 
-    if ($skuMode -match '^(none|cancel|skip)$') {
-        Write-Host "Skipping SKU drill-down as requested." -ForegroundColor Yellow
-        $SelectedFamilyFilter = @()
-    }
-    elseif ($skuMode -match '^(all)$') {
-        foreach ($fam in $SelectedFamilyFilter) {
-            $SelectedSkuFilter[$fam] = $null  # null means all SKUs
+        if ([string]::IsNullOrWhiteSpace($famSel)) {
+            $SelectedFamilyFilter = $familyList
         }
-    }
-    else {
-        foreach ($fam in $SelectedFamilyFilter) {
-            $skus = @($familySkuIndex[$fam].Keys | Sort-Object)
-            Write-Host ""
-            Write-Host "Family: $fam" -ForegroundColor Green
-            for ($j = 0; $j -lt $skus.Count; $j++) {
-                Write-Host "   $($j + 1). $($skus[$j])" -ForegroundColor Cyan
+        else {
+            $nums = $famSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
+            $nums = @($nums | Sort-Object -Unique)
+            $invalidNums = $nums | Where-Object { $_ -lt 1 -or $_ -gt $familyList.Count }
+            if ($invalidNums.Count -gt 0) {
+                Write-Host "ERROR: Invalid family selection(s): $($invalidNums -join ', ')" -ForegroundColor Red
+                exit 1
             }
-            Write-Host ""
-            Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
-            Write-Host "  - Enter numbers to focus on specific SKUs (e.g., '1', '1,2', '1 2')" -ForegroundColor White
-            Write-Host "  - Press Enter to include ALL SKUs in this family" -ForegroundColor White
-            $skuSel = Read-Host "Select SKUs for family $fam"
+            $SelectedFamilyFilter = @($nums | ForEach-Object { $familyList[$_ - 1] })
+        }
 
-            if ([string]::IsNullOrWhiteSpace($skuSel)) {
-                $SelectedSkuFilter[$fam] = $null  # null means all
+        # SKU selection mode
+        Write-Host ""
+        Write-Host "SKU SELECTION MODE" -ForegroundColor Green
+        Write-Host "  - Press Enter: pick SKUs per family (prompts for each)" -ForegroundColor White
+        Write-Host "  - Type 'all' : include ALL SKUs for every selected family (skip prompts)" -ForegroundColor White
+        Write-Host "  - Type 'none': cancel SKU drill-down and return to reports" -ForegroundColor White
+        $skuMode = Read-Host "Choose SKU selection mode"
+
+        if ($skuMode -match '^(none|cancel|skip)$') {
+            Write-Host "Skipping SKU drill-down as requested." -ForegroundColor Yellow
+            $SelectedFamilyFilter = @()
+        }
+        elseif ($skuMode -match '^(all)$') {
+            foreach ($fam in $SelectedFamilyFilter) {
+                $SelectedSkuFilter[$fam] = $null  # null means all SKUs
             }
-            else {
-                $skuNums = $skuSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
-                $skuNums = @($skuNums | Sort-Object -Unique)
-                $invalidSku = $skuNums | Where-Object { $_ -lt 1 -or $_ -gt $skus.Count }
-                if ($invalidSku.Count -gt 0) {
-                    Write-Host "ERROR: Invalid SKU selection(s): $($invalidSku -join ', ')" -ForegroundColor Red
-                    exit 1
+        }
+        else {
+            foreach ($fam in $SelectedFamilyFilter) {
+                $skus = @($familySkuIndex[$fam].Keys | Sort-Object)
+                Write-Host ""
+                Write-Host "Family: $fam" -ForegroundColor Green
+                for ($j = 0; $j -lt $skus.Count; $j++) {
+                    Write-Host "   $($j + 1). $($skus[$j])" -ForegroundColor Cyan
                 }
-                $SelectedSkuFilter[$fam] = @($skuNums | ForEach-Object { $skus[$_ - 1] })
+                Write-Host ""
+                Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
+                Write-Host "  - Enter numbers to focus on specific SKUs (e.g., '1', '1,2', '1 2')" -ForegroundColor White
+                Write-Host "  - Press Enter to include ALL SKUs in this family" -ForegroundColor White
+                $skuSel = Read-Host "Select SKUs for family $fam"
+
+                if ([string]::IsNullOrWhiteSpace($skuSel)) {
+                    $SelectedSkuFilter[$fam] = $null  # null means all
+                }
+                else {
+                    $skuNums = $skuSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
+                    $skuNums = @($skuNums | Sort-Object -Unique)
+                    $invalidSku = $skuNums | Where-Object { $_ -lt 1 -or $_ -gt $skus.Count }
+                    if ($invalidSku.Count -gt 0) {
+                        Write-Host "ERROR: Invalid SKU selection(s): $($invalidSku -join ', ')" -ForegroundColor Red
+                        exit 1
+                    }
+                    $SelectedSkuFilter[$fam] = @($skuNums | ForEach-Object { $skus[$_ - 1] })
+                }
             }
         }
-    }
+    }  # End of else (interactive mode)
 
     # Display drill-down results
     if ($SelectedFamilyFilter.Count -gt 0) {
@@ -1230,7 +1657,12 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 
         foreach ($fam in $SelectedFamilyFilter) {
             Write-Host "`nFamily: $fam" -ForegroundColor Cyan
-            Write-Host ("-" * 175) -ForegroundColor Gray
+
+            # Show image requirements if checking compatibility
+            if ($script:ImageReqs) {
+                Write-Host "Image: $ImageURN (Requires: $($script:ImageReqs.Gen) | $($script:ImageReqs.Arch))" -ForegroundColor DarkCyan
+            }
+            Write-Host ("-" * 185) -ForegroundColor Gray
 
             $skuFilter = $null
             if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
@@ -1243,26 +1675,35 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 
             if ($detailRows.Count -gt 0) {
                 $sortedRows = $detailRows | Sort-Object Region, SKU
-                # Fixed-width drill-down table (175 chars)
-                $dColWidths = [ordered]@{ Region = 20; SKU = 27; vCPU = 5; MemGiB = 7; ZoneStatus = 28; Capacity = 22 }
+                # Fixed-width drill-down table (185 chars to accommodate Gen/Arch/Img columns)
+                $dColWidths = [ordered]@{ Region = 20; SKU = 26; vCPU = 5; MemGiB = 6; Gen = 6; Arch = 6; ZoneStatus = 26; Capacity = 20 }
                 if ($FetchPricing) {
-                    $dColWidths['$/Hr'] = 9
-                    $dColWidths['$/Mo'] = 9
+                    $dColWidths['$/Hr'] = 8
+                    $dColWidths['$/Mo'] = 8
+                }
+                if ($script:ImageReqs) {
+                    $dColWidths['Img'] = 4
                 }
                 $dColWidths['Reason'] = 28
 
                 $dHeader = foreach ($c in $dColWidths.Keys) { $c.PadRight($dColWidths[$c]) }
                 Write-Host ($dHeader -join '  ') -ForegroundColor Cyan
-                Write-Host ('-' * 175) -ForegroundColor Gray
+                Write-Host ('-' * 185) -ForegroundColor Gray
                 foreach ($dr in $sortedRows) {
                     $dRow = foreach ($c in $dColWidths.Keys) {
-                        $v = if ($dr.$c -ne $null) { "$($dr.$c)" } else { '' }
+                        # Map column names to object properties
+                        $propName = switch ($c) {
+                            'Img' { 'ImgCompat' }
+                            default { $c }
+                        }
+                        $v = if ($dr.$propName -ne $null) { "$($dr.$propName)" } else { '' }
                         $w = $dColWidths[$c]
                         if ($v.Length -gt $w) { $v = $v.Substring(0, $w - 1) + '…' }
                         $v.PadRight($w)
                     }
+                    # Determine row color based on capacity and image compatibility
                     $color = switch ($dr.Capacity) {
-                        'OK' { 'Green' }
+                        'OK' { if ($dr.ImgCompat -eq '✗' -or $dr.ImgCompat -eq '[-]') { 'DarkYellow' } else { 'Green' } }
                         { $_ -match 'LIMITED|CAPACITY' } { 'Yellow' }
                         { $_ -match 'RESTRICTED|BLOCKED' } { 'Red' }
                         default { 'White' }
@@ -1460,7 +1901,7 @@ if ($ExportPath) {
     Write-Host "`nEXPORTING..." -ForegroundColor Cyan
 
     if ($useXLSX -and (Test-ImportExcelModule)) {
-        $xlsxFile = Join-Path $ExportPath "Azure-VM-Capacity-$timestamp.xlsx"
+        $xlsxFile = Join-Path $ExportPath "AzVMAvailability-$timestamp.xlsx"
         try {
             # Define colors for conditional formatting
             $greenFill = [System.Drawing.Color]::FromArgb(198, 239, 206)
@@ -1603,8 +2044,8 @@ if ($ExportPath) {
     }
 
     if (-not $useXLSX) {
-        $summaryFile = Join-Path $ExportPath "Azure-VM-Capacity-Summary-$timestamp.csv"
-        $detailFile = Join-Path $ExportPath "Azure-VM-Capacity-Details-$timestamp.csv"
+        $summaryFile = Join-Path $ExportPath "AzVMAvailability-Summary-$timestamp.csv"
+        $detailFile = Join-Path $ExportPath "AzVMAvailability-Details-$timestamp.csv"
 
         $summaryRowsForExport | Export-Csv -Path $summaryFile -NoTypeInformation -Encoding UTF8
         $familyDetails | Export-Csv -Path $detailFile -NoTypeInformation -Encoding UTF8

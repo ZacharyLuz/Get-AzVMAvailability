@@ -1,6 +1,6 @@
 # Azure Resource Graph Queries for VM Capacity Planning
 
-These queries complement the Azure VM Capacity Checker by providing deployment context.
+These queries complement the Get-AzVMAvailability by providing deployment context.
 They help answer "what do I have deployed?" while the main script answers "what can I deploy?"
 
 ## Prerequisites
@@ -92,7 +92,7 @@ Search-AzGraph -Query $query -First 1000
 Identify VMs using SKUs that might be at risk during scaling.
 
 ```powershell
-# First, get the constrained SKUs from our Capacity Checker
+# First, get the constrained SKUs from our Get-AzVMAvailability
 # Then query ARG for VMs using those SKUs
 
 $constrainedSkus = @('Standard_NC6', 'Standard_NC12', 'Standard_NV6')  # Example
@@ -155,7 +155,7 @@ $results | ForEach-Object {
 
 ---
 
-## Combining ARG with Capacity Checker
+## Combining ARG with Get-AzVMAvailability
 
 For a complete picture, use both tools:
 
@@ -168,8 +168,8 @@ Resources
 | summarize Deployed = count() by location, vmFamily
 "@
 
-# Step 2: Run Capacity Checker to get availability
-.\Azure-VM-Capacity-Checker.ps1 -NoPrompt -Region "eastus","westus2" -AutoExport
+# Step 2: Run Get-AzVMAvailability to get availability
+.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","westus2" -AutoExport
 
 # Step 3: Compare deployed vs available capacity
 # (Future v1.1 feature will automate this!)
@@ -179,7 +179,7 @@ Resources
 
 ## Why These Queries Are Useful
 
-| Use Case                                  | ARG Query | Capacity Checker |
+| Use Case                                  | ARG Query | Get-AzVMAvailability |
 | ----------------------------------------- | --------- | ---------------- |
 | "Where are my VMs?"                       | ✅         | ❌                |
 | "What can I deploy?"                      | ❌         | ✅                |
@@ -188,4 +188,4 @@ Resources
 | "Which region has capacity for E-series?" | ❌         | ✅                |
 | "Am I over-concentrated in one region?"   | ✅         | ❌                |
 
-**Best Practice:** Use ARG for inventory analysis, use Capacity Checker for deployment planning.
+**Best Practice:** Use ARG for inventory analysis, use Get-AzVMAvailability for deployment planning.
