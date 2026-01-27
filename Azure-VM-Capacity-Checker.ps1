@@ -86,34 +86,34 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$false, HelpMessage="Azure subscription ID(s) to scan")]
+    [Parameter(Mandatory = $false, HelpMessage = "Azure subscription ID(s) to scan")]
     [Alias("SubId", "Subscription")]
     [string[]]$SubscriptionId,
 
-    [Parameter(Mandatory=$false, HelpMessage="Azure region(s) to scan")]
+    [Parameter(Mandatory = $false, HelpMessage = "Azure region(s) to scan")]
     [Alias("Location")]
     [string[]]$Region,
 
-    [Parameter(Mandatory=$false, HelpMessage="Directory path for export")]
+    [Parameter(Mandatory = $false, HelpMessage = "Directory path for export")]
     [string]$ExportPath,
 
-    [Parameter(Mandatory=$false, HelpMessage="Automatically export results")]
+    [Parameter(Mandatory = $false, HelpMessage = "Automatically export results")]
     [switch]$AutoExport,
 
-    [Parameter(Mandatory=$false, HelpMessage="Enable interactive family/SKU drill-down")]
+    [Parameter(Mandatory = $false, HelpMessage = "Enable interactive family/SKU drill-down")]
     [switch]$EnableDrillDown,
 
-    [Parameter(Mandatory=$false, HelpMessage="Pre-filter to specific VM families")]
+    [Parameter(Mandatory = $false, HelpMessage = "Pre-filter to specific VM families")]
     [string[]]$FamilyFilter,
 
-    [Parameter(Mandatory=$false, HelpMessage="Skip all interactive prompts")]
+    [Parameter(Mandatory = $false, HelpMessage = "Skip all interactive prompts")]
     [switch]$NoPrompt,
 
-    [Parameter(Mandatory=$false, HelpMessage="Export format: Auto, CSV, or XLSX")]
+    [Parameter(Mandatory = $false, HelpMessage = "Export format: Auto, CSV, or XLSX")]
     [ValidateSet("Auto", "CSV", "XLSX")]
     [string]$OutputFormat = "Auto",
 
-    [Parameter(Mandatory=$false, HelpMessage="Force ASCII icons instead of Unicode")]
+    [Parameter(Mandatory = $false, HelpMessage = "Force ASCII icons instead of Unicode")]
     [switch]$UseAsciiIcons
 )
 
@@ -122,7 +122,7 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 # === Configuration ==================================================
 # Script metadata
-$ScriptVersion = "1.1.0"
+$ScriptVersion = "1.1.1"
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -140,35 +140,36 @@ $defaultExportPath = if ($isCloudShell) { "/home/system" } else { "C:\Temp\Azure
 # Can be overridden with -UseAsciiIcons parameter
 $supportsUnicode = -not $UseAsciiIcons -and (
     $Host.UI.SupportsVirtualTerminal -or
-    $env:WT_SESSION -or                    # Windows Terminal
-    $env:TERM_PROGRAM -eq 'vscode' -or     # VS Code integrated terminal
+    $env:WT_SESSION -or # Windows Terminal
+    $env:TERM_PROGRAM -eq 'vscode' -or # VS Code integrated terminal
     ($env:TERM -and $env:TERM -match 'xterm|256color')  # Linux/macOS terminals
 )
 
 # Define icons based on terminal capability
 $Icons = if ($supportsUnicode) {
     @{
-        OK = '✓ OK'
+        OK       = '✓ OK'
         CAPACITY = '⚠ CAPACITY'
-        LIMITED = '⚠ LIMITED'
-        PARTIAL = '⚡ PARTIAL'
-        BLOCKED = '✗ BLOCKED'
-        UNKNOWN = '? UNKNOWN'
-        Check = '✓'
-        Warning = '⚠'
-        Error = '✗'
+        LIMITED  = '⚠ LIMITED'
+        PARTIAL  = '⚡ PARTIAL'
+        BLOCKED  = '✗ BLOCKED'
+        UNKNOWN  = '? UNKNOWN'
+        Check    = '✓'
+        Warning  = '⚠'
+        Error    = '✗'
     }
-} else {
+}
+else {
     @{
-        OK = '[+] OK'
+        OK       = '[+] OK'
         CAPACITY = '[!] CAPACITY'
-        LIMITED = '[!] LIMITED'
-        PARTIAL = '[~] PARTIAL'
-        BLOCKED = '[-] BLOCKED'
-        UNKNOWN = '[?] UNKNOWN'
-        Check = '[+]'
-        Warning = '[!]'
-        Error = '[-]'
+        LIMITED  = '[!] LIMITED'
+        PARTIAL  = '[~] PARTIAL'
+        BLOCKED  = '[-] BLOCKED'
+        UNKNOWN  = '[?] UNKNOWN'
+        Check    = '[+]'
+        Warning  = '[!]'
+        Error    = '[-]'
     }
 }
 
@@ -258,12 +259,13 @@ function Get-RestrictionDetails {
     if (-not $Sku -or -not $Sku.Restrictions -or $Sku.Restrictions.Count -eq 0) {
         $zones = if ($Sku -and $Sku.LocationInfo -and $Sku.LocationInfo[0].Zones) {
             $Sku.LocationInfo[0].Zones
-        } else { @() }
+        }
+        else { @() }
         return @{
-            Status = 'OK'
-            ZonesOK = @($zones)
-            ZonesLimited = @()
-            ZonesRestricted = @()
+            Status             = 'OK'
+            ZonesOK            = @($zones)
+            ZonesLimited       = @()
+            ZonesRestricted    = @()
             RestrictionReasons = @()
         }
     }
@@ -280,7 +282,8 @@ function Get-RestrictionDetails {
             foreach ($zone in $r.RestrictionInfo.Zones) {
                 if ($r.ReasonCode -eq 'NotAvailableForSubscription') {
                     if ($zonesLimited -notcontains $zone) { $zonesLimited += $zone }
-                } else {
+                }
+                else {
                     if ($zonesRestricted -notcontains $zone) { $zonesRestricted += $zone }
                 }
             }
@@ -297,15 +300,17 @@ function Get-RestrictionDetails {
 
     $status = if ($zonesRestricted.Count -gt 0) {
         if ($zonesOK.Count -eq 0) { 'RESTRICTED' } else { 'PARTIAL' }
-    } elseif ($zonesLimited.Count -gt 0) {
+    }
+    elseif ($zonesLimited.Count -gt 0) {
         if ($zonesOK.Count -eq 0) { 'LIMITED' } else { 'CAPACITY-CONSTRAINED' }
-    } else { 'OK' }
+    }
+    else { 'OK' }
 
     return @{
-        Status = $status
-        ZonesOK = @($zonesOK | Sort-Object)
-        ZonesLimited = @($zonesLimited | Sort-Object)
-        ZonesRestricted = @($zonesRestricted | Sort-Object)
+        Status             = $status
+        ZonesOK            = @($zonesOK | Sort-Object)
+        ZonesLimited       = @($zonesLimited | Sort-Object)
+        ZonesRestricted    = @($zonesRestricted | Sort-Object)
         RestrictionReasons = @($reasonCodes | Select-Object -Unique)
     }
 }
@@ -341,9 +346,9 @@ function Get-QuotaAvailable {
     $available = $quota.Limit - $quota.CurrentValue
     return @{
         Available = $available
-        OK = if ($RequiredvCPUs -gt 0) { $available -ge $RequiredvCPUs } else { $available -gt 0 }
-        Limit = $quota.Limit
-        Current = $quota.CurrentValue
+        OK        = if ($RequiredvCPUs -gt 0) { $available -ge $RequiredvCPUs } else { $available -gt 0 }
+        Limit     = $quota.Limit
+        Current   = $quota.CurrentValue
     }
 }
 
@@ -369,7 +374,8 @@ function Test-ImportExcelModule {
             return $true
         }
         return $false
-    } catch { return $false }
+    }
+    catch { return $false }
 }
 
 # === Interactive Prompts ============================================
@@ -381,11 +387,13 @@ if (-not $TargetSubIds) {
         if ($ctx -and $ctx.Subscription.Id) {
             $TargetSubIds = @($ctx.Subscription.Id)
             Write-Host "Using current subscription: $($ctx.Subscription.Name)" -ForegroundColor Cyan
-        } else {
+        }
+        else {
             Write-Host "ERROR: No subscription context. Run Connect-AzAccount or specify -SubscriptionId" -ForegroundColor Red
             exit 1
         }
-    } else {
+    }
+    else {
         $allSubs = Get-AzSubscription | Select-Object Name, Id, State
         Write-Host "`nSTEP 1: SELECT SUBSCRIPTION(S)" -ForegroundColor Green
         Write-Host ("=" * 60) -ForegroundColor Gray
@@ -400,7 +408,8 @@ if (-not $TargetSubIds) {
 
         if ([string]::IsNullOrWhiteSpace($selection)) {
             $TargetSubIds = @($allSubs[0].Id)
-        } else {
+        }
+        else {
             $nums = $selection -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
             $TargetSubIds = @($nums | ForEach-Object { $allSubs[$_ - 1].Id })
         }
@@ -413,7 +422,8 @@ if (-not $Regions) {
     if ($NoPrompt) {
         $Regions = @('eastus', 'eastus2', 'centralus')
         Write-Host "Using default regions: $($Regions -join ', ')" -ForegroundColor Cyan
-    } else {
+    }
+    else {
         Write-Host "`nSTEP 2: SELECT REGION(S)" -ForegroundColor Green
         Write-Host ("=" * 80) -ForegroundColor Gray
         Write-Host ""
@@ -425,7 +435,8 @@ if (-not $Regions) {
         if (-not [string]::IsNullOrWhiteSpace($quickRegions)) {
             $Regions = @($quickRegions -split '[,\s]+' | Where-Object { $_ -ne '' } | ForEach-Object { $_.ToLower() })
             Write-Host "`nSelected regions (fast path): $($Regions -join ', ')" -ForegroundColor Green
-        } else {
+        }
+        else {
             # Show full region menu with geo-grouping
             Write-Host ""
             Write-Host "Available regions (filtered for Compute):" -ForegroundColor Cyan
@@ -433,8 +444,8 @@ if (-not $Regions) {
             $geoOrder = @('Americas-US', 'Americas-Canada', 'Americas-LatAm', 'Europe', 'Asia-Pacific', 'India', 'Middle East', 'Africa', 'Australia', 'Other')
 
             $locations = Get-AzLocation | Where-Object { $_.Providers -contains 'Microsoft.Compute' } |
-                ForEach-Object { $_ | Add-Member -NotePropertyName GeoGroup -NotePropertyValue (Get-GeoGroup $_.Location) -PassThru } |
-                Sort-Object @{e = { $idx = $geoOrder.IndexOf($_.GeoGroup); if ($idx -ge 0) { $idx } else { 999 } }}, @{e = { $_.DisplayName }}
+            ForEach-Object { $_ | Add-Member -NotePropertyName GeoGroup -NotePropertyValue (Get-GeoGroup $_.Location) -PassThru } |
+            Sort-Object @{e = { $idx = $geoOrder.IndexOf($_.GeoGroup); if ($idx -ge 0) { $idx } else { 999 } } }, @{e = { $_.DisplayName } }
 
             Write-Host ""
             for ($i = 0; $i -lt $locations.Count; $i++) {
@@ -453,7 +464,8 @@ if (-not $Regions) {
             if ([string]::IsNullOrWhiteSpace($regionsInput)) {
                 $Regions = @('eastus', 'eastus2', 'centralus')
                 Write-Host "`nSelected regions (default): $($Regions -join ', ')" -ForegroundColor Green
-            } else {
+            }
+            else {
                 $selectedNumbers = $regionsInput -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
 
                 if ($selectedNumbers.Count -eq 0) {
@@ -480,7 +492,8 @@ if (-not $Regions) {
             }
         }
     }
-} else {
+}
+else {
     $Regions = @($Regions | ForEach-Object { $_.ToLower() })
 }
 
@@ -532,18 +545,19 @@ foreach ($subId in $TargetSubIds) {
         $region = [string]$_
         try {
             $allSkus = Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
-                Where-Object { $_.ResourceType -eq 'virtualMachines' }
+            Where-Object { $_.ResourceType -eq 'virtualMachines' }
             $quotas = Get-AzVMUsage -Location $region -ErrorAction Stop
             @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
-        } catch {
+        }
+        catch {
             @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
         }
     } -ThrottleLimit 4
 
     $allSubscriptionData += @{
-        SubscriptionId = $subId
+        SubscriptionId   = $subId
         SubscriptionName = $subName
-        RegionData = $regionData
+        RegionData       = $regionData
     }
 }
 
@@ -581,14 +595,15 @@ foreach ($subscriptionData in $allSubscriptionData) {
         Write-Host "`nQUOTA SUMMARY:" -ForegroundColor Cyan
         $quotaLines = $data.Quotas | Where-Object {
             $_.Name.Value -match 'Total Regional vCPUs|Family vCPUs'
-        } | Select-Object @{n='Family';e={$_.Name.LocalizedValue}},
-            @{n='Used';e={$_.CurrentValue}},
-            @{n='Limit';e={$_.Limit}},
-            @{n='Available';e={$_.Limit - $_.CurrentValue}}
+        } | Select-Object @{n = 'Family'; e = { $_.Name.LocalizedValue } },
+        @{n = 'Used'; e = { $_.CurrentValue } },
+        @{n = 'Limit'; e = { $_.Limit } },
+        @{n = 'Available'; e = { $_.Limit - $_.CurrentValue } }
 
         if ($quotaLines) {
             $quotaLines | Format-Table -AutoSize
-        } else {
+        }
+        else {
             Write-Host "No quota data available" -ForegroundColor DarkYellow
         }
 
@@ -601,8 +616,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
 
             $largestSku = $skus | ForEach-Object {
                 @{
-                    Sku = $_
-                    vCPU = [int](Get-CapValue $_ 'vCPUs')
+                    Sku    = $_
+                    vCPU   = [int](Get-CapValue $_ 'vCPUs')
                     Memory = [int](Get-CapValue $_ 'MemoryGB')
                 }
             } | Sort-Object vCPU -Descending | Select-Object -First 1
@@ -614,13 +629,13 @@ foreach ($subscriptionData in $allSubscriptionData) {
             $quotaInfo = Get-QuotaAvailable -Quotas $data.Quotas -FamilyName "Standard $family*"
 
             $rows += [pscustomobject]@{
-                Family = $family
-                SKUs = $skus.Count
-                Avail = $availableCount
+                Family  = $family
+                SKUs    = $skus.Count
+                Avail   = $availableCount
                 Largest = "{0}vCPU/{1}GB" -f $largestSku.vCPU, $largestSku.Memory
-                Zones = $zoneStatus
-                Status = $capacity
-                Quota = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
+                Zones   = $zoneStatus
+                Status  = $capacity
+                Quota   = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
             }
 
             # Track for drill-down
@@ -632,15 +647,15 @@ foreach ($subscriptionData in $allSubscriptionData) {
 
                 $familyDetails += [pscustomobject]@{
                     Subscription = [string]$subName
-                    Region = Get-SafeString $region
-                    Family = [string]$family
-                    SKU = [string]$sku.Name
-                    vCPU = Get-CapValue $sku 'vCPUs'
-                    MemGiB = Get-CapValue $sku 'MemoryGB'
-                    ZoneStatus = Format-ZoneStatus $skuRestrictions.ZonesOK $skuRestrictions.ZonesLimited $skuRestrictions.ZonesRestricted
-                    Capacity = [string]$skuRestrictions.Status
-                    Reason = ($skuRestrictions.RestrictionReasons -join ', ')
-                    QuotaAvail = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
+                    Region       = Get-SafeString $region
+                    Family       = [string]$family
+                    SKU          = [string]$sku.Name
+                    vCPU         = Get-CapValue $sku 'vCPUs'
+                    MemGiB       = Get-CapValue $sku 'MemoryGB'
+                    ZoneStatus   = Format-ZoneStatus $skuRestrictions.ZonesOK $skuRestrictions.ZonesLimited $skuRestrictions.ZonesRestricted
+                    Capacity     = [string]$skuRestrictions.Status
+                    Reason       = ($skuRestrictions.RestrictionReasons -join ', ')
+                    QuotaAvail   = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
                 }
             }
 
@@ -650,9 +665,9 @@ foreach ($subscriptionData in $allSubscriptionData) {
             }
             $regionKey = Get-SafeString $region
             $allFamilyStats[$family].Regions[$regionKey] = @{
-                Count = $skus.Count
+                Count     = $skus.Count
                 Available = $availableCount
-                Capacity = $capacity
+                Capacity  = $capacity
             }
         }
 
@@ -685,7 +700,8 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 
     if ([string]::IsNullOrWhiteSpace($famSel)) {
         $SelectedFamilyFilter = $familyList
-    } else {
+    }
+    else {
         $nums = $famSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
         $nums = @($nums | Sort-Object -Unique)
         $invalidNums = $nums | Where-Object { $_ -lt 1 -or $_ -gt $familyList.Count }
@@ -707,11 +723,13 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
     if ($skuMode -match '^(none|cancel|skip)$') {
         Write-Host "Skipping SKU drill-down as requested." -ForegroundColor Yellow
         $SelectedFamilyFilter = @()
-    } elseif ($skuMode -match '^(all)$') {
+    }
+    elseif ($skuMode -match '^(all)$') {
         foreach ($fam in $SelectedFamilyFilter) {
             $SelectedSkuFilter[$fam] = $null  # null means all SKUs
         }
-    } else {
+    }
+    else {
         foreach ($fam in $SelectedFamilyFilter) {
             $skus = @($familySkuIndex[$fam].Keys | Sort-Object)
             Write-Host ""
@@ -727,7 +745,8 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 
             if ([string]::IsNullOrWhiteSpace($skuSel)) {
                 $SelectedSkuFilter[$fam] = $null  # null means all
-            } else {
+            }
+            else {
                 $skuNums = $skuSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
                 $skuNums = @($skuNums | Sort-Object -Unique)
                 $invalidSku = $skuNums | Where-Object { $_ -lt 1 -or $_ -gt $skus.Count }
@@ -762,7 +781,8 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 
             if ($detailRows.Count -gt 0) {
                 $detailRows | Sort-Object Region, SKU | Format-Table Region, SKU, vCPU, MemGiB, ZoneStatus, Capacity, Reason -AutoSize
-            } else {
+            }
+            else {
                 Write-Host "No matching SKUs found for selection." -ForegroundColor DarkYellow
             }
         }
@@ -809,7 +829,8 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
             if ($status -eq 'OK') { $bestStatus = 'OK' }
             elseif ($status -match 'CONSTRAINED|PARTIAL' -and $bestStatus -ne 'OK') { $bestStatus = 'MIXED' }
             $line += " | " + $icon.PadRight(15)
-        } else {
+        }
+        else {
             $line += " | " + "-".PadRight(15)
         }
     }
@@ -856,7 +877,8 @@ if ($hasBest) {
             Write-Host "  $($families -join ', ')" -ForegroundColor White
         }
     }
-} else {
+}
+else {
     Write-Host "No families with full capacity. Consider:" -ForegroundColor Yellow
     foreach ($family in ($allFamilyStats.Keys | Sort-Object | Select-Object -First 5)) {
         $stats = $allFamilyStats[$family]
@@ -879,7 +901,6 @@ Write-Host ""
 # Fixed-width formatted table
 $colFamily = 8
 $colFullCap = 25
-$colConstrained = 50
 
 $headerFmt = "{0,-$colFamily} {1,-$colFullCap} {2}" -f "Family", "Full Capacity", "Constrained"
 Write-Host $headerFmt -ForegroundColor Cyan
@@ -897,7 +918,8 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
         if ($regionStat) {
             if ($regionStat.Capacity -eq 'OK') {
                 $regionsOK += $region
-            } elseif ($regionStat.Capacity -match 'LIMITED|CAPACITY-CONSTRAINED|PARTIAL') {
+            }
+            elseif ($regionStat.Capacity -match 'LIMITED|CAPACITY-CONSTRAINED|PARTIAL') {
                 $regionsConstrained += "$region ($($regionStat.Capacity))"
             }
         }
@@ -912,15 +934,16 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
 
     # Export data
     $exportRow = [ordered]@{
-        Family = $family
+        Family     = $family
         Total_SKUs = ($stats.Regions.Values | Measure-Object -Property Count -Sum).Sum
-        SKUs_OK = (($stats.Regions.Values | Where-Object { $_.Capacity -eq 'OK' } | Measure-Object -Property Available -Sum).Sum)
+        SKUs_OK    = (($stats.Regions.Values | Where-Object { $_.Capacity -eq 'OK' } | Measure-Object -Property Available -Sum).Sum)
     }
     foreach ($r in $allRegions) {
         $regionStat = $stats.Regions[$r]
         if ($regionStat) {
             $exportRow["$r`_Status"] = "$($regionStat.Capacity) ($($regionStat.Available)/$($regionStat.Count))"
-        } else {
+        }
+        else {
             $exportRow["$r`_Status"] = 'N/A'
         }
     }
@@ -1072,14 +1095,16 @@ if ($ExportPath) {
             Write-Host "  $($Icons.Check) XLSX: $xlsxFile" -ForegroundColor Green
             Write-Host "    - Summary sheet with color-coded status" -ForegroundColor DarkGray
             Write-Host "    - Details sheet with filters and conditional formatting" -ForegroundColor DarkGray
-        } catch {
+        }
+        catch {
             Write-Host "  $($Icons.Warning) XLSX formatting failed: $($_.Exception.Message)" -ForegroundColor Yellow
             Write-Host "  $($Icons.Warning) Falling back to basic XLSX..." -ForegroundColor Yellow
             try {
                 $summaryRowsForExport | Export-Excel -Path $xlsxFile -WorksheetName "Summary" -AutoSize -FreezeTopRow
                 $familyDetails | Export-Excel -Path $xlsxFile -WorksheetName "Details" -AutoSize -FreezeTopRow -Append
                 Write-Host "  $($Icons.Check) XLSX (basic): $xlsxFile" -ForegroundColor Green
-            } catch {
+            }
+            catch {
                 Write-Host "  $($Icons.Warning) XLSX failed, falling back to CSV" -ForegroundColor Yellow
                 $useXLSX = $false
             }
