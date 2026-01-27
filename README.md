@@ -86,15 +86,15 @@ Pricing data loaded for 3 region(s)
 
 The Azure Portal has no equivalent for these capabilities:
 
-| Capability | Portal | This Script |
-|------------|--------|-------------|
-| **Compare pricing across regions** | ❌ Open pricing calculator separately | ✅ Side-by-side with availability |
-| **Filter to specific SKUs** | ❌ Scroll through hundreds of sizes | ✅ `Standard_D*_v5` wildcard filtering |
-| **See all zones at once** | ❌ Click each zone dropdown | ✅ `✓ Zones 1,2 \| ⚠ Zone 3` single view |
-| **Multi-region matrix view** | ❌ Switch regions one at a time | ✅ All regions in one table |
-| **Export with conditional formatting** | ❌ Manual screenshots | ✅ Color-coded Excel export |
-| **See your negotiated pricing** | ❌ Check Cost Management separately | ✅ `-UseActualPricing` shows EA/MCA rates |
-| **Combine quota + availability** | ❌ Different blades | ✅ Unified view per region |
+| Capability                             | Portal                               | This Script                              |
+| -------------------------------------- | ------------------------------------ | ---------------------------------------- |
+| **Compare pricing across regions**     | ❌ Open pricing calculator separately | ✅ Side-by-side with availability         |
+| **Filter to specific SKUs**            | ❌ Scroll through hundreds of sizes   | ✅ `Standard_D*_v5` wildcard filtering    |
+| **See all zones at once**              | ❌ Click each zone dropdown           | ✅ `✓ Zones 1,2 \| ⚠ Zone 3` single view  |
+| **Multi-region matrix view**           | ❌ Switch regions one at a time       | ✅ All regions in one table               |
+| **Export with conditional formatting** | ❌ Manual screenshots                 | ✅ Color-coded Excel export               |
+| **See your negotiated pricing**        | ❌ Check Cost Management separately   | ✅ `-UseActualPricing` shows EA/MCA rates |
+| **Combine quota + availability**       | ❌ Different blades                   | ✅ Unified view per region                |
 
 ## Features
 
