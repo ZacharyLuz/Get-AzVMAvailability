@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-01-26
+
+### Added
+- **SKU Filtering** - New `-SkuFilter` parameter to filter output to specific SKUs
+  - Supports exact SKU name matching (e.g., `Standard_D2s_v3`)
+  - Supports wildcard patterns (e.g., `Standard_D*_v5`, `Standard_E?s_v5`)
+  - Case-insensitive matching
+  - Multiple SKU patterns can be specified
+  - Filter indicator shown in output header when active
+- Helper function `Test-SkuMatchesFilter` for pattern matching logic
+
+### Changed
+- Data collection now applies SKU filter during parallel execution for better performance
+- Output sections (tables, matrix, exports) automatically respect SKU filter
+- Updated documentation with `-SkuFilter` examples
+- **Improved UX clarity throughout:**
+  - Column headers renamed: "Full Capacity" → "Available Regions", "Constrained" → "Constrained Regions"
+  - Empty values now show "(none)" instead of cryptic "-" dash
+  - SKU table column "Avail" → "OK" for clarity
+  - Zone status now shows "✓ Zones 1,2 | ⚠ Zones 3" instead of "OK[1,2] WARN[3]"
+  - "Regional" → "Non-zonal" for VMs without zone support
+  - Legend descriptions improved (removed "= " prefix)
+  - "BEST DEPLOYMENT OPTIONS" → "DEPLOYMENT RECOMMENDATIONS" with better messaging
+  - "No families with full capacity" → clearer explanation with alternatives
+
 ## [1.1.1] - 2026-01-26
 
 ### Fixed

@@ -66,6 +66,7 @@ Subscriptions: 1 | Regions: eastus, eastus2, centralus
 
 - **Multi-Region Parallel Scanning** - Scan 3+ regions in ~5 seconds
 - **Comprehensive SKU Analysis** - All VM families automatically discovered
+- **SKU Filtering** - Filter output to specific SKUs with wildcard support (v1.2.0)
 - **Capacity Status Reporting** - OK, LIMITED, CAPACITY-CONSTRAINED, RESTRICTED states
 - **Zone Availability Details** - Per-zone availability information
 - **Quota Tracking** - Available vCPU quota per family

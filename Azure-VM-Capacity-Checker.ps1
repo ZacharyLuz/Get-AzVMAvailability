@@ -80,6 +80,14 @@
     .\Azure-VM-Capacity-Checker.ps1 -EnableDrillDown -FamilyFilter "D","E","M"
     Interactive mode focused on D, E, and M series families.
 
+.EXAMPLE
+    .\Azure-VM-Capacity-Checker.ps1 -SkuFilter "Standard_D2s_v3","Standard_E4s_v5" -Region "eastus"
+    Filter to show only specific SKUs in eastus region.
+
+.EXAMPLE
+    .\Azure-VM-Capacity-Checker.ps1 -SkuFilter "Standard_D*_v5" -Region "eastus","westus2"
+    Use wildcard to filter all D-series v5 SKUs across multiple regions.
+
 .LINK
     https://github.com/zacharyluz/Azure-VM-Capacity-Checker
 #>
@@ -106,6 +114,9 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Pre-filter to specific VM families")]
     [string[]]$FamilyFilter,
 
+    [Parameter(Mandatory = $false, HelpMessage = "Filter to specific SKUs (supports wildcards)")]
+    [string[]]$SkuFilter,
+
     [Parameter(Mandatory = $false, HelpMessage = "Skip all interactive prompts")]
     [switch]$NoPrompt,
 
@@ -122,7 +133,7 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 # === Configuration ==================================================
 # Script metadata
-$ScriptVersion = "1.1.1"
+$ScriptVersion = "1.2.0"
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -316,14 +327,14 @@ function Get-RestrictionDetails {
 }
 
 function Format-ZoneStatus {
-    # Formats zone availability into a human-readable string (e.g., "OK[1,2] WARN[3]")
+    # Formats zone availability into a human-readable string
     param([array]$OK, [array]$Limited, [array]$Restricted)
     $parts = @()
-    if ($OK.Count -gt 0) { $parts += "OK[$($OK -join ',')]" }
-    if ($Limited.Count -gt 0) { $parts += "WARN[$($Limited -join ',')]" }
-    if ($Restricted.Count -gt 0) { $parts += "BLOCK[$($Restricted -join ',')]" }
-    if ($parts.Count -eq 0) { return 'Regional' }  # No zone info = regional deployment
-    return $parts -join ' '
+    if ($OK.Count -gt 0) { $parts += "✓ Zones $($OK -join ',')" }
+    if ($Limited.Count -gt 0) { $parts += "⚠ Zones $($Limited -join ',')" }
+    if ($Restricted.Count -gt 0) { $parts += "✗ Zones $($Restricted -join ',')" }
+    if ($parts.Count -eq 0) { return 'Non-zonal' }  # No zone info = regional deployment
+    return $parts -join ' | '
 }
 
 function Get-SkuSizeAvailability {
@@ -376,6 +387,31 @@ function Test-ImportExcelModule {
         return $false
     }
     catch { return $false }
+}
+
+function Test-SkuMatchesFilter {
+    <#
+    .SYNOPSIS
+        Tests if a SKU name matches any of the filter patterns.
+    .DESCRIPTION
+        Supports exact matches and wildcard patterns (e.g., Standard_D*_v5).
+        Case-insensitive matching.
+    #>
+    param([string]$SkuName, [string[]]$FilterPatterns)
+
+    if (-not $FilterPatterns -or $FilterPatterns.Count -eq 0) {
+        return $true  # No filter = include all
+    }
+
+    foreach ($pattern in $FilterPatterns) {
+        # Convert wildcard pattern to regex
+        $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
+        if ($SkuName -match $regexPattern) {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 # === Interactive Prompts ============================================
@@ -527,6 +563,9 @@ Write-Host ("=" * 70) -ForegroundColor Gray
 Write-Host "AZURE VM CAPACITY CHECKER v$ScriptVersion" -ForegroundColor Green
 Write-Host ("=" * 70) -ForegroundColor Gray
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
+if ($SkuFilter -and $SkuFilter.Count -gt 0) {
+    Write-Host "SKU Filter: $($SkuFilter -join ', ')" -ForegroundColor Yellow
+}
 Write-Host "Icons: $(if ($supportsUnicode) { 'Unicode' } else { 'ASCII' })" -ForegroundColor DarkGray
 Write-Host ""
 
@@ -543,9 +582,27 @@ foreach ($subId in $TargetSubIds) {
 
     $regionData = $Regions | ForEach-Object -Parallel {
         $region = [string]$_
+        $skuFilterCopy = $using:SkuFilter  # Pass filter to parallel block
         try {
             $allSkus = Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
             Where-Object { $_.ResourceType -eq 'virtualMachines' }
+
+            # Apply SKU filter if specified
+            if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
+                $allSkus = $allSkus | Where-Object {
+                    $skuName = $_.Name
+                    $matches = $false
+                    foreach ($pattern in $skuFilterCopy) {
+                        $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
+                        if ($skuName -match $regexPattern) {
+                            $matches = $true
+                            break
+                        }
+                    }
+                    $matches
+                }
+            }
+
             $quotas = Get-AzVMUsage -Location $region -ErrorAction Stop
             @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
         }
@@ -631,7 +688,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
             $rows += [pscustomobject]@{
                 Family  = $family
                 SKUs    = $skus.Count
-                Avail   = $availableCount
+                OK      = $availableCount
                 Largest = "{0}vCPU/{1}GB" -f $largestSku.vCPU, $largestSku.Memory
                 Zones   = $zoneStatus
                 Status  = $capacity
@@ -841,17 +898,17 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
 
 Write-Host ""
 Write-Host "LEGEND:" -ForegroundColor Cyan
-Write-Host "  $($Icons.OK)".PadRight(20) + "= Full capacity" -ForegroundColor Green
-Write-Host "  $($Icons.CAPACITY)".PadRight(20) + "= Zone constraints" -ForegroundColor Yellow
-Write-Host "  $($Icons.LIMITED)".PadRight(20) + "= Limited capacity" -ForegroundColor Yellow
-Write-Host "  $($Icons.PARTIAL)".PadRight(20) + "= Mixed availability" -ForegroundColor Yellow
-Write-Host "  $($Icons.BLOCKED)".PadRight(20) + "= Not available" -ForegroundColor Red
+Write-Host ("  $($Icons.OK)".PadRight(20) + "Full capacity available") -ForegroundColor Green
+Write-Host ("  $($Icons.CAPACITY)".PadRight(20) + "Zone-level constraints") -ForegroundColor Yellow
+Write-Host ("  $($Icons.LIMITED)".PadRight(20) + "Subscription restricted") -ForegroundColor Yellow
+Write-Host ("  $($Icons.PARTIAL)".PadRight(20) + "Mixed zone availability") -ForegroundColor Yellow
+Write-Host ("  $($Icons.BLOCKED)".PadRight(20) + "Not available") -ForegroundColor Red
 
-# === Best Options ===================================================
+# === Deployment Recommendations =====================================
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * 90) -ForegroundColor Gray
-Write-Host "BEST DEPLOYMENT OPTIONS" -ForegroundColor Green
+Write-Host "DEPLOYMENT RECOMMENDATIONS" -ForegroundColor Green
 Write-Host ("=" * 90) -ForegroundColor Gray
 Write-Host ""
 
@@ -870,22 +927,25 @@ foreach ($family in $allFamilyStats.Keys) {
 
 $hasBest = ($bestPerRegion.Values | Measure-Object -Property Count -Sum).Sum -gt 0
 if ($hasBest) {
+    Write-Host "Regions with full capacity:" -ForegroundColor Green
     foreach ($r in $allRegions) {
         $families = @($bestPerRegion[$r])
         if ($families.Count -gt 0) {
-            Write-Host "$r - Full Capacity:" -ForegroundColor Green
-            Write-Host "  $($families -join ', ')" -ForegroundColor White
+            Write-Host "  $r`:" -ForegroundColor Green -NoNewline
+            Write-Host " $($families -join ', ')" -ForegroundColor White
         }
     }
 }
 else {
-    Write-Host "No families with full capacity. Consider:" -ForegroundColor Yellow
+    Write-Host "No regions have full capacity for the scanned families." -ForegroundColor Yellow
+    Write-Host "Best available options (with constraints):" -ForegroundColor Yellow
     foreach ($family in ($allFamilyStats.Keys | Sort-Object | Select-Object -First 5)) {
         $stats = $allFamilyStats[$family]
         $bestRegion = $stats.Regions.Keys | Sort-Object { $stats.Regions[$_].Available } -Descending | Select-Object -First 1
         if ($bestRegion) {
             $regionStat = $stats.Regions[$bestRegion]
-            Write-Host "  $family in $bestRegion ($($regionStat.Capacity))" -ForegroundColor Yellow
+            Write-Host "  $family in $bestRegion" -ForegroundColor Yellow -NoNewline
+            Write-Host " ($($regionStat.Capacity))" -ForegroundColor DarkYellow
         }
     }
 }
@@ -902,7 +962,7 @@ Write-Host ""
 $colFamily = 8
 $colFullCap = 25
 
-$headerFmt = "{0,-$colFamily} {1,-$colFullCap} {2}" -f "Family", "Full Capacity", "Constrained"
+$headerFmt = "{0,-$colFamily} {1,-$colFullCap} {2}" -f "Family", "Available Regions", "Constrained Regions"
 Write-Host $headerFmt -ForegroundColor Cyan
 Write-Host ("-" * 85) -ForegroundColor Gray
 
@@ -925,8 +985,8 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
         }
     }
 
-    $fullCapStr = if ($regionsOK.Count -gt 0) { $regionsOK -join ', ' } else { '-' }
-    $constrainedStr = if ($regionsConstrained.Count -gt 0) { $regionsConstrained -join ' | ' } else { '-' }
+    $fullCapStr = if ($regionsOK.Count -gt 0) { $regionsOK -join ', ' } else { '(none)' }
+    $constrainedStr = if ($regionsConstrained.Count -gt 0) { $regionsConstrained -join ' | ' } else { '(none)' }
 
     $line = "{0,-$colFamily} {1,-$colFullCap} {2}" -f $family, $fullCapStr, $constrainedStr
     $color = if ($regionsOK.Count -gt 0) { 'Green' } elseif ($regionsConstrained.Count -gt 0) { 'Yellow' } else { 'Gray' }
