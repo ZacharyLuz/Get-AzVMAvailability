@@ -23,38 +23,39 @@
 
 ---
 
-## Version 1.2.0 (In Planning)
-**Theme: SKU Filtering & Pricing**
+## Version 1.2.0 (Released)
+**Theme: SKU Filtering & UX Improvements**
 
-### New Features
-- [ ] **SKU Filtering** - Filter output to show only selected SKUs throughout all reports
-- [ ] **Pricing Information** - Display hourly/monthly costs next to each SKU
-- [ ] **Cost Comparison** - Compare pricing across regions for selected SKUs
-
-### New Parameters
-- `-SkuFilter` - Specify SKUs upfront (e.g., 'Standard_D2s_v3', 'Standard_E4s_v5')
-- `-ShowPricing` - Include pricing information in output
-- `-PricingType` - Choose 'Linux' (default), 'Windows', or 'Both'
-
-### Technical Implementation
-```powershell
-# Azure Retail Prices API
-$apiUrl = "https://prices.azure.com/api/retail/prices"
-$filter = "serviceName eq 'Virtual Machines' and armRegionName eq 'eastus' and armSkuName eq 'Standard_D2s_v3'"
-Invoke-RestMethod -Uri "$apiUrl?`$filter=$filter" -Method Get
-```
+### Completed Features
+- ✅ **SKU Filtering** - `-SkuFilter` parameter with wildcard support (e.g., `Standard_D*_v5`)
+- ✅ **UX Improvements** - Clearer column names, better zone status display
+- ✅ **Improved Messaging** - Consistent terminology throughout
 
 ---
 
-## Version 1.3.0 (In Planning)
-**Theme: Image Compatibility & Advanced Filtering**
+## Version 1.3.0 (Released)
+**Theme: Pricing Information & Fixed-Width Tables**
 
-### New Features
-- [ ] **Image Compatibility Check** - Verify if VM images work with selected SKUs
-- [ ] **Generation Support** - Show Gen1/Gen2 VM support per SKU
-- [ ] **OS Compatibility** - Filter by OS type (Windows/Linux)
+### Completed Features
+- ✅ **Pricing Information** - Display estimated hourly costs from Azure Retail Prices API
+- ✅ **Optional Pricing** - `-ShowPricing` parameter or interactive prompt
+- ✅ **Fixed-Width Tables** - Consistent column alignment across all tables
+- ✅ **Performance Awareness** - Pricing adds ~5-10 seconds, user is prompted
 
 ### New Parameters
+- `-ShowPricing` - Include pricing information in output (Linux pay-as-you-go)
+
+---
+
+## Version 1.4.0 (In Planning)
+**Theme: Image Compatibility**
+
+### Planned Features
+- [ ] **Image Compatibility Check** - Verify if VM images work with selected SKUs
+- [ ] **Generation Support** - Show Gen1/Gen2 VM support per SKU
+- [ ] **Architecture Support** - Show x64/ARM64 support per SKU
+
+### Planned Parameters
 - `-ImageURN` - Check compatibility with specific image (e.g., 'Canonical:UbuntuServer:22.04-LTS:latest')
 - `-VMGeneration` - Filter by VM generation (Gen1, Gen2, or Both)
 
@@ -72,6 +73,11 @@ Invoke-RestMethod -Uri "$apiUrl?`$filter=$filter" -Method Get
 - [ ] **HTML Report Export** - Self-contained HTML report with charts
 - [ ] **Trend Tracking** - Compare against previous scan results
 - [ ] **Email/Chat Notifications** - Send results via email, Slack, or Teams webhooks
+
+### Pricing Enhancements
+- [ ] **Windows Pricing** - Add `-PricingType` parameter for Windows/Linux/Both
+- [ ] **Spot Pricing** - Include spot instance pricing comparison
+- [ ] **Monthly Estimates** - Show projected monthly costs
 
 ### Advanced Monitoring
 - [ ] **Watch Mode** - Continuous monitoring with alerts

@@ -41,6 +41,13 @@
 .PARAMETER FamilyFilter
     Pre-filter results to specific VM families (e.g., 'D', 'E', 'F').
 
+.PARAMETER SkuFilter
+    Filter to specific SKU names. Supports wildcards (e.g., 'Standard_D*_v5').
+
+.PARAMETER ShowPricing
+    Include estimated hourly pricing for VM SKUs from Azure Retail Prices API.
+    Adds ~5-10 seconds to execution time. Without -NoPrompt, prompts interactively.
+
 .PARAMETER NoPrompt
     Skip all interactive prompts. Uses defaults or provided parameters.
 
@@ -57,7 +64,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.1.0
+    Version:        1.3.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Azure-VM-Capacity-Checker
 
@@ -88,6 +95,14 @@
     .\Azure-VM-Capacity-Checker.ps1 -SkuFilter "Standard_D*_v5" -Region "eastus","westus2"
     Use wildcard to filter all D-series v5 SKUs across multiple regions.
 
+.EXAMPLE
+    .\Azure-VM-Capacity-Checker.ps1 -ShowPricing -Region "eastus"
+    Include estimated hourly pricing for VM SKUs in eastus.
+
+.EXAMPLE
+    .\Azure-VM-Capacity-Checker.ps1 -NoPrompt -ShowPricing -Region "eastus","westus2"
+    Automated scan with pricing enabled, no interactive prompts.
+
 .LINK
     https://github.com/zacharyluz/Azure-VM-Capacity-Checker
 #>
@@ -117,6 +132,12 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Filter to specific SKUs (supports wildcards)")]
     [string[]]$SkuFilter,
 
+    [Parameter(Mandatory = $false, HelpMessage = "Show estimated hourly pricing for SKUs")]
+    [switch]$ShowPricing,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Use actual pricing from Cost Management API (requires billing permissions)")]
+    [switch]$UseActualPricing,
+
     [Parameter(Mandatory = $false, HelpMessage = "Skip all interactive prompts")]
     [switch]$NoPrompt,
 
@@ -133,7 +154,7 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 # === Configuration ==================================================
 # Script metadata
-$ScriptVersion = "1.2.0"
+$ScriptVersion = "1.3.0"
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -414,6 +435,237 @@ function Test-SkuMatchesFilter {
     return $false
 }
 
+function Get-AzVMPricing {
+    <#
+    .SYNOPSIS
+        Fetches VM pricing from Azure Retail Prices API.
+    .DESCRIPTION
+        Retrieves pay-as-you-go Linux pricing for VM SKUs in a given region.
+        Uses the public Azure Retail Prices API (no auth required).
+        Implements caching to minimize API calls.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Region,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$SkuNames
+    )
+
+    $script:PricingCache = if (-not $script:PricingCache) { @{} } else { $script:PricingCache }
+
+    # Azure region name to ARM location mapping
+    $armLocation = $Region.ToLower() -replace '\s', ''
+
+    # Build filter for the API - get Linux consumption pricing
+    $filter = "armRegionName eq '$armLocation' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'"
+
+    $allPrices = @{}
+    $apiUrl = "https://prices.azure.com/api/retail/prices?`$filter=$([uri]::EscapeDataString($filter))"
+
+    try {
+        $nextLink = $apiUrl
+        $pageCount = 0
+        $maxPages = 20  # Fetch up to 20 pages (~20,000 price entries)
+
+        while ($nextLink -and $pageCount -lt $maxPages) {
+            $response = Invoke-RestMethod -Uri $nextLink -Method Get -TimeoutSec 30
+            $pageCount++
+
+            foreach ($item in $response.Items) {
+                # Filter for Linux spot/regular pricing, skip Windows and Low Priority
+                if ($item.productName -match 'Windows' -or
+                    $item.skuName -match 'Low Priority' -or
+                    $item.meterName -match 'Low Priority') {
+                    continue
+                }
+
+                # Extract the VM size from armSkuName
+                $vmSize = $item.armSkuName
+                if (-not $vmSize) { continue }
+
+                # Prefer regular (non-spot) pricing
+                if (-not $allPrices[$vmSize] -or $item.skuName -notmatch 'Spot') {
+                    $allPrices[$vmSize] = @{
+                        Hourly   = [math]::Round($item.retailPrice, 4)
+                        Monthly  = [math]::Round($item.retailPrice * 730, 2)  # 730 hours/month avg
+                        Currency = $item.currencyCode
+                        Meter    = $item.meterName
+                    }
+                }
+            }
+
+            $nextLink = $response.NextPageLink
+        }
+
+        # Cache the results
+        $script:PricingCache[$armLocation] = $allPrices
+
+        return $allPrices
+    }
+    catch {
+        Write-Verbose "Failed to fetch pricing for region $Region`: $_"
+        return @{}
+    }
+}
+
+function Get-AzActualPricing {
+    <#
+    .SYNOPSIS
+        Fetches actual negotiated pricing from Azure Cost Management API.
+    .DESCRIPTION
+        Retrieves your organization's actual negotiated rates including EA/MCA/CSP discounts.
+        Requires Billing Reader or Cost Management Reader role on the billing scope.
+    .NOTES
+        This function queries the Azure Cost Management Query API to get actual meter rates.
+        It requires appropriate RBAC permissions on the billing account/subscription.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SubscriptionId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Region,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$SkuNames
+    )
+
+    $script:ActualPricingCache = if (-not $script:ActualPricingCache) { @{} } else { $script:ActualPricingCache }
+    $cacheKey = "$SubscriptionId-$Region"
+
+    if ($script:ActualPricingCache.ContainsKey($cacheKey)) {
+        return $script:ActualPricingCache[$cacheKey]
+    }
+
+    $armLocation = $Region.ToLower() -replace '\s', ''
+    $allPrices = @{}
+
+    try {
+        # Get access token for Azure Resource Manager
+        $token = (Get-AzAccessToken -ResourceUrl 'https://management.azure.com').Token
+        $headers = @{
+            'Authorization' = "Bearer $token"
+            'Content-Type'  = 'application/json'
+        }
+
+        # Query Cost Management API for price sheet data
+        # Using the consumption price sheet endpoint
+        $apiUrl = "https://management.azure.com/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=contains(meterCategory,'Virtual Machines')"
+
+        $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
+
+        if ($response.properties.pricesheets) {
+            foreach ($item in $response.properties.pricesheets) {
+                # Match VM SKUs by meter name pattern
+                if ($item.meterCategory -eq 'Virtual Machines' -and
+                    $item.meterRegion -eq $armLocation -and
+                    $item.meterSubCategory -notmatch 'Windows') {
+
+                    # Extract VM size from meter details
+                    $vmSize = $item.meterDetails.meterName -replace ' .*$', ''
+                    if ($vmSize -match '^[A-Z]') {
+                        $vmSize = "Standard_$vmSize"
+                    }
+
+                    if ($vmSize -and -not $allPrices.ContainsKey($vmSize)) {
+                        $allPrices[$vmSize] = @{
+                            Hourly       = [math]::Round($item.unitPrice, 4)
+                            Monthly      = [math]::Round($item.unitPrice * 730, 2)
+                            Currency     = $item.currencyCode
+                            Meter        = $item.meterName
+                            IsNegotiated = $true
+                        }
+                    }
+                }
+            }
+        }
+
+        # Cache the results
+        $script:ActualPricingCache[$cacheKey] = $allPrices
+        return $allPrices
+    }
+    catch {
+        $errorMsg = $_.Exception.Message
+        if ($errorMsg -match '403|401|Forbidden|Unauthorized') {
+            Write-Warning "Cost Management API access denied. Requires Billing Reader or Cost Management Reader role."
+            Write-Warning "Falling back to retail pricing."
+        }
+        elseif ($errorMsg -match '404|NotFound') {
+            Write-Warning "Cost Management price sheet not available for this subscription type."
+            Write-Warning "This feature requires EA, MCA, or CSP billing. Falling back to retail pricing."
+        }
+        else {
+            Write-Verbose "Failed to fetch actual pricing: $errorMsg"
+        }
+        return $null  # Return null to signal fallback needed
+    }
+}
+
+function Format-FixedWidthTable {
+    <#
+    .SYNOPSIS
+        Formats data as a fixed-width aligned table with customizable column widths.
+    .DESCRIPTION
+        Outputs a consistently aligned table regardless of data length.
+        Truncates or pads values to fit specified widths.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$Data,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ColumnWidths,  # @{ ColumnName = Width }
+
+        [Parameter(Mandatory = $false)]
+        [string]$HeaderColor = 'Cyan',
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$RowColors  # @{ ColumnName = { param($value) return 'Green' } }
+    )
+
+    if (-not $Data -or $Data.Count -eq 0) { return }
+
+    # Get column names in order (from first row or ColumnWidths keys)
+    $columns = @($ColumnWidths.Keys)
+
+    # Build header
+    $headerParts = @()
+    foreach ($col in $columns) {
+        $width = $ColumnWidths[$col]
+        $headerParts += $col.PadRight($width).Substring(0, [Math]::Min($width, $col.Length + $width))
+    }
+    $headerLine = ($headerParts -join '  ')
+    Write-Host $headerLine -ForegroundColor $HeaderColor
+    Write-Host ('-' * $headerLine.Length) -ForegroundColor Gray
+
+    # Build data rows
+    foreach ($row in $Data) {
+        $rowParts = @()
+        $rowColor = 'White'
+
+        foreach ($col in $columns) {
+            $width = $ColumnWidths[$col]
+            $value = if ($row.$col -ne $null) { "$($row.$col)" } else { '' }
+
+            # Truncate if too long
+            if ($value.Length -gt $width) {
+                $value = $value.Substring(0, $width - 1) + '…'
+            }
+
+            $rowParts += $value.PadRight($width)
+
+            # Determine row color from first matching color rule
+            if ($RowColors -and $RowColors[$col]) {
+                $colorResult = & $RowColors[$col] $row.$col
+                if ($colorResult) { $rowColor = $colorResult }
+            }
+        }
+
+        Write-Host ($rowParts -join '  ') -ForegroundColor $rowColor
+    }
+}
+
 # === Interactive Prompts ============================================
 # Prompt user for subscription(s) if not provided via parameters
 
@@ -461,7 +713,7 @@ if (-not $Regions) {
     }
     else {
         Write-Host "`nSTEP 2: SELECT REGION(S)" -ForegroundColor Green
-        Write-Host ("=" * 80) -ForegroundColor Gray
+        Write-Host ("=" * 175) -ForegroundColor Gray
         Write-Host ""
         Write-Host "FAST PATH: Type region codes now to skip the long list (comma/space separated)" -ForegroundColor Yellow
         Write-Host "Examples: eastus eastus2 westus3  |  Press Enter to show full menu" -ForegroundColor DarkGray
@@ -551,6 +803,14 @@ if (-not $ExportPath -and -not $NoPrompt -and -not $AutoExport) {
     }
 }
 
+# Pricing prompt
+$FetchPricing = $ShowPricing.IsPresent
+if (-not $ShowPricing -and -not $NoPrompt) {
+    Write-Host "`nInclude estimated pricing? (adds ~5-10 sec) (y/N): " -ForegroundColor Yellow -NoNewline
+    $pricingInput = Read-Host
+    if ($pricingInput -match '^y(es)?$') { $FetchPricing = $true }
+}
+
 if ($ExportPath -and -not (Test-Path $ExportPath)) {
     New-Item -Path $ExportPath -ItemType Directory -Force | Out-Null
     Write-Host "Created: $ExportPath" -ForegroundColor Green
@@ -559,15 +819,62 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
 # === Data Collection ================================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 70) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host "AZURE VM CAPACITY CHECKER v$ScriptVersion" -ForegroundColor Green
-Write-Host ("=" * 70) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
 if ($SkuFilter -and $SkuFilter.Count -gt 0) {
     Write-Host "SKU Filter: $($SkuFilter -join ', ')" -ForegroundColor Yellow
 }
-Write-Host "Icons: $(if ($supportsUnicode) { 'Unicode' } else { 'ASCII' })" -ForegroundColor DarkGray
+Write-Host "Icons: $(if ($supportsUnicode) { 'Unicode' } else { 'ASCII' }) | Pricing: $(if ($FetchPricing) { 'Enabled' } else { 'Disabled' })" -ForegroundColor DarkGray
 Write-Host ""
+
+# Fetch pricing data if enabled
+$script:regionPricing = @{}
+$script:usingActualPricing = $false
+
+if ($FetchPricing) {
+    if ($UseActualPricing) {
+        Write-Host "Fetching actual pricing from Cost Management API..." -ForegroundColor DarkGray
+        Write-Host "  (Requires Billing Reader or Cost Management Reader role)" -ForegroundColor DarkGray
+
+        $actualPricingSuccess = $true
+        foreach ($regionCode in $Regions) {
+            $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode
+            if ($actualPrices -and $actualPrices.Count -gt 0) {
+                if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
+                $script:regionPricing[$regionCode] = $actualPrices
+            }
+            else {
+                $actualPricingSuccess = $false
+                break
+            }
+        }
+
+        if ($actualPricingSuccess -and $script:regionPricing.Count -gt 0) {
+            $script:usingActualPricing = $true
+            Write-Host "Actual pricing loaded for $($Regions.Count) region(s)" -ForegroundColor Green
+            Write-Host "Note: Prices reflect your negotiated EA/MCA/CSP rates." -ForegroundColor DarkGreen
+        }
+        else {
+            Write-Host "Falling back to retail pricing..." -ForegroundColor DarkYellow
+            $script:regionPricing = @{}
+        }
+    }
+
+    # Fall back to retail pricing if needed
+    if (-not $script:usingActualPricing) {
+        Write-Host "Fetching retail pricing data..." -ForegroundColor DarkGray
+        foreach ($regionCode in $Regions) {
+            $pricingResult = Get-AzVMPricing -Region $regionCode
+            # Handle potential array wrapping from function return
+            if ($pricingResult -is [array]) { $pricingResult = $pricingResult[0] }
+            $script:regionPricing[$regionCode] = $pricingResult
+        }
+        Write-Host "Pricing data loaded for $($Regions.Count) region(s)" -ForegroundColor DarkGray
+        Write-Host "Note: Prices shown are Linux pay-as-you-go retail rates. EA/MCA/Reserved discounts not included." -ForegroundColor DarkYellow
+    }
+}
 
 $allSubscriptionData = @()
 
@@ -631,9 +938,9 @@ foreach ($subscriptionData in $allSubscriptionData) {
         $region = Get-SafeString $data.Region
 
         Write-Host "`n" -NoNewline
-        Write-Host ("=" * 70) -ForegroundColor Gray
+        Write-Host ("=" * 175) -ForegroundColor Gray
         Write-Host "REGION: $region" -ForegroundColor Yellow
-        Write-Host ("=" * 70) -ForegroundColor Gray
+        Write-Host ("=" * 175) -ForegroundColor Gray
 
         if ($data.Error) {
             Write-Host "ERROR: $($data.Error)" -ForegroundColor Red
@@ -658,7 +965,20 @@ foreach ($subscriptionData in $allSubscriptionData) {
         @{n = 'Available'; e = { $_.Limit - $_.CurrentValue } }
 
         if ($quotaLines) {
-            $quotaLines | Format-Table -AutoSize
+            # Fixed-width quota table (175 chars total)
+            $qColWidths = [ordered]@{ Family = 70; Used = 20; Limit = 20; Available = 25 }
+            $qHeader = foreach ($c in $qColWidths.Keys) { $c.PadRight($qColWidths[$c]) }
+            Write-Host ($qHeader -join '  ') -ForegroundColor Cyan
+            Write-Host ('-' * 175) -ForegroundColor Gray
+            foreach ($q in $quotaLines) {
+                $qRow = foreach ($c in $qColWidths.Keys) {
+                    $v = "$($q.$c)"
+                    if ($v.Length -gt $qColWidths[$c]) { $v = $v.Substring(0, $qColWidths[$c] - 1) + '…' }
+                    $v.PadRight($qColWidths[$c])
+                }
+                Write-Host ($qRow -join '  ') -ForegroundColor White
+            }
+            Write-Host ""
         }
         else {
             Write-Host "No quota data available" -ForegroundColor DarkYellow
@@ -685,7 +1005,29 @@ foreach ($subscriptionData in $allSubscriptionData) {
             $zoneStatus = Format-ZoneStatus $restrictions.ZonesOK $restrictions.ZonesLimited $restrictions.ZonesRestricted
             $quotaInfo = Get-QuotaAvailable -Quotas $data.Quotas -FamilyName "Standard $family*"
 
-            $rows += [pscustomobject]@{
+            # Get pricing - find smallest SKU with pricing available
+            $priceHrStr = '-'
+            $priceMoStr = '-'
+            # Get pricing data - handle potential array wrapping
+            $regionPricingData = $script:regionPricing[$region]
+            if ($regionPricingData -is [array]) { $regionPricingData = $regionPricingData[0] }
+            if ($FetchPricing -and $regionPricingData -and $regionPricingData.Count -gt 1) {
+                $sortedSkus = $skus | ForEach-Object {
+                    @{ Sku = $_; vCPU = [int](Get-CapValue $_ 'vCPUs') }
+                } | Sort-Object vCPU
+
+                foreach ($skuInfo in $sortedSkus) {
+                    $skuName = $skuInfo.Sku.Name
+                    $pricing = $regionPricingData[$skuName]
+                    if ($pricing) {
+                        $priceHrStr = '$' + $pricing.Hourly.ToString('0.00')
+                        $priceMoStr = '$' + $pricing.Monthly.ToString('0')
+                        break
+                    }
+                }
+            }
+
+            $row = [pscustomobject]@{
                 Family  = $family
                 SKUs    = $skus.Count
                 OK      = $availableCount
@@ -695,6 +1037,13 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 Quota   = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
             }
 
+            if ($FetchPricing) {
+                $row | Add-Member -NotePropertyName '$/Hr' -NotePropertyValue $priceHrStr
+                $row | Add-Member -NotePropertyName '$/Mo' -NotePropertyValue $priceMoStr
+            }
+
+            $rows += $row
+
             # Track for drill-down
             if (-not $familySkuIndex.ContainsKey($family)) { $familySkuIndex[$family] = @{} }
 
@@ -702,7 +1051,18 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 $familySkuIndex[$family][$sku.Name] = $true
                 $skuRestrictions = Get-RestrictionDetails $sku
 
-                $familyDetails += [pscustomobject]@{
+                # Get individual SKU pricing
+                $skuPriceHr = '-'
+                $skuPriceMo = '-'
+                if ($FetchPricing -and $regionPricingData) {
+                    $skuPricing = $regionPricingData[$sku.Name]
+                    if ($skuPricing) {
+                        $skuPriceHr = '$' + $skuPricing.Hourly.ToString('0.00')
+                        $skuPriceMo = '$' + $skuPricing.Monthly.ToString('0')
+                    }
+                }
+
+                $detailObj = [pscustomobject]@{
                     Subscription = [string]$subName
                     Region       = Get-SafeString $region
                     Family       = [string]$family
@@ -714,6 +1074,13 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     Reason       = ($skuRestrictions.RestrictionReasons -join ', ')
                     QuotaAvail   = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
                 }
+
+                if ($FetchPricing) {
+                    $detailObj | Add-Member -NotePropertyName '$/Hr' -NotePropertyValue $skuPriceHr
+                    $detailObj | Add-Member -NotePropertyName '$/Mo' -NotePropertyValue $skuPriceMo
+                }
+
+                $familyDetails += $detailObj
             }
 
             # Track for summary
@@ -729,7 +1096,45 @@ foreach ($subscriptionData in $allSubscriptionData) {
         }
 
         if ($rows.Count -gt 0) {
-            $rows | Format-Table -AutoSize
+            # Fixed-width table formatting (total width = 175 chars with pricing)
+            $colWidths = [ordered]@{
+                Family  = 12
+                SKUs    = 6
+                OK      = 5
+                Largest = 18
+                Zones   = 28
+                Status  = 22
+                Quota   = 10
+            }
+            if ($FetchPricing) {
+                $colWidths['$/Hr'] = 10
+                $colWidths['$/Mo'] = 10
+            }
+
+            # Header
+            $headerParts = foreach ($col in $colWidths.Keys) {
+                $col.PadRight($colWidths[$col])
+            }
+            Write-Host ($headerParts -join '  ') -ForegroundColor Cyan
+            Write-Host ('-' * 175) -ForegroundColor Gray
+
+            # Data rows
+            foreach ($row in $rows) {
+                $rowParts = foreach ($col in $colWidths.Keys) {
+                    $val = if ($row.$col -ne $null) { "$($row.$col)" } else { '' }
+                    $width = $colWidths[$col]
+                    if ($val.Length -gt $width) { $val = $val.Substring(0, $width - 1) + '…' }
+                    $val.PadRight($width)
+                }
+
+                $color = switch ($row.Status) {
+                    'OK' { 'Green' }
+                    { $_ -match 'LIMITED|CAPACITY' } { 'Yellow' }
+                    { $_ -match 'RESTRICTED|BLOCKED' } { 'Red' }
+                    default { 'White' }
+                }
+                Write-Host ($rowParts -join '  ') -ForegroundColor $color
+            }
         }
     }
 }
@@ -738,9 +1143,9 @@ foreach ($subscriptionData in $allSubscriptionData) {
 
 if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
     Write-Host "`n" -NoNewline
-    Write-Host ("=" * 80) -ForegroundColor Gray
+    Write-Host ("=" * 175) -ForegroundColor Gray
     Write-Host "DRILL-DOWN: SELECT FAMILIES" -ForegroundColor Green
-    Write-Host ("=" * 80) -ForegroundColor Gray
+    Write-Host ("=" * 175) -ForegroundColor Gray
 
     $familyList = @($familySkuIndex.Keys | Sort-Object)
     for ($i = 0; $i -lt $familyList.Count; $i++) {
@@ -819,13 +1224,13 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
     # Display drill-down results
     if ($SelectedFamilyFilter.Count -gt 0) {
         Write-Host ""
-        Write-Host ("=" * 80) -ForegroundColor Gray
+        Write-Host ("=" * 175) -ForegroundColor Gray
         Write-Host "FAMILY / SKU DRILL-DOWN RESULTS" -ForegroundColor Green
-        Write-Host ("=" * 80) -ForegroundColor Gray
+        Write-Host ("=" * 175) -ForegroundColor Gray
 
         foreach ($fam in $SelectedFamilyFilter) {
             Write-Host "`nFamily: $fam" -ForegroundColor Cyan
-            Write-Host ("-" * 40) -ForegroundColor Gray
+            Write-Host ("-" * 175) -ForegroundColor Gray
 
             $skuFilter = $null
             if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
@@ -837,7 +1242,33 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
             }
 
             if ($detailRows.Count -gt 0) {
-                $detailRows | Sort-Object Region, SKU | Format-Table Region, SKU, vCPU, MemGiB, ZoneStatus, Capacity, Reason -AutoSize
+                $sortedRows = $detailRows | Sort-Object Region, SKU
+                # Fixed-width drill-down table (175 chars)
+                $dColWidths = [ordered]@{ Region = 20; SKU = 27; vCPU = 5; MemGiB = 7; ZoneStatus = 28; Capacity = 22 }
+                if ($FetchPricing) {
+                    $dColWidths['$/Hr'] = 9
+                    $dColWidths['$/Mo'] = 9
+                }
+                $dColWidths['Reason'] = 28
+
+                $dHeader = foreach ($c in $dColWidths.Keys) { $c.PadRight($dColWidths[$c]) }
+                Write-Host ($dHeader -join '  ') -ForegroundColor Cyan
+                Write-Host ('-' * 175) -ForegroundColor Gray
+                foreach ($dr in $sortedRows) {
+                    $dRow = foreach ($c in $dColWidths.Keys) {
+                        $v = if ($dr.$c -ne $null) { "$($dr.$c)" } else { '' }
+                        $w = $dColWidths[$c]
+                        if ($v.Length -gt $w) { $v = $v.Substring(0, $w - 1) + '…' }
+                        $v.PadRight($w)
+                    }
+                    $color = switch ($dr.Capacity) {
+                        'OK' { 'Green' }
+                        { $_ -match 'LIMITED|CAPACITY' } { 'Yellow' }
+                        { $_ -match 'RESTRICTED|BLOCKED' } { 'Red' }
+                        default { 'White' }
+                    }
+                    Write-Host ($dRow -join '  ') -ForegroundColor $color
+                }
             }
             else {
                 Write-Host "No matching SKUs found for selection." -ForegroundColor DarkYellow
@@ -849,9 +1280,9 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 # === Multi-Region Matrix ============================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 90) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host "MULTI-REGION CAPACITY MATRIX" -ForegroundColor Green
-Write-Host ("=" * 90) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host ""
 
 # Build unique region list
@@ -868,7 +1299,7 @@ $allRegions = @($allRegions | Sort-Object)
 $headerLine = "Family".PadRight(10)
 foreach ($r in $allRegions) { $headerLine += " | " + $r.PadRight(15) }
 Write-Host $headerLine -ForegroundColor Cyan
-Write-Host ("-" * $headerLine.Length) -ForegroundColor Gray
+Write-Host ("-" * 175) -ForegroundColor Gray
 
 # Data rows
 foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
@@ -907,9 +1338,9 @@ Write-Host ("  $($Icons.BLOCKED)".PadRight(20) + "Not available") -ForegroundCol
 # === Deployment Recommendations =====================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 90) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host "DEPLOYMENT RECOMMENDATIONS" -ForegroundColor Green
-Write-Host ("=" * 90) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host ""
 
 $bestPerRegion = @{}
@@ -953,18 +1384,18 @@ else {
 # === Detailed Breakdown =============================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 90) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host "DETAILED CROSS-REGION BREAKDOWN" -ForegroundColor Green
-Write-Host ("=" * 90) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host ""
 
-# Fixed-width formatted table
-$colFamily = 8
-$colFullCap = 25
+# Fixed-width formatted table (175 chars)
+$colFamily = 14
+$colFullCap = 55
 
 $headerFmt = "{0,-$colFamily} {1,-$colFullCap} {2}" -f "Family", "Available Regions", "Constrained Regions"
 Write-Host $headerFmt -ForegroundColor Cyan
-Write-Host ("-" * 85) -ForegroundColor Gray
+Write-Host ("-" * 175) -ForegroundColor Gray
 
 $summaryRowsForExport = @()
 foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
@@ -1013,10 +1444,10 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
 # === Completion =====================================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 70) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host "SCAN COMPLETE" -ForegroundColor Green
 Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor DarkGray
-Write-Host ("=" * 70) -ForegroundColor Gray
+Write-Host ("=" * 175) -ForegroundColor Gray
 
 # === Export =========================================================
 

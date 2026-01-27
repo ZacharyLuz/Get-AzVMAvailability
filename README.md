@@ -5,7 +5,7 @@ A comprehensive PowerShell tool for checking Azure VM SKU availability, capacity
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen)
+![Version](https://img.shields.io/badge/Version-1.3.0-brightgreen)
 
 ## Overview
 
@@ -35,22 +35,42 @@ This tool gives you **instant visibility** across multiple regions simultaneousl
 | Manually track quota limits         | Quota info included automatically       |
 | No historical record                | Export to Excel for documentation       |
 
-### ⚡ Lightning Fast
+### ⚡ Lightning Fast: Portal vs. Script Comparison
 
-Traditional approaches to checking VM availability are painfully slow:
+| Task                   | Azure Portal            | This Script | Time Saved   |
+| ---------------------- | ----------------------- | ----------- | ------------ |
+| Check 1 region         | ~30 seconds             | ~2 seconds  | **93%**      |
+| Check 3 regions        | ~90 seconds             | ~5 seconds  | **94%**      |
+| Check 10 regions       | ~5 minutes              | ~15 seconds | **95%**      |
+| Get quota info         | Extra clicks per region | Automatic   | **100%**     |
+| View zone availability | Multiple pages          | Single view | **Huge**     |
+| Export results         | Manual copy/paste       | One command | **Instant**  |
+| Check pricing          | Separate calculator     | Integrated  | **Seamless** |
 
-- **Azure Portal**: ~30 seconds per region (click, wait, scroll, repeat)
-- **Azure CLI/PowerShell sequential**: ~10 seconds per region
-- **This tool**: **~5 seconds for 3 regions** (parallel execution)
+**Why the Portal is Slow:**
+1. Navigate to Virtual Machines → Create
+2. Select region → Wait for SKU list to load (~5 sec)
+3. Click through each size category
+4. Check availability zones (separate dropdown)
+5. Check quota (separate blade)
+6. Repeat for every region
 
-How? The script uses PowerShell 7's `ForEach-Object -Parallel` to query multiple regions simultaneously. What would take **5+ minutes** checking 10 regions manually takes **under 15 seconds** with this tool.
+**Why This Script is Fast:**
+- Uses `ForEach-Object -Parallel` to query multiple regions simultaneously
+- Single API call per region for all SKU data
+- Pre-fetches quota in parallel
+- Caches pricing data to avoid redundant calls
 
 ```
 Scanning 3 regions...
-======================================================================
-AZURE VM CAPACITY CHECKER v1.0.0
-======================================================================
+===============================================================================================================
+AZURE VM CAPACITY CHECKER v1.3.0
+===============================================================================================================
 Subscriptions: 1 | Regions: eastus, eastus2, centralus
+Icons: Unicode | Pricing: Enabled
+
+Fetching retail pricing data...
+Pricing data loaded for 3 region(s)
 [Production-Sub] Scanning 3 region(s)... ✓ Done in 4.8 seconds
 ```
 
@@ -67,6 +87,9 @@ Subscriptions: 1 | Regions: eastus, eastus2, centralus
 - **Multi-Region Parallel Scanning** - Scan 3+ regions in ~5 seconds
 - **Comprehensive SKU Analysis** - All VM families automatically discovered
 - **SKU Filtering** - Filter output to specific SKUs with wildcard support (v1.2.0)
+- **Pricing Information** - Show hourly and monthly pricing for SKUs (v1.3.0)
+  - Retail pricing from Azure Retail Prices API (no auth required)
+  - Actual negotiated pricing via Cost Management API (EA/MCA/CSP, requires billing permissions)
 - **Capacity Status Reporting** - OK, LIMITED, CAPACITY-CONSTRAINED, RESTRICTED states
 - **Zone Availability Details** - Per-zone availability information
 - **Quota Tracking** - Available vCPU quota per family
@@ -128,6 +151,15 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 .\Azure-VM-Capacity-Checker.ps1 -ExportPath "C:\Reports" -AutoExport -OutputFormat XLSX
 ```
 
+### Check Specific SKUs with Pricing
+```powershell
+# Check specific SKUs with pricing information
+.\Azure-VM-Capacity-Checker.ps1 -Region "eastus","westus2" -SkuFilter "Standard_D*_v5" -ShowPricing
+
+# Use actual negotiated pricing (requires billing permissions)
+.\Azure-VM-Capacity-Checker.ps1 -Region "eastus" -ShowPricing -UseActualPricing
+```
+
 ### Full Parameter Example
 ```powershell
 .\Azure-VM-Capacity-Checker.ps1 `
@@ -143,33 +175,60 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ## Parameters
 
-| Parameter          | Type     | Description                                      |
-| ------------------ | -------- | ------------------------------------------------ |
-| `-SubscriptionId`  | String[] | Azure subscription ID(s) to scan                 |
-| `-Region`          | String[] | Azure region code(s) (e.g., 'eastus', 'westus2') |
-| `-ExportPath`      | String   | Directory for export files                       |
-| `-AutoExport`      | Switch   | Export without prompting                         |
-| `-EnableDrillDown` | Switch   | Interactive family/SKU exploration               |
-| `-FamilyFilter`    | String[] | Filter to specific VM families                   |
-| `-NoPrompt`        | Switch   | Skip interactive prompts                         |
-| `-OutputFormat`    | String   | 'Auto', 'CSV', or 'XLSX'                         |
-| `-UseAsciiIcons`   | Switch   | Force ASCII instead of Unicode icons             |
+| Parameter           | Type     | Description                                      |
+| ------------------- | -------- | ------------------------------------------------ |
+| `-SubscriptionId`   | String[] | Azure subscription ID(s) to scan                 |
+| `-Region`           | String[] | Azure region code(s) (e.g., 'eastus', 'westus2') |
+| `-ExportPath`       | String   | Directory for export files                       |
+| `-AutoExport`       | Switch   | Export without prompting                         |
+| `-EnableDrillDown`  | Switch   | Interactive family/SKU exploration               |
+| `-FamilyFilter`     | String[] | Filter to specific VM families                   |
+| `-SkuFilter`        | String[] | Filter to specific SKUs (supports wildcards)     |
+| `-ShowPricing`      | Switch   | Include hourly/monthly pricing columns           |
+| `-UseActualPricing` | Switch   | Use Cost Management API for negotiated rates     |
+| `-NoPrompt`         | Switch   | Skip interactive prompts                         |
+| `-OutputFormat`     | String   | 'Auto', 'CSV', or 'XLSX'                         |
+| `-UseAsciiIcons`    | Switch   | Force ASCII instead of Unicode icons             |
 
 ## Output
 
-### Console Output
+### Console Output (with Pricing)
 ```
-======================================================================
+===============================================================================================================
+AZURE VM CAPACITY CHECKER v1.3.0
+===============================================================================================================
+SKU Filter: Standard_D2s_v5 | Pricing: Enabled
+
+REGION: eastus
+===============================================================================================================
+
+SKU FAMILIES:
+Family        SKUs    OK     Largest             Zones                          Status                  Quota       $/Hr        $/Mo
+---------------------------------------------------------------------------------------------------------------
+D             1       0      2vCPU/8GB           ⚠ Zones 1,2,3                  LIMITED                 100         $0.10       $70
+
+===============================================================================================================
 MULTI-REGION CAPACITY MATRIX
-======================================================================
+===============================================================================================================
 
 Family     | centralus       | eastus          | eastus2
-----------------------------------------------------------------
-B          | ⚠ LIMITED       | ⚠ LIMITED       | ✓ OK
+---------------------------------------------------------------------------------------------------------------
 D          | ⚠ LIMITED       | ⚠ LIMITED       | ✓ OK
-E          | ⚠ LIMITED       | ⚠ LIMITED       | ✓ OK
-NC         | ⚠ LIMITED       | ⚠ LIMITED       | ✓ OK
 ```
+
+### Pricing Options
+
+**Retail Pricing (Default with `-ShowPricing`):**
+- Uses the public Azure Retail Prices API
+- No authentication required
+- Shows Linux pay-as-you-go rates
+- Does NOT include EA/MCA/Reserved discounts
+
+**Actual Pricing (`-UseActualPricing`):**
+- Uses Azure Cost Management API
+- Requires Billing Reader or Cost Management Reader role
+- Shows your negotiated rates (EA, MCA, or CSP discounts applied)
+- Falls back to retail pricing if access is denied
 
 ### Excel Export
 - Color-coded status cells (green/yellow/red)
