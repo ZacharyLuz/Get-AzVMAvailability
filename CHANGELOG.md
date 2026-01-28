@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-01-28
+
+### Added
+- **Sovereign Cloud Support** - Automatic detection and support for all Azure cloud environments
+  - Azure Commercial (`AzureCloud`)
+  - Azure Government (`AzureUSGovernment`)
+  - Azure China (`AzureChinaCloud`)
+  - Azure Germany (`AzureGermanCloud`)
+- **New `Get-AzureEndpoints` Function** - Resolves API endpoints based on current Azure context
+  - Automatically detects environment from `Get-AzContext`
+  - No new parameters required - works transparently
+  - Falls back gracefully to Commercial cloud if detection fails
+- **Pester Tests** - Unit tests for endpoint resolution (`tests/Get-AzureEndpoints.Tests.ps1`)
+  - Mock-based testing for all cloud environments
+  - URL normalization validation
+  - Integration tests for URL construction
+
+### Changed
+- Pricing API URL now derived from `ManagementPortalUrl` instead of hard-coded
+- Cost Management API now uses environment-specific `ResourceManagerUrl`
+- Token acquisition uses dynamic ARM endpoint for sovereign clouds
+
+### Technical
+- Endpoint resolution cached in `$script:AzureEndpoints` for performance
+- Verbose output shows resolved endpoints for debugging
+
 ## [1.4.0] - 2026-01-27
 
 ### Added

@@ -181,7 +181,7 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 # === Configuration ==================================================
 # Script metadata
-$ScriptVersion = "1.4.0"
+$ScriptVersion = "1.5.0"
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -273,6 +273,94 @@ function Get-GeoGroup {
         '^(australia|newzealand)' { return 'Australia' }
         default { return 'Other' }
     }
+}
+
+function Get-AzureEndpoints {
+    <#
+    .SYNOPSIS
+        Resolves Azure endpoints based on the current cloud environment.
+    .DESCRIPTION
+        Automatically detects the Azure environment (Commercial, Government, China, etc.)
+        from the current Az context and returns the appropriate API endpoints.
+        Supports sovereign clouds and air-gapped environments.
+    .OUTPUTS
+        Hashtable with ResourceManagerUrl, PricingApiUrl, and EnvironmentName.
+    .EXAMPLE
+        $endpoints = Get-AzureEndpoints
+        $endpoints.PricingApiUrl  # Returns https://prices.azure.com for Commercial
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$AzEnvironment  # For testing - pass a mock environment object
+    )
+
+    # Get the current Azure environment if not provided (for testing)
+    if (-not $AzEnvironment) {
+        try {
+            $context = Get-AzContext -ErrorAction Stop
+            if (-not $context) {
+                Write-Warning "No Azure context found. Using default Commercial cloud endpoints."
+                $AzEnvironment = $null
+            }
+            else {
+                $AzEnvironment = $context.Environment
+            }
+        }
+        catch {
+            Write-Warning "Could not get Azure context: $_. Using default Commercial cloud endpoints."
+            $AzEnvironment = $null
+        }
+    }
+
+    # Default to Commercial cloud if no environment detected
+    if (-not $AzEnvironment) {
+        return @{
+            EnvironmentName    = 'AzureCloud'
+            ResourceManagerUrl = 'https://management.azure.com'
+            PricingApiUrl      = 'https://prices.azure.com/api/retail/prices'
+        }
+    }
+
+    # Get the Resource Manager URL directly from the environment
+    $armUrl = $AzEnvironment.ResourceManagerUrl
+    if (-not $armUrl) {
+        $armUrl = 'https://management.azure.com'
+    }
+    # Ensure no trailing slash
+    $armUrl = $armUrl.TrimEnd('/')
+
+    # Derive pricing API URL from the portal URL
+    # Commercial: portal.azure.com -> prices.azure.com
+    # Government: portal.azure.us -> prices.azure.us
+    # China: portal.azure.cn -> prices.azure.cn
+    $portalUrl = $AzEnvironment.ManagementPortalUrl
+    if ($portalUrl) {
+        # Extract domain from portal URL and construct pricing URL
+        $pricingUrl = $portalUrl -replace 'portal', 'prices'
+        $pricingUrl = $pricingUrl.TrimEnd('/')
+        $pricingApiUrl = "$pricingUrl/api/retail/prices"
+    }
+    else {
+        # Fallback based on known environment names
+        $pricingApiUrl = switch ($AzEnvironment.Name) {
+            'AzureUSGovernment' { 'https://prices.azure.us/api/retail/prices' }
+            'AzureChinaCloud' { 'https://prices.azure.cn/api/retail/prices' }
+            'AzureGermanCloud' { 'https://prices.microsoftazure.de/api/retail/prices' }
+            default { 'https://prices.azure.com/api/retail/prices' }
+        }
+    }
+
+    $endpoints = @{
+        EnvironmentName    = $AzEnvironment.Name
+        ResourceManagerUrl = $armUrl
+        PricingApiUrl      = $pricingApiUrl
+    }
+
+    Write-Verbose "Azure Environment: $($endpoints.EnvironmentName)"
+    Write-Verbose "Resource Manager URL: $($endpoints.ResourceManagerUrl)"
+    Write-Verbose "Pricing API URL: $($endpoints.PricingApiUrl)"
+
+    return $endpoints
 }
 
 function Get-CapValue {
@@ -621,6 +709,11 @@ function Get-AzVMPricing {
 
     $script:PricingCache = if (-not $script:PricingCache) { @{} } else { $script:PricingCache }
 
+    # Get environment-specific endpoints (supports sovereign clouds)
+    if (-not $script:AzureEndpoints) {
+        $script:AzureEndpoints = Get-AzureEndpoints
+    }
+
     # Azure region name to ARM location mapping
     $armLocation = $Region.ToLower() -replace '\s', ''
 
@@ -628,7 +721,7 @@ function Get-AzVMPricing {
     $filter = "armRegionName eq '$armLocation' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'"
 
     $allPrices = @{}
-    $apiUrl = "https://prices.azure.com/api/retail/prices?`$filter=$([uri]::EscapeDataString($filter))"
+    $apiUrl = "$($script:AzureEndpoints.PricingApiUrl)?`$filter=$([uri]::EscapeDataString($filter))"
 
     try {
         $nextLink = $apiUrl
@@ -709,16 +802,22 @@ function Get-AzActualPricing {
     $allPrices = @{}
 
     try {
-        # Get access token for Azure Resource Manager
-        $token = (Get-AzAccessToken -ResourceUrl 'https://management.azure.com').Token
+        # Get environment-specific endpoints (supports sovereign clouds)
+        if (-not $script:AzureEndpoints) {
+            $script:AzureEndpoints = Get-AzureEndpoints
+        }
+        $armUrl = $script:AzureEndpoints.ResourceManagerUrl
+
+        # Get access token for Azure Resource Manager (uses environment-specific URL)
+        $token = (Get-AzAccessToken -ResourceUrl $armUrl).Token
         $headers = @{
             'Authorization' = "Bearer $token"
             'Content-Type'  = 'application/json'
         }
 
         # Query Cost Management API for price sheet data
-        # Using the consumption price sheet endpoint
-        $apiUrl = "https://management.azure.com/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=contains(meterCategory,'Virtual Machines')"
+        # Using the consumption price sheet endpoint with environment-specific ARM URL
+        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=contains(meterCategory,'Virtual Machines')"
 
         $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
 

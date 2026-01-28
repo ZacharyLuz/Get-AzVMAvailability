@@ -48,6 +48,19 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 - **Azure PowerShell Modules**: `Az.Compute`, `Az.Resources`
 - **Optional**: `ImportExcel` module for styled XLSX export
 
+## Supported Cloud Environments
+
+The script automatically detects your Azure environment and uses the correct API endpoints:
+
+| Cloud            | Environment Name    | Supported |
+| ---------------- | ------------------- | --------- |
+| Azure Commercial | `AzureCloud`        | ✅         |
+| Azure Government | `AzureUSGovernment` | ✅         |
+| Azure China      | `AzureChinaCloud`   | ✅         |
+| Azure Germany    | `AzureGermanCloud`  | ✅         |
+
+**No configuration required** - the script reads your current `Az` context and resolves endpoints automatically.
+
 ## Installation
 
 ```powershell
