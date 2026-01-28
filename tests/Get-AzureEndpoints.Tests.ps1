@@ -3,11 +3,17 @@
 # Run with: Invoke-Pester .\tests\Get-AzureEndpoints.Tests.ps1 -Output Detailed
 
 BeforeAll {
-    # Import the script to get access to functions
-    . "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -SubscriptionId "test" -Region "eastus" -ErrorAction SilentlyContinue 2>$null
+    # Import only the functions from the script without executing main logic
+    # We extract and invoke just the function definitions
+    $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
 
-    # Note: The above may fail but will still dot-source the functions
-    # Alternatively, extract Get-AzureEndpoints into a module for cleaner testing
+    # Extract Get-AzureEndpoints function using regex
+    if ($scriptContent -match '(?s)(function Get-AzureEndpoints \{.+?\n\})') {
+        Invoke-Expression $matches[1]
+    }
+    else {
+        throw "Could not find Get-AzureEndpoints function in script"
+    }
 }
 
 Describe "Get-AzureEndpoints" {
@@ -134,8 +140,8 @@ Describe "Get-AzureEndpoints" {
 
             $endpoints = Get-AzureEndpoints -AzEnvironment $mockEnv
 
-            # Should not have double slashes
-            $endpoints.PricingApiUrl | Should -Not -Match '//'
+            # Should not have double slashes after the protocol
+            $endpoints.PricingApiUrl | Should -Not -Match 'https?://.*//'
             $endpoints.PricingApiUrl | Should -Match '/api/retail/prices$'
         }
     }
@@ -174,7 +180,7 @@ Describe "Endpoint Integration" {
             $armApiUrl = "$($endpoints.ResourceManagerUrl)/subscriptions/$subscriptionId/providers/Microsoft.Consumption/pricesheets/default"
 
             $armApiUrl | Should -Match 'management\.usgovcloudapi\.net/subscriptions/'
-            $armApiUrl | Should -Not -Match '//'  # No double slashes
+            $armApiUrl | Should -Not -Match 'https?://.*//'  # No double slashes after protocol
         }
     }
 }

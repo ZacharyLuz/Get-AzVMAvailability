@@ -335,8 +335,8 @@ function Get-AzureEndpoints {
     # China: portal.azure.cn -> prices.azure.cn
     $portalUrl = $AzEnvironment.ManagementPortalUrl
     if ($portalUrl) {
-        # Extract domain from portal URL and construct pricing URL
-        $pricingUrl = $portalUrl -replace 'portal', 'prices'
+        # Replace only the 'portal' subdomain with 'prices' (more precise than global replace)
+        $pricingUrl = $portalUrl -replace '^(https?://)?portal\.', '${1}prices.'
         $pricingUrl = $pricingUrl.TrimEnd('/')
         $pricingApiUrl = "$pricingUrl/api/retail/prices"
     }
