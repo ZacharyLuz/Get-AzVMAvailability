@@ -13,9 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Azure Government (`AzureUSGovernment`)
   - Azure China (`AzureChinaCloud`)
   - Azure Germany (`AzureGermanCloud`)
+  - Azure Stack (`AzureStack`)
+- **New `-Environment` Parameter** - Optional explicit override for cloud environment
+  - Options: `AzureCloud`, `AzureUSGovernment`, `AzureChinaCloud`, `AzureGermanCloud`, `AzureStack`
+  - Default: auto-detect from `Get-AzContext`
+  - Example: `-Environment AzureUSGovernment`
 - **New `Get-AzureEndpoints` Function** - Resolves API endpoints based on current Azure context
   - Automatically detects environment from `Get-AzContext`
-  - No new parameters required - works transparently
+  - Supports explicit override via `-EnvironmentName` parameter
   - Falls back gracefully to Commercial cloud if detection fails
 - **Pester Tests** - Unit tests for endpoint resolution (`tests/Get-AzureEndpoints.Tests.ps1`)
   - Mock-based testing for all cloud environments

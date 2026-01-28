@@ -173,7 +173,11 @@ param(
     [string]$OutputFormat = "Auto",
 
     [Parameter(Mandatory = $false, HelpMessage = "Force ASCII icons instead of Unicode")]
-    [switch]$UseAsciiIcons
+    [switch]$UseAsciiIcons,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Azure cloud environment (default: auto-detect from Az context)")]
+    [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud", "AzureGermanCloud", "AzureStack")]
+    [string]$Environment
 )
 
 $ErrorActionPreference = 'Continue'
@@ -189,6 +193,7 @@ $Regions = $Region
 $EnableDrill = $EnableDrillDown.IsPresent
 $SelectedFamilyFilter = $FamilyFilter
 $SelectedSkuFilter = @{}
+$script:TargetEnvironment = $Environment  # Explicit environment override (null = auto-detect)
 
 # Detect execution environment (Azure Cloud Shell vs local)
 $isCloudShell = $env:CLOUD_SHELL -eq "true" -or (Test-Path "/home/system" -ErrorAction SilentlyContinue)
@@ -283,18 +288,46 @@ function Get-AzureEndpoints {
         Automatically detects the Azure environment (Commercial, Government, China, etc.)
         from the current Az context and returns the appropriate API endpoints.
         Supports sovereign clouds and air-gapped environments.
+        Can be overridden with explicit environment name.
+    .PARAMETER AzEnvironment
+        Environment object for testing (mock).
+    .PARAMETER EnvironmentName
+        Explicit environment name override (AzureCloud, AzureUSGovernment, etc.).
     .OUTPUTS
         Hashtable with ResourceManagerUrl, PricingApiUrl, and EnvironmentName.
     .EXAMPLE
         $endpoints = Get-AzureEndpoints
         $endpoints.PricingApiUrl  # Returns https://prices.azure.com for Commercial
+    .EXAMPLE
+        $endpoints = Get-AzureEndpoints -EnvironmentName 'AzureUSGovernment'
+        $endpoints.PricingApiUrl  # Returns https://prices.azure.us
     #>
     param(
         [Parameter(Mandatory = $false)]
-        [object]$AzEnvironment  # For testing - pass a mock environment object
+        [object]$AzEnvironment,  # For testing - pass a mock environment object
+
+        [Parameter(Mandatory = $false)]
+        [string]$EnvironmentName  # Explicit override by name
     )
 
-    # Get the current Azure environment if not provided (for testing)
+    # If explicit environment name provided, look it up
+    if ($EnvironmentName) {
+        try {
+            $AzEnvironment = Get-AzEnvironment -Name $EnvironmentName -ErrorAction Stop
+            if (-not $AzEnvironment) {
+                Write-Warning "Environment '$EnvironmentName' not found. Using default Commercial cloud."
+            }
+            else {
+                Write-Verbose "Using explicit environment: $EnvironmentName"
+            }
+        }
+        catch {
+            Write-Warning "Could not get environment '$EnvironmentName': $_. Using default Commercial cloud."
+            $AzEnvironment = $null
+        }
+    }
+
+    # Get the current Azure environment if not provided
     if (-not $AzEnvironment) {
         try {
             $context = Get-AzContext -ErrorAction Stop
@@ -711,7 +744,7 @@ function Get-AzVMPricing {
 
     # Get environment-specific endpoints (supports sovereign clouds)
     if (-not $script:AzureEndpoints) {
-        $script:AzureEndpoints = Get-AzureEndpoints
+        $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
     }
 
     # Azure region name to ARM location mapping
@@ -804,7 +837,7 @@ function Get-AzActualPricing {
     try {
         # Get environment-specific endpoints (supports sovereign clouds)
         if (-not $script:AzureEndpoints) {
-            $script:AzureEndpoints = Get-AzureEndpoints
+            $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
         }
         $armUrl = $script:AzureEndpoints.ResourceManagerUrl
 
