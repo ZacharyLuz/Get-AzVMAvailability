@@ -33,3 +33,7 @@ azureauth.json
 
 # Dev folder (keep for local development only)
 /dev/
+
+# GitHub configuration files (settings FOR GitHub, not part of project)
+Protect_Main_Branch.json
+**/branch-protection*.json

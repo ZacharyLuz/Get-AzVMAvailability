@@ -1962,11 +1962,47 @@ Write-Host "DETAILED CROSS-REGION BREAKDOWN" -ForegroundColor Green
 Write-Host ("=" * 175) -ForegroundColor Gray
 Write-Host ""
 
-# Fixed-width formatted table (175 chars)
-$colFamily = 14
-$colFullCap = 55
+# Helper function to wrap region lists across multiple lines
+function Format-RegionList {
+    param(
+        [string[]]$Regions,
+        [int]$MaxWidth = 75,
+        [int]$IndentSpaces = 14
+    )
 
-$headerFmt = "{0,-$colFamily} {1,-$colFullCap} {2}" -f "Family", "Available Regions", "Constrained Regions"
+    if ($Regions.Count -eq 0) {
+        return @('(none)')
+    }
+
+    $lines = @()
+    $currentLine = ""
+
+    foreach ($region in $Regions) {
+        $separator = if ($currentLine) { ', ' } else { '' }
+        $testLine = $currentLine + $separator + $region
+
+        if ($testLine.Length -gt $MaxWidth -and $currentLine) {
+            # Current line is full, start a new one
+            $lines += $currentLine
+            $currentLine = $region
+        }
+        else {
+            $currentLine = $testLine
+        }
+    }
+
+    if ($currentLine) {
+        $lines += $currentLine
+    }
+
+    return $lines
+}
+
+$colFamily = 14
+$colAvailable = 40
+$colConstrained = 80
+
+$headerFmt = "{0,-$colFamily} {1,-$colAvailable} {2}" -f "Family", "Available Regions", "Constrained Regions"
 Write-Host $headerFmt -ForegroundColor Cyan
 Write-Host ("-" * 175) -ForegroundColor Gray
 
@@ -1989,12 +2025,24 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
         }
     }
 
-    $fullCapStr = if ($regionsOK.Count -gt 0) { $regionsOK -join ', ' } else { '(none)' }
-    $constrainedStr = if ($regionsConstrained.Count -gt 0) { $regionsConstrained -join ' | ' } else { '(none)' }
+    # Format multi-line output
+    $okLines = Format-RegionList -Regions $regionsOK -MaxWidth $colAvailable
+    $constrainedLines = Format-RegionList -Regions $regionsConstrained -MaxWidth $colConstrained
 
-    $line = "{0,-$colFamily} {1,-$colFullCap} {2}" -f $family, $fullCapStr, $constrainedStr
-    $color = if ($regionsOK.Count -gt 0) { 'Green' } elseif ($regionsConstrained.Count -gt 0) { 'Yellow' } else { 'Gray' }
-    Write-Host $line -ForegroundColor $color
+    # Determine how many lines we need (max of both columns)
+    $maxLines = [Math]::Max($okLines.Count, $constrainedLines.Count)
+
+    # Determine color for the family based on availability
+    $familyColor = if ($regionsOK.Count -gt 0) { 'Green' } elseif ($regionsConstrained.Count -gt 0) { 'Yellow' } else { 'Gray' }
+
+    for ($i = 0; $i -lt $maxLines; $i++) {
+        $familyStr = if ($i -eq 0) { $family } else { '' }
+        $okStr = if ($i -lt $okLines.Count) { $okLines[$i] } else { '' }
+        $constrainedStr = if ($i -lt $constrainedLines.Count) { $constrainedLines[$i] } else { '' }
+
+        $line = "{0,-$colFamily} {1,-$colAvailable} {2}" -f $familyStr, $okStr, $constrainedStr
+        Write-Host $line -ForegroundColor $familyColor
+    }
 
     # Export data
     $exportRow = [ordered]@{
@@ -2156,9 +2204,115 @@ if ($ExportPath) {
 
             Close-ExcelPackage $excel
 
+            # === Legend Sheet ===
+            $legendData = @(
+                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "STATUS (X/Y)"; Description = "X = SKUs with full availability, Y = Total SKUs in family for that region" }
+                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "Example: OK (5/8)"; Description = "5 out of 8 SKUs are fully available with OK status" }
+                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "OK"; Description = "Full capacity available - SKU can be deployed without restrictions" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "LIMITED"; Description = "Subscription-level restrictions apply - may require quota increase or support request" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "CAPACITY-CONSTRAINED"; Description = "Zone-level constraints - limited availability in some availability zones" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "RESTRICTED"; Description = "SKU is not available for deployment in this region/subscription" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "N/A"; Description = "SKU family not available in this region" }
+                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "Family"; Description = "VM family identifier (e.g., Dv5, Ev5, Mv2)" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "Total_SKUs"; Description = "Total number of SKUs scanned across all regions" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "SKUs_OK"; Description = "Number of SKUs with full availability (OK status)" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "<Region>_Status"; Description = "Capacity status for that region with (Available/Total) count" }
+                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Family"; Description = "VM family identifier" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "SKU"; Description = "Full SKU name (e.g., Standard_D2s_v5)" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Region"; Description = "Azure region code" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "vCPU"; Description = "Number of virtual CPUs" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "MemGiB"; Description = "Memory in GiB" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Zones"; Description = "Availability zones where SKU is available" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Capacity"; Description = "Current capacity status" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Restrictions"; Description = "Any restrictions or capacity messages" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "QuotaAvail"; Description = "Available vCPU quota for this family (Limit - Current Usage)" }
+                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Green"; Description = "Full availability - ready for deployment" }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Yellow/Orange"; Description = "Limited or constrained - may have restrictions" }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Red"; Description = "Restricted - not available for deployment" }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Gray"; Description = "Not applicable or unavailable in region" }
+            )
+
+            $excel = $legendData | Export-Excel -Path $xlsxFile -WorksheetName "Legend" -AutoSize -PassThru
+
+            $ws = $excel.Workbook.Worksheets["Legend"]
+            $legendLastRow = $ws.Dimension.End.Row
+
+            # Style header row
+            $ws.Cells["A1:C1"].Style.Font.Bold = $true
+            $ws.Cells["A1:C1"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+            $ws.Cells["A1:C1"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $ws.Cells["A1:C1"].Style.Fill.BackgroundColor.SetColor($headerBlue)
+
+            # Style category column
+            $ws.Cells["A2:A$legendLastRow"].Style.Font.Bold = $true
+
+            # Add borders
+            $ws.Cells["A1:C$legendLastRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+            $ws.Cells["A1:C$legendLastRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+            $ws.Cells["A1:C$legendLastRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+            $ws.Cells["A1:C$legendLastRow"].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+
+            # Apply colors to color coding rows
+            for ($row = 2; $row -le $legendLastRow; $row++) {
+                $itemValue = $ws.Cells["B$row"].Value
+                if ($itemValue -eq "Green") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($greenFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($greenText)
+                }
+                elseif ($itemValue -eq "Yellow/Orange") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($yellowFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($yellowText)
+                }
+                elseif ($itemValue -eq "Red") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($redFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($redText)
+                }
+                elseif ($itemValue -eq "Gray") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($lightGray)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
+                }
+                # Style status values in Legend
+                elseif ($itemValue -eq "OK") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($greenFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($greenText)
+                }
+                elseif ($itemValue -eq "LIMITED" -or $itemValue -eq "CAPACITY-CONSTRAINED") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($yellowFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($yellowText)
+                }
+                elseif ($itemValue -eq "RESTRICTED") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($redFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($redText)
+                }
+                elseif ($itemValue -eq "N/A") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($lightGray)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
+                }
+            }
+
+            # Set column widths
+            $ws.Column(1).Width = 20
+            $ws.Column(2).Width = 25
+            $ws.Column(3).Width = 70
+
+            Close-ExcelPackage $excel
+
             Write-Host "  $($Icons.Check) XLSX: $xlsxFile" -ForegroundColor Green
             Write-Host "    - Summary sheet with color-coded status" -ForegroundColor DarkGray
             Write-Host "    - Details sheet with filters and conditional formatting" -ForegroundColor DarkGray
+            Write-Host "    - Legend sheet explaining status codes and format" -ForegroundColor DarkGray
         }
         catch {
             Write-Host "  $($Icons.Warning) XLSX formatting failed: $($_.Exception.Message)" -ForegroundColor Yellow
