@@ -1,0 +1,54 @@
+name: "PowerShell Linting"
+
+on:
+    push:
+        branches: ["main"]
+        paths:
+            - "**.ps1"
+            - "**.psm1"
+            - "**.psd1"
+    pull_request:
+        branches: ["main"]
+        paths:
+            - "**.ps1"
+            - "**.psm1"
+            - "**.psd1"
+
+jobs:
+    lint:
+        name: PSScriptAnalyzer
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Run PSScriptAnalyzer
+              uses: microsoft/psscriptanalyzer-action@v1.1
+              with:
+                  path: .
+                  recurse: true
+                  output: results.sarif
+                  # Exclude informational rules, focus on warnings/errors
+                  excludeRule: '"PSAvoidUsingWriteHost"'
+
+            - name: Upload SARIF results
+              uses: github/codeql-action/upload-sarif@v3
+              with:
+                  sarif_file: results.sarif
+              if: always()
+
+    test:
+        name: Pester Tests
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Run Pester Tests
+              shell: pwsh
+              run: |
+                  Install-Module -Name Pester -Force -SkipPublisherCheck
+                  $results = Invoke-Pester ./tests -Output Detailed -PassThru
+                  if ($results.FailedCount -gt 0) {
+                    throw "$($results.FailedCount) test(s) failed"
+                  }
