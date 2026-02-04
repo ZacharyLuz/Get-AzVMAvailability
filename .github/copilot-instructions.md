@@ -56,3 +56,34 @@
 
 - All scripts are MIT licensed.
 - For advanced usage, see scripts in `dev/` and documentation in `README.md` and `examples/`.
+
+## Safe File Editing Practices
+
+When making code changes to PowerShell scripts, follow these guidelines to avoid file corruption:
+
+### Small, Targeted Edits
+- **Make small, focused edits** rather than large structural changes in a single operation.
+- When fixing indentation or brace structure, edit one block at a time.
+- Avoid combining multiple unrelated changes into one replacement.
+
+### Verify After Every Edit
+- **Always verify syntax immediately** after each edit using:
+  ```powershell
+  [scriptblock]::Create((Get-Content 'script.ps1' -Raw)) | Out-Null
+  # Returns True if valid, throws error if invalid
+  ```
+- Run `git diff` to inspect changes before testing the script.
+
+### Git as Safety Net
+- **Commit frequently** before making structural changes.
+- Use `git checkout HEAD -- <file>` to restore from last commit if edits corrupt the file.
+- The `replace_string_in_file` tool can fail silently or make unexpected changes if the `oldString` doesn't match exactly (whitespace, newlines matter!).
+
+### Common Pitfalls
+- Large replacement blocks can misalign if whitespace doesn't match character-for-character.
+- Removing `else` blocks or changing loop structures requires careful brace counting.
+- When code ends up in the wrong location after an edit, restore from git and retry with smaller edits.
+
+### Testing Requirements
+- Run Pester tests after changes: `Invoke-Pester .\tests\*.Tests.ps1 -Output Detailed`
+- Requires Pester v5+ (install with: `Install-Module Pester -Force -SkipPublisherCheck`)

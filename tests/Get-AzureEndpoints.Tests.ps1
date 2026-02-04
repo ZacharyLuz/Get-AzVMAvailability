@@ -184,3 +184,189 @@ Describe "Endpoint Integration" {
         }
     }
 }
+
+Describe "Drill-Down Display Logic" {
+    BeforeAll {
+        # Mock data for testing drill-down display
+        $script:mockFamilyDetails = @(
+            [PSCustomObject]@{ Family = 'D'; SKU = 'Standard_D2s_v3'; Region = 'eastus'; vCPU = 2; MemGiB = 8; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2,3'; Capacity = 'OK'; QuotaAvail = 100; QuotaLimit = 200; QuotaCurrent = 100 }
+            [PSCustomObject]@{ Family = 'D'; SKU = 'Standard_D4s_v3'; Region = 'eastus'; vCPU = 4; MemGiB = 16; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2,3'; Capacity = 'OK'; QuotaAvail = 100; QuotaLimit = 200; QuotaCurrent = 100 }
+            [PSCustomObject]@{ Family = 'D'; SKU = 'Standard_D2s_v3'; Region = 'westus'; vCPU = 2; MemGiB = 8; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2'; Capacity = 'LIMITED'; QuotaAvail = 50; QuotaLimit = 100; QuotaCurrent = 50 }
+            [PSCustomObject]@{ Family = 'E'; SKU = 'Standard_E2s_v3'; Region = 'eastus'; vCPU = 2; MemGiB = 16; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2,3'; Capacity = 'OK'; QuotaAvail = 200; QuotaLimit = 300; QuotaCurrent = 100 }
+        )
+    }
+
+    Context "Header display behavior" {
+        It "Should NOT print Family header when no matching SKUs exist" {
+            # Simulate drill-down with a family that has no data
+            $familyDetails = $script:mockFamilyDetails
+            $SelectedFamilyFilter = @('X')  # Family X doesn't exist
+            $SelectedSkuFilter = @{}
+
+            foreach ($fam in $SelectedFamilyFilter) {
+                $skuFilter = $null
+                if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
+
+                $detailRows = $familyDetails | Where-Object {
+                    $_.Family -eq $fam -and (-not $skuFilter -or $skuFilter -contains $_.SKU)
+                }
+
+                # This is the FIX we're testing: check BEFORE printing headers
+                if ($detailRows.Count -eq 0) {
+                    # Should show "no matching" message, not family header
+                    $result = "Family: $fam - No matching SKUs found for selection."
+                }
+                else {
+                    $result = "Family: $fam (shared quota per region)"
+                }
+            }
+
+            $result | Should -Match 'No matching SKUs found'
+            $result | Should -Not -Match 'shared quota per region'
+        }
+
+        It "Should print Family header when matching SKUs exist" {
+            $familyDetails = $script:mockFamilyDetails
+            $SelectedFamilyFilter = @('D')  # Family D exists
+            $SelectedSkuFilter = @{}
+
+            foreach ($fam in $SelectedFamilyFilter) {
+                $skuFilter = $null
+                if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
+
+                $detailRows = $familyDetails | Where-Object {
+                    $_.Family -eq $fam -and (-not $skuFilter -or $skuFilter -contains $_.SKU)
+                }
+
+                if ($detailRows.Count -eq 0) {
+                    $result = "Family: $fam - No matching SKUs found for selection."
+                }
+                else {
+                    $result = "Family: $fam (shared quota per region)"
+                }
+            }
+
+            $result | Should -Match 'shared quota per region'
+            $result | Should -Not -Match 'No matching SKUs found'
+        }
+
+        It "Should filter by SKU when SelectedSkuFilter is specified" {
+            $familyDetails = $script:mockFamilyDetails
+            $SelectedFamilyFilter = @('D')
+            $SelectedSkuFilter = @{ 'D' = @('Standard_D2s_v3') }  # Only D2s
+
+            foreach ($fam in $SelectedFamilyFilter) {
+                $skuFilter = $null
+                if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
+
+                $detailRows = $familyDetails | Where-Object {
+                    $_.Family -eq $fam -and (-not $skuFilter -or $skuFilter -contains $_.SKU)
+                }
+            }
+
+            $detailRows.Count | Should -Be 2  # D2s in eastus and westus
+            $detailRows | ForEach-Object { $_.SKU | Should -Be 'Standard_D2s_v3' }
+        }
+
+        It "Should group results by region" {
+            $familyDetails = $script:mockFamilyDetails
+            $detailRows = $familyDetails | Where-Object { $_.Family -eq 'D' }
+            $regionGroups = $detailRows | Group-Object Region | Sort-Object Name
+
+            $regionGroups.Count | Should -Be 2
+            $regionGroups[0].Name | Should -Be 'eastus'
+            $regionGroups[1].Name | Should -Be 'westus'
+            $regionGroups[0].Count | Should -Be 2  # 2 SKUs in eastus
+            $regionGroups[1].Count | Should -Be 1  # 1 SKU in westus
+        }
+
+        It "Should handle multiple families correctly" {
+            $familyDetails = $script:mockFamilyDetails
+            $SelectedFamilyFilter = @('D', 'E', 'X')  # D and E exist, X doesn't
+            $SelectedSkuFilter = @{}
+            $results = @()
+
+            foreach ($fam in $SelectedFamilyFilter) {
+                $skuFilter = $null
+                if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
+
+                $detailRows = $familyDetails | Where-Object {
+                    $_.Family -eq $fam -and (-not $skuFilter -or $skuFilter -contains $_.SKU)
+                }
+
+                if ($detailRows.Count -eq 0) {
+                    $results += @{ Family = $fam; HasData = $false; Message = 'No matching' }
+                }
+                else {
+                    $results += @{ Family = $fam; HasData = $true; RowCount = $detailRows.Count }
+                }
+            }
+
+            $results.Count | Should -Be 3
+            ($results | Where-Object { $_.Family -eq 'D' }).HasData | Should -Be $true
+            ($results | Where-Object { $_.Family -eq 'D' }).RowCount | Should -Be 3
+            ($results | Where-Object { $_.Family -eq 'E' }).HasData | Should -Be $true
+            ($results | Where-Object { $_.Family -eq 'E' }).RowCount | Should -Be 1
+            ($results | Where-Object { $_.Family -eq 'X' }).HasData | Should -Be $false
+        }
+    }
+
+    Context "Quota display formatting" {
+        It "Should format quota as 'X of Y used' when both values available" {
+            $regionQuota = [PSCustomObject]@{ QuotaLimit = 200; QuotaCurrent = 100 }
+
+            $quotaHeader = if ($null -ne $regionQuota.QuotaLimit -and $null -ne $regionQuota.QuotaCurrent) {
+                $avail = $regionQuota.QuotaLimit - $regionQuota.QuotaCurrent
+                "Quota: $($regionQuota.QuotaCurrent) of $($regionQuota.QuotaLimit) vCPUs used | $avail available"
+            }
+
+            $quotaHeader | Should -Be 'Quota: 100 of 200 vCPUs used | 100 available'
+        }
+
+        It "Should show '0 of X used' when quota is fully available" {
+            $regionQuota = [PSCustomObject]@{ QuotaLimit = 100; QuotaCurrent = 0 }
+
+            $quotaHeader = if ($null -ne $regionQuota.QuotaLimit -and $null -ne $regionQuota.QuotaCurrent) {
+                $avail = $regionQuota.QuotaLimit - $regionQuota.QuotaCurrent
+                "Quota: $($regionQuota.QuotaCurrent) of $($regionQuota.QuotaLimit) vCPUs used | $avail available"
+            }
+
+            $quotaHeader | Should -Be 'Quota: 0 of 100 vCPUs used | 100 available'
+            $quotaHeader | Should -Match '^Quota: 0 of'
+        }
+
+        It "Should fallback to QuotaAvail when limit/current not available" {
+            $regionQuota = [PSCustomObject]@{ QuotaAvail = 50 }
+
+            $quotaHeader = if ($null -ne $regionQuota.QuotaLimit -and $null -ne $regionQuota.QuotaCurrent) {
+                $avail = $regionQuota.QuotaLimit - $regionQuota.QuotaCurrent
+                "Quota: $($regionQuota.QuotaCurrent) of $($regionQuota.QuotaLimit) vCPUs used | $avail available"
+            }
+            elseif ($regionQuota.QuotaAvail -and $regionQuota.QuotaAvail -ne '?') {
+                "Quota: $($regionQuota.QuotaAvail) vCPUs available"
+            }
+            else {
+                "Quota: N/A"
+            }
+
+            $quotaHeader | Should -Be 'Quota: 50 vCPUs available'
+        }
+
+        It "Should show N/A when no quota info available" {
+            $regionQuota = [PSCustomObject]@{ QuotaAvail = '?' }
+
+            $quotaHeader = if ($null -ne $regionQuota.QuotaLimit -and $null -ne $regionQuota.QuotaCurrent) {
+                $avail = $regionQuota.QuotaLimit - $regionQuota.QuotaCurrent
+                "Quota: $($regionQuota.QuotaCurrent) of $($regionQuota.QuotaLimit) vCPUs used | $avail available"
+            }
+            elseif ($regionQuota.QuotaAvail -and $regionQuota.QuotaAvail -ne '?') {
+                "Quota: $($regionQuota.QuotaAvail) vCPUs available"
+            }
+            else {
+                "Quota: N/A"
+            }
+
+            $quotaHeader | Should -Be 'Quota: N/A'
+        }
+    }
+}

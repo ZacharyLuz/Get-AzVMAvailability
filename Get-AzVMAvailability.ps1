@@ -2331,6 +2331,128 @@ if ($ExportPath) {
             # Center numeric columns
             $ws.Cells["B2:C$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
 
+            # === Add Compact Legend to Summary Sheet ===
+            $legendStartRow = $lastRow + 3  # Leave 2 blank rows
+
+            # Legend title - Capacity Status
+            $ws.Cells["A$legendStartRow"].Value = "CAPACITY STATUS"
+            $ws.Cells["A$legendStartRow`:C$legendStartRow"].Merge = $true
+            $ws.Cells["A$legendStartRow"].Style.Font.Bold = $true
+            $ws.Cells["A$legendStartRow"].Style.Font.Size = 11
+            $ws.Cells["A$legendStartRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $ws.Cells["A$legendStartRow"].Style.Fill.BackgroundColor.SetColor($headerBlue)
+            $ws.Cells["A$legendStartRow"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+
+            # Status codes table
+            $statusItems = @(
+                @{ Status = "OK"; Desc = "Full capacity available - ready for deployment" }
+                @{ Status = "LIMITED"; Desc = "Subscription restrictions - may require quota increase request" }
+                @{ Status = "CAPACITY-CONSTRAINED"; Desc = "Zone-level constraints - limited availability in some zones" }
+                @{ Status = "PARTIAL"; Desc = "Mixed zone availability - some zones OK, others restricted" }
+                @{ Status = "RESTRICTED"; Desc = "Not available for deployment in this region/subscription" }
+            )
+
+            $currentRow = $legendStartRow + 1
+            foreach ($item in $statusItems) {
+                $ws.Cells["A$currentRow"].Value = $item.Status
+                $ws.Cells["B$currentRow`:C$currentRow"].Merge = $true
+                $ws.Cells["B$currentRow"].Value = $item.Desc
+                $ws.Cells["A$currentRow"].Style.Font.Bold = $true
+                $ws.Cells["A$currentRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+
+                # Apply matching colors to status cell
+                $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                switch ($item.Status) {
+                    "OK" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($greenFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($greenText)
+                    }
+                    { $_ -in "LIMITED", "CAPACITY-CONSTRAINED", "PARTIAL" } {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($yellowFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($yellowText)
+                    }
+                    "RESTRICTED" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($redFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($redText)
+                    }
+                }
+
+                # Add borders to this row
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+
+                $currentRow++
+            }
+
+            # Image Compatibility section (if image checking was used)
+            $currentRow += 2  # Skip a row
+            $ws.Cells["A$currentRow"].Value = "IMAGE COMPATIBILITY (Img Column)"
+            $ws.Cells["A$currentRow`:C$currentRow"].Merge = $true
+            $ws.Cells["A$currentRow"].Style.Font.Bold = $true
+            $ws.Cells["A$currentRow"].Style.Font.Size = 11
+            $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($headerBlue)
+            $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+
+            $imgItems = @(
+                @{ Symbol = "✓"; Desc = "SKU is compatible with selected image (Gen & Arch match)" }
+                @{ Symbol = "✗"; Desc = "SKU is NOT compatible (wrong generation or architecture)" }
+                @{ Symbol = "[-]"; Desc = "Unable to determine compatibility" }
+            )
+
+            $currentRow++
+            foreach ($item in $imgItems) {
+                $ws.Cells["A$currentRow"].Value = $item.Symbol
+                $ws.Cells["B$currentRow`:C$currentRow"].Merge = $true
+                $ws.Cells["B$currentRow"].Value = $item.Desc
+                $ws.Cells["A$currentRow"].Style.Font.Bold = $true
+                $ws.Cells["A$currentRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+                $ws.Cells["A$currentRow"].Style.Font.Size = 12
+
+                # Color the symbol
+                $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                switch ($item.Symbol) {
+                    "✓" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($greenFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($greenText)
+                    }
+                    "✗" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($redFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($redText)
+                    }
+                    "[-]" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($lightGray)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
+                    }
+                }
+
+                # Add borders
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+
+                $currentRow++
+            }
+
+            # Format note
+            $currentRow += 2
+            $ws.Cells["A$currentRow"].Value = "FORMAT:"
+            $ws.Cells["A$currentRow"].Style.Font.Bold = $true
+            $ws.Cells["B$currentRow"].Value = "STATUS (X/Y) = X SKUs available out of Y total"
+            $currentRow++
+            $ws.Cells["A$currentRow`:C$currentRow"].Merge = $true
+            $ws.Cells["A$currentRow"].Value = "See 'Legend' tab for detailed column descriptions"
+            $ws.Cells["A$currentRow"].Style.Font.Italic = $true
+            $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
+
+            # Set column widths for legend area
+            $ws.Column(1).Width = 22
+            $ws.Column(2).Width = 35
+            $ws.Column(3).Width = 25
+
             Close-ExcelPackage $excel
 
             # === Details Sheet ===
