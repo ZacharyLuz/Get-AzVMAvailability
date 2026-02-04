@@ -8,14 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.5.0] - 2026-01-28
 
 ### Added
-- **Sovereign Cloud Support** - Automatic detection and support for all Azure cloud environments
+- **Sovereign Cloud Support** - Automatic detection and support for Azure cloud environments
   - Azure Commercial (`AzureCloud`)
   - Azure Government (`AzureUSGovernment`)
   - Azure China (`AzureChinaCloud`)
   - Azure Germany (`AzureGermanCloud`)
-  - Azure Stack (`AzureStack`)
 - **New `-Environment` Parameter** - Optional explicit override for cloud environment
-  - Options: `AzureCloud`, `AzureUSGovernment`, `AzureChinaCloud`, `AzureGermanCloud`, `AzureStack`
+  - Options: `AzureCloud`, `AzureUSGovernment`, `AzureChinaCloud`, `AzureGermanCloud`
   - Default: auto-detect from `Get-AzContext`
   - Example: `-Environment AzureUSGovernment`
 - **New `Get-AzureEndpoints` Function** - Resolves API endpoints based on current Azure context
@@ -31,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pricing API URL now derived from `ManagementPortalUrl` instead of hard-coded
 - Cost Management API now uses environment-specific `ResourceManagerUrl`
 - Token acquisition uses dynamic ARM endpoint for sovereign clouds
+- **Breaking**: Removed `-UseActualPricing` switch; `-ShowPricing` now auto-detects negotiated rates (EA/MCA/CSP) and falls back to retail pricing automatically
 
 ### Technical
 - Endpoint resolution cached in `$script:AzureEndpoints` for performance

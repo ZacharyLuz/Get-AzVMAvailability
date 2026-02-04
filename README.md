@@ -100,7 +100,7 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ### Check GPU SKU Availability
 ```powershell
-# Single line (recommended for copy-paste)
+# Multi-line with backticks for readability
 .\Get-AzVMAvailability.ps1 `
     -Region "eastus","eastus2","southcentralus" `
     -FamilyFilter "NC","ND","NV"

@@ -70,6 +70,10 @@
     Force ASCII icons [+] [!] [-] instead of Unicode ✓ ⚠ ✗.
     By default, auto-detects terminal capability.
 
+.PARAMETER Environment
+    Azure cloud environment override. Auto-detects from Az context if not specified.
+    Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud
+
 .NOTES
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
@@ -1082,22 +1086,31 @@ else {
 # Validate region count limit
 $maxRegions = 5
 if ($Regions.Count -gt $maxRegions) {
-    Write-Host "`n" -NoNewline
-    Write-Host "WARNING: " -ForegroundColor Yellow -NoNewline
-    Write-Host "You've specified $($Regions.Count) regions. For optimal performance and readability," -ForegroundColor White
-    Write-Host "         the maximum recommended is $maxRegions regions per scan." -ForegroundColor White
-    Write-Host "`nOptions:" -ForegroundColor Cyan
-    Write-Host "  1. Continue with first $maxRegions regions: $($Regions[0..($maxRegions-1)] -join ', ')" -ForegroundColor Gray
-    Write-Host "  2. Cancel and re-run with fewer regions" -ForegroundColor Gray
-    Write-Host "`nContinue with first $maxRegions regions? (y/N): " -ForegroundColor Yellow -NoNewline
-    $limitInput = Read-Host
-    if ($limitInput -match '^y(es)?$') {
+    if ($NoPrompt) {
+        # In NoPrompt mode, auto-truncate with warning (don't hang on Read-Host)
+        Write-Host "`nWARNING: " -ForegroundColor Yellow -NoNewline
+        Write-Host "Specified $($Regions.Count) regions exceeds maximum of $maxRegions. Auto-truncating." -ForegroundColor White
         $Regions = @($Regions[0..($maxRegions - 1)])
         Write-Host "Proceeding with: $($Regions -join ', ')" -ForegroundColor Green
     }
     else {
-        Write-Host "Scan cancelled. Please re-run with $maxRegions or fewer regions." -ForegroundColor Yellow
-        exit 0
+        Write-Host "`n" -NoNewline
+        Write-Host "WARNING: " -ForegroundColor Yellow -NoNewline
+        Write-Host "You've specified $($Regions.Count) regions. For optimal performance and readability," -ForegroundColor White
+        Write-Host "         the maximum recommended is $maxRegions regions per scan." -ForegroundColor White
+        Write-Host "`nOptions:" -ForegroundColor Cyan
+        Write-Host "  1. Continue with first $maxRegions regions: $($Regions[0..($maxRegions-1)] -join ', ')" -ForegroundColor Gray
+        Write-Host "  2. Cancel and re-run with fewer regions" -ForegroundColor Gray
+        Write-Host "`nContinue with first $maxRegions regions? (y/N): " -ForegroundColor Yellow -NoNewline
+        $limitInput = Read-Host
+        if ($limitInput -match '^y(es)?$') {
+            $Regions = @($Regions[0..($maxRegions - 1)])
+            Write-Host "Proceeding with: $($Regions -join ', ')" -ForegroundColor Green
+        }
+        else {
+            Write-Host "Scan cancelled. Please re-run with $maxRegions or fewer regions." -ForegroundColor Yellow
+            exit 0
+        }
     }
 }
 
@@ -1913,6 +1926,9 @@ $headerLine = "Family".PadRight(10)
 foreach ($r in $allRegions) { $headerLine += " | " + $r.PadRight(15) }
 $matrixWidth = $headerLine.Length
 
+# Set script-level output width for consistent separators
+$script:OutputWidth = [Math]::Max($matrixWidth, 80)
+
 # Display section header with dynamic width
 Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
 Write-Host "MULTI-REGION CAPACITY MATRIX" -ForegroundColor Green
@@ -1959,7 +1975,18 @@ Write-Host ("  $($Icons.BLOCKED)".PadRight(20) + "Not available") -ForegroundCol
 Write-Host ""
 Write-Host "NEED MORE CAPACITY?" -ForegroundColor Cyan
 Write-Host "  LIMITED status: Request quota increase at:" -ForegroundColor Yellow
-Write-Host "  https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas" -ForegroundColor DarkCyan
+# Use environment-aware portal URL
+$quotaPortalUrl = if ($script:AzureEndpoints -and $script:AzureEndpoints.EnvironmentName) {
+    switch ($script:AzureEndpoints.EnvironmentName) {
+        'AzureUSGovernment' { 'https://portal.azure.us/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
+        'AzureChinaCloud' { 'https://portal.azure.cn/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
+        'AzureGermanCloud' { 'https://portal.microsoftazure.de/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
+        default { 'https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
+    }
+} else {
+    'https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas'
+}
+Write-Host "  $quotaPortalUrl" -ForegroundColor DarkCyan
 if ($FetchPricing) {
     Write-Host ""
     Write-Host "PRICING NOTE:" -ForegroundColor Cyan
@@ -2346,7 +2373,7 @@ if ($ExportPath) {
                     $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($greenFill)
                     $ws.Cells["B$row"].Style.Font.Color.SetColor($greenText)
                 }
-                elseif ($itemValue -eq "LIMITED" -or $itemValue -eq "CAPACITY-CONSTRAINED") {
+                elseif ($itemValue -eq "LIMITED" -or $itemValue -eq "CAPACITY-CONSTRAINED" -or $itemValue -eq "PARTIAL") {
                     $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
                     $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($yellowFill)
                     $ws.Cells["B$row"].Style.Font.Color.SetColor($yellowText)
