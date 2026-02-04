@@ -13,6 +13,7 @@ on:
             - "**.ps1"
             - "**.psm1"
             - "**.psd1"
+    workflow_dispatch: # Allow manual trigger for baseline scans
 
 jobs:
     lint:
