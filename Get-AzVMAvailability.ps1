@@ -204,7 +204,7 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 # === Configuration ==================================================
 # Script metadata
-$ScriptVersion = "1.5.0"
+$ScriptVersion = "1.5.1"
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -249,9 +249,7 @@ if ($Environment) {
     $script:TargetEnvironment = $Environment
 }
 
-# Initialize Azure endpoints for environment-aware URLs (quota portal, pricing API)
-# This ensures sovereign cloud users get correct URLs even without -ShowPricing
-$script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
+# Note: Azure endpoints initialized after function definitions (see below "Initialize Azure endpoints")
 
 # Detect execution environment (Azure Cloud Shell vs local)
 $isCloudShell = $env:CLOUD_SHELL -eq "true" -or (Test-Path "/home/system" -ErrorAction SilentlyContinue)
@@ -1022,6 +1020,11 @@ function Format-FixedWidthTable {
         Write-Host ($rowParts -join '  ') -ForegroundColor $rowColor
     }
 }
+
+# === Initialize Azure Endpoints =====================================
+# Must be after function definitions, before main execution
+# This ensures sovereign cloud users get correct URLs (quota portal, pricing API)
+$script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
 
 # === Interactive Prompts ============================================
 # Prompt user for subscription(s) if not provided via parameters
