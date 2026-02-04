@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-02-03
+
+### Added
+- **Excel Legend Sheet** - New "Legend" worksheet in XLSX exports explaining:
+  - Status format `(X/Y)` where X = available SKUs, Y = total SKUs
+  - Capacity status codes with color coding (OK, LIMITED, CAPACITY-CONSTRAINED, PARTIAL, RESTRICTED, N/A)
+  - Column definitions for Summary and Details sheets
+- **Region Presets (`-RegionPreset`)** - Quick access to common region sets:
+  - `USEastWest` - eastus, eastus2, westus, westus2
+  - `USCentral` - centralus, northcentralus, southcentralus, westcentralus
+  - `USMajor` - Top 5 US regions (eastus, eastus2, centralus, westus, westus2)
+  - `Europe` - westeurope, northeurope, uksouth, francecentral, germanywestcentral
+  - `AsiaPacific` - eastasia, southeastasia, japaneast, australiaeast, koreacentral
+  - `Global` - One region per major geography
+  - `USGov` - Azure Government regions (auto-sets environment)
+  - `China` - Azure China/Mooncake regions (auto-sets environment)
+  - `ASR-EastWest` / `ASR-CentralUS` - Azure Site Recovery DR pairs
+- **Sovereign Cloud Support** - Automatic detection and support for Azure cloud environments
+  - Azure Commercial (`AzureCloud`)
+  - Azure Government (`AzureUSGovernment`)
+  - Azure China (`AzureChinaCloud`)
+  - Azure Germany (`AzureGermanCloud` - deprecated)
+- **New `-Environment` Parameter** - Optional explicit override for cloud environment
+- **Region Limit (5 max)** - Warns when >5 regions specified for readability
+  - Interactive mode: prompts to truncate or cancel
+  - `-NoPrompt` mode: auto-truncates with warning
+- **Drill-Down Quota Breakdown** - Region sub-headers show full quota info:
+  - Format: `Region: eastus (Quota: 0 of 100 vCPUs used | 100 available)`
+  - Fixed: Now correctly shows `0` when no quota is used (was showing simplified format)
+- **NEED MORE CAPACITY? Section** - Guidance for quota increases
+  - Environment-aware portal link (Commercial/Gov/China)
+  - Hybrid Benefit pricing note when `-ShowPricing` enabled
+- **Pester Tests** - Unit tests for endpoint resolution (`tests/Get-AzureEndpoints.Tests.ps1`)
+- **Documentation**
+  - `docs/Excel-Legend-Reference.md` - Comprehensive Legend explanation
+  - Region Presets section in README with examples
+  - Image Compatibility Checking section in README with interactive search guide
+  - Sovereign Clouds explanation (why presets are hardcoded)
+
+### Changed
+- **Breaking**: Removed `-UseActualPricing` switch; `-ShowPricing` now auto-detects negotiated rates (EA/MCA/CSP) and falls back to retail pricing automatically
+- **Detailed Cross-Region Breakdown** - Improved color logic:
+  - Family name: **Green** (100% OK), **White** (mixed), **Yellow** (all constrained), **Gray** (unavailable)
+  - Available column: Always **Green**
+  - Constrained column: Always **Yellow**
+  - Now includes `RESTRICTED` and `BLOCKED` statuses (were being hidden)
+- **Dynamic Separator Widths** - Calculated early based on table column widths
+  - With pricing: 133 characters
+  - Without pricing: 113 characters
+  - No more misaligned separators
+- Multi-region output now wraps long region lists intelligently across lines
+- Pricing API URL derived from `ManagementPortalUrl` instead of hard-coded
+- Cost Management API uses environment-specific `ResourceManagerUrl`
+- Quota URL in help text now environment-aware (Gov/China use correct portal)
+- README version badge updated to 1.5.0
+
+### Fixed
+- **Quota display** - Fixed `$null` vs `0` comparison; now shows "0 of 100 used" instead of just "100 available"
+- **Region truncation bug** - Fixed single-character region names in Detailed Breakdown (was showing 'e' instead of 'eastus')
+- **Separator line widths** - Now consistent across all sections (was using different widths)
+- **Duplicate print loop** - Removed accidentally duplicated for-loop in Detailed Breakdown
+- **Stray characters** - Removed debug text that was appearing in output
+- Excel Legend export now uses `-Append` (was overwriting Summary/Details sheets)
+- PARTIAL status now included in Legend and has yellow styling in Excel
+- Region limit prompt respects `-NoPrompt` (was hanging in automation)
+- **Sovereign cloud quota URLs** - Fixed environment detection being overwritten; quota portal URLs now correctly point to sovereign cloud portals (portal.azure.us, portal.azure.cn) even without `-ShowPricing`
+
+### Added (CI/CD)
+- **GitHub Actions workflow** - PSScriptAnalyzer linting and Pester tests on pull requests
+- **Branch protection** - Main branch now requires passing PSScriptAnalyzer checks
+
+### Removed
+- `AzureStack` from `-Environment` options (not applicable for this tool's use case)
+- `USAll` preset renamed to `USMajor` (was misleading - not all US regions)
+
 ## [1.4.0] - 2026-01-27
 
 ### Added

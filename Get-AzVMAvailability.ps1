@@ -45,12 +45,10 @@
     Filter to specific SKU names. Supports wildcards (e.g., 'Standard_D*_v5').
 
 .PARAMETER ShowPricing
-    Include estimated hourly pricing for VM SKUs from Azure Retail Prices API.
-    Adds ~5-10 seconds to execution time. Without -NoPrompt, prompts interactively.
-
-.PARAMETER UseActualPricing
-    Use actual negotiated pricing from Cost Management API instead of retail prices.
-    Requires Billing Reader or Cost Management Reader role on the subscription.
+    Show hourly/monthly pricing for VM SKUs.
+    Auto-detects negotiated rates (EA/MCA/CSP) via Cost Management API.
+    Falls back to retail pricing if negotiated rates unavailable.
+    Adds ~5-10 seconds to execution time.
 
 .PARAMETER ImageURN
     Check SKU compatibility with a specific VM image.
@@ -72,12 +70,16 @@
     Force ASCII icons [+] [!] [-] instead of Unicode ✓ ⚠ ✗.
     By default, auto-detects terminal capability.
 
+.PARAMETER Environment
+    Azure cloud environment override. Auto-detects from Az context if not specified.
+    Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud
+
 .NOTES
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.4.0
+    Version:        1.5.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -124,6 +126,22 @@
     .\Get-AzVMAvailability.ps1 -NoPrompt -ShowPricing -Region "eastus","westus2"
     Automated scan with pricing enabled, no interactive prompts.
 
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -RegionPreset USEastWest -NoPrompt
+    Scan US East/West regions (eastus, eastus2, westus, westus2) using a preset.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing
+    Check DR region pair for Azure Site Recovery planning with pricing.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -RegionPreset Europe -NoPrompt -AutoExport
+    Scan all major European regions with auto-export.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -RegionPreset USGov -NoPrompt
+    Scan Azure Government regions (auto-sets environment to AzureUSGovernment).
+
 .LINK
     https://github.com/zacharyluz/Get-AzVMAvailability
 #>
@@ -137,6 +155,10 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Azure region(s) to scan")]
     [Alias("Location")]
     [string[]]$Region,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Predefined region sets for common scenarios")]
+    [ValidateSet("USEastWest", "USCentral", "USMajor", "Europe", "AsiaPacific", "Global", "USGov", "China", "ASR-EastWest", "ASR-CentralUS")]
+    [string]$RegionPreset,
 
     [Parameter(Mandatory = $false, HelpMessage = "Directory path for export")]
     [string]$ExportPath,
@@ -153,11 +175,8 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Filter to specific SKUs (supports wildcards)")]
     [string[]]$SkuFilter,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Show estimated hourly pricing for SKUs")]
+    [Parameter(Mandatory = $false, HelpMessage = "Show hourly pricing (auto-detects negotiated rates, falls back to retail)")]
     [switch]$ShowPricing,
-
-    [Parameter(Mandatory = $false, HelpMessage = "Use actual pricing from Cost Management API (requires billing permissions)")]
-    [switch]$UseActualPricing,
 
     [Parameter(Mandatory = $false, HelpMessage = "VM image URN to check compatibility (format: Publisher:Offer:Sku:Version)")]
     [string]$ImageURN,
@@ -173,7 +192,11 @@ param(
     [string]$OutputFormat = "Auto",
 
     [Parameter(Mandatory = $false, HelpMessage = "Force ASCII icons instead of Unicode")]
-    [switch]$UseAsciiIcons
+    [switch]$UseAsciiIcons,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Azure cloud environment (default: auto-detect from Az context)")]
+    [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud", "AzureGermanCloud")]
+    [string]$Environment
 )
 
 $ErrorActionPreference = 'Continue'
@@ -181,14 +204,54 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 # === Configuration ==================================================
 # Script metadata
-$ScriptVersion = "1.4.0"
+$ScriptVersion = "1.5.0"
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
 $Regions = $Region
 $EnableDrill = $EnableDrillDown.IsPresent
+
+# Region Presets - expand preset name to actual region array
+# Note: All presets limited to 5 regions max for performance
+$RegionPresets = @{
+    'USEastWest'    = @('eastus', 'eastus2', 'westus', 'westus2')
+    'USCentral'     = @('centralus', 'northcentralus', 'southcentralus', 'westcentralus')
+    'USMajor'       = @('eastus', 'eastus2', 'centralus', 'westus', 'westus2')  # Top 5 US regions by usage
+    'Europe'        = @('westeurope', 'northeurope', 'uksouth', 'francecentral', 'germanywestcentral')
+    'AsiaPacific'   = @('eastasia', 'southeastasia', 'japaneast', 'australiaeast', 'koreacentral')
+    'Global'        = @('eastus', 'westeurope', 'southeastasia', 'australiaeast', 'brazilsouth')
+    'USGov'         = @('usgovvirginia', 'usgovtexas', 'usgovarizona')  # Azure Government (AzureUSGovernment)
+    'China'         = @('chinaeast', 'chinanorth', 'chinaeast2', 'chinanorth2')  # Azure China / Mooncake (AzureChinaCloud)
+    'ASR-EastWest'  = @('eastus', 'westus2')      # Azure Site Recovery pair
+    'ASR-CentralUS' = @('centralus', 'eastus2')   # Azure Site Recovery pair
+}
+
+# If RegionPreset is specified, expand it (takes precedence over -Region if both specified)
+if ($RegionPreset) {
+    $Regions = $RegionPresets[$RegionPreset]
+    Write-Verbose "Using region preset '$RegionPreset': $($Regions -join ', ')"
+
+    # Auto-set environment for sovereign cloud presets
+    if ($RegionPreset -eq 'USGov' -and -not $Environment) {
+        $script:TargetEnvironment = 'AzureUSGovernment'
+        Write-Verbose "Auto-setting environment to AzureUSGovernment for USGov preset"
+    }
+    elseif ($RegionPreset -eq 'China' -and -not $Environment) {
+        $script:TargetEnvironment = 'AzureChinaCloud'
+        Write-Verbose "Auto-setting environment to AzureChinaCloud for China preset"
+    }
+}
 $SelectedFamilyFilter = $FamilyFilter
 $SelectedSkuFilter = @{}
+
+# Only override environment if explicitly specified (preserve auto-detected sovereign clouds)
+if ($Environment) {
+    $script:TargetEnvironment = $Environment
+}
+
+# Initialize Azure endpoints for environment-aware URLs (quota portal, pricing API)
+# This ensures sovereign cloud users get correct URLs even without -ShowPricing
+$script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
 
 # Detect execution environment (Azure Cloud Shell vs local)
 $isCloudShell = $env:CLOUD_SHELL -eq "true" -or (Test-Path "/home/system" -ErrorAction SilentlyContinue)
@@ -273,6 +336,122 @@ function Get-GeoGroup {
         '^(australia|newzealand)' { return 'Australia' }
         default { return 'Other' }
     }
+}
+
+function Get-AzureEndpoints {
+    <#
+    .SYNOPSIS
+        Resolves Azure endpoints based on the current cloud environment.
+    .DESCRIPTION
+        Automatically detects the Azure environment (Commercial, Government, China, etc.)
+        from the current Az context and returns the appropriate API endpoints.
+        Supports sovereign clouds and air-gapped environments.
+        Can be overridden with explicit environment name.
+    .PARAMETER AzEnvironment
+        Environment object for testing (mock).
+    .PARAMETER EnvironmentName
+        Explicit environment name override (AzureCloud, AzureUSGovernment, etc.).
+    .OUTPUTS
+        Hashtable with ResourceManagerUrl, PricingApiUrl, and EnvironmentName.
+    .EXAMPLE
+        $endpoints = Get-AzureEndpoints
+        $endpoints.PricingApiUrl  # Returns https://prices.azure.com for Commercial
+    .EXAMPLE
+        $endpoints = Get-AzureEndpoints -EnvironmentName 'AzureUSGovernment'
+        $endpoints.PricingApiUrl  # Returns https://prices.azure.us
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$AzEnvironment,  # For testing - pass a mock environment object
+
+        [Parameter(Mandatory = $false)]
+        [string]$EnvironmentName  # Explicit override by name
+    )
+
+    # If explicit environment name provided, look it up
+    if ($EnvironmentName) {
+        try {
+            $AzEnvironment = Get-AzEnvironment -Name $EnvironmentName -ErrorAction Stop
+            if (-not $AzEnvironment) {
+                Write-Warning "Environment '$EnvironmentName' not found. Using default Commercial cloud."
+            }
+            else {
+                Write-Verbose "Using explicit environment: $EnvironmentName"
+            }
+        }
+        catch {
+            Write-Warning "Could not get environment '$EnvironmentName': $_. Using default Commercial cloud."
+            $AzEnvironment = $null
+        }
+    }
+
+    # Get the current Azure environment if not provided
+    if (-not $AzEnvironment) {
+        try {
+            $context = Get-AzContext -ErrorAction Stop
+            if (-not $context) {
+                Write-Warning "No Azure context found. Using default Commercial cloud endpoints."
+                $AzEnvironment = $null
+            }
+            else {
+                $AzEnvironment = $context.Environment
+            }
+        }
+        catch {
+            Write-Warning "Could not get Azure context: $_. Using default Commercial cloud endpoints."
+            $AzEnvironment = $null
+        }
+    }
+
+    # Default to Commercial cloud if no environment detected
+    if (-not $AzEnvironment) {
+        return @{
+            EnvironmentName    = 'AzureCloud'
+            ResourceManagerUrl = 'https://management.azure.com'
+            PricingApiUrl      = 'https://prices.azure.com/api/retail/prices'
+        }
+    }
+
+    # Get the Resource Manager URL directly from the environment
+    $armUrl = $AzEnvironment.ResourceManagerUrl
+    if (-not $armUrl) {
+        $armUrl = 'https://management.azure.com'
+    }
+    # Ensure no trailing slash
+    $armUrl = $armUrl.TrimEnd('/')
+
+    # Derive pricing API URL from the portal URL
+    # Commercial: portal.azure.com -> prices.azure.com
+    # Government: portal.azure.us -> prices.azure.us
+    # China: portal.azure.cn -> prices.azure.cn
+    $portalUrl = $AzEnvironment.ManagementPortalUrl
+    if ($portalUrl) {
+        # Replace only the 'portal' subdomain with 'prices' (more precise than global replace)
+        $pricingUrl = $portalUrl -replace '^(https?://)?portal\.', '${1}prices.'
+        $pricingUrl = $pricingUrl.TrimEnd('/')
+        $pricingApiUrl = "$pricingUrl/api/retail/prices"
+    }
+    else {
+        # Fallback based on known environment names
+        $pricingApiUrl = switch ($AzEnvironment.Name) {
+            'AzureUSGovernment' { 'https://prices.azure.us/api/retail/prices' }
+            'AzureChinaCloud' { 'https://prices.azure.cn/api/retail/prices' }
+            'AzureGermanCloud' { 'https://prices.microsoftazure.de/api/retail/prices' }
+            default { 'https://prices.azure.com/api/retail/prices' }
+        }
+    }
+
+    $endpoints = @{
+        EnvironmentName    = $AzEnvironment.Name
+        ResourceManagerUrl = $armUrl
+        PricingApiUrl      = $pricingApiUrl
+    }
+
+    Write-Verbose "Azure Environment: $($endpoints.EnvironmentName)"
+    Write-Verbose "Resource Manager URL: $($endpoints.ResourceManagerUrl)"
+    Write-Verbose "Pricing API URL: $($endpoints.PricingApiUrl)"
+
+    return $endpoints
 }
 
 function Get-CapValue {
@@ -621,6 +800,11 @@ function Get-AzVMPricing {
 
     $script:PricingCache = if (-not $script:PricingCache) { @{} } else { $script:PricingCache }
 
+    # Get environment-specific endpoints (supports sovereign clouds)
+    if (-not $script:AzureEndpoints) {
+        $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
+    }
+
     # Azure region name to ARM location mapping
     $armLocation = $Region.ToLower() -replace '\s', ''
 
@@ -628,7 +812,7 @@ function Get-AzVMPricing {
     $filter = "armRegionName eq '$armLocation' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'"
 
     $allPrices = @{}
-    $apiUrl = "https://prices.azure.com/api/retail/prices?`$filter=$([uri]::EscapeDataString($filter))"
+    $apiUrl = "$($script:AzureEndpoints.PricingApiUrl)?`$filter=$([uri]::EscapeDataString($filter))"
 
     try {
         $nextLink = $apiUrl
@@ -709,16 +893,22 @@ function Get-AzActualPricing {
     $allPrices = @{}
 
     try {
-        # Get access token for Azure Resource Manager
-        $token = (Get-AzAccessToken -ResourceUrl 'https://management.azure.com').Token
+        # Get environment-specific endpoints (supports sovereign clouds)
+        if (-not $script:AzureEndpoints) {
+            $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
+        }
+        $armUrl = $script:AzureEndpoints.ResourceManagerUrl
+
+        # Get access token for Azure Resource Manager (uses environment-specific URL)
+        $token = (Get-AzAccessToken -ResourceUrl $armUrl).Token
         $headers = @{
             'Authorization' = "Bearer $token"
             'Content-Type'  = 'application/json'
         }
 
         # Query Cost Management API for price sheet data
-        # Using the consumption price sheet endpoint
-        $apiUrl = "https://management.azure.com/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=contains(meterCategory,'Virtual Machines')"
+        # Using the consumption price sheet endpoint with environment-specific ARM URL
+        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=contains(meterCategory,'Virtual Machines')"
 
         $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
 
@@ -880,7 +1070,7 @@ if (-not $Regions) {
     }
     else {
         Write-Host "`nSTEP 2: SELECT REGION(S)" -ForegroundColor Green
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * 100) -ForegroundColor Gray
         Write-Host ""
         Write-Host "FAST PATH: Type region codes now to skip the long list (comma/space separated)" -ForegroundColor Yellow
         Write-Host "Examples: eastus eastus2 westus3  |  Press Enter to show full menu" -ForegroundColor DarkGray
@@ -950,6 +1140,37 @@ if (-not $Regions) {
 }
 else {
     $Regions = @($Regions | ForEach-Object { $_.ToLower() })
+}
+
+# Validate region count limit
+$maxRegions = 5
+if ($Regions.Count -gt $maxRegions) {
+    if ($NoPrompt) {
+        # In NoPrompt mode, auto-truncate with warning (don't hang on Read-Host)
+        Write-Host "`nWARNING: " -ForegroundColor Yellow -NoNewline
+        Write-Host "Specified $($Regions.Count) regions exceeds maximum of $maxRegions. Auto-truncating." -ForegroundColor White
+        $Regions = @($Regions[0..($maxRegions - 1)])
+        Write-Host "Proceeding with: $($Regions -join ', ')" -ForegroundColor Green
+    }
+    else {
+        Write-Host "`n" -NoNewline
+        Write-Host "WARNING: " -ForegroundColor Yellow -NoNewline
+        Write-Host "You've specified $($Regions.Count) regions. For optimal performance and readability," -ForegroundColor White
+        Write-Host "         the maximum recommended is $maxRegions regions per scan." -ForegroundColor White
+        Write-Host "`nOptions:" -ForegroundColor Cyan
+        Write-Host "  1. Continue with first $maxRegions regions: $($Regions[0..($maxRegions-1)] -join ', ')" -ForegroundColor Gray
+        Write-Host "  2. Cancel and re-run with fewer regions" -ForegroundColor Gray
+        Write-Host "`nContinue with first $maxRegions regions? (y/N): " -ForegroundColor Yellow -NoNewline
+        $limitInput = Read-Host
+        if ($limitInput -match '^y(es)?$') {
+            $Regions = @($Regions[0..($maxRegions - 1)])
+            Write-Host "Proceeding with: $($Regions -join ', ')" -ForegroundColor Green
+        }
+        else {
+            Write-Host "Scan cancelled. Please re-run with $maxRegions or fewer regions." -ForegroundColor Yellow
+            exit 0
+        }
+    }
 }
 
 # Drill-down prompt
@@ -1202,10 +1423,19 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
 
 # === Data Collection ================================================
 
+# Calculate consistent output width based on table columns
+# Base columns: Family(12) + SKUs(6) + OK(5) + Largest(18) + Zones(28) + Status(22) + Quota(10) = 101
+# Plus spacing (2 chars between each of 7 columns = 12) = 113 base
+# With pricing: +20 (two 10-char columns) = 133
+$script:OutputWidth = if ($FetchPricing) { 133 } else { 113 }
+# Ensure minimum width and cap at reasonable maximum
+$script:OutputWidth = [Math]::Max($script:OutputWidth, 100)
+$script:OutputWidth = [Math]::Min($script:OutputWidth, 150)
+
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "GET-AZVMAVAILABILITY v$ScriptVersion" -ForegroundColor Green
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
 if ($SkuFilter -and $SkuFilter.Count -gt 0) {
     Write-Host "SKU Filter: $($SkuFilter -join ', ')" -ForegroundColor Yellow
@@ -1215,6 +1445,7 @@ if ($script:ImageReqs) {
     Write-Host "Image: $ImageURN" -ForegroundColor Cyan
     Write-Host "Requirements: $($script:ImageReqs.Gen) | $($script:ImageReqs.Arch)" -ForegroundColor DarkCyan
 }
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
 
 # Fetch pricing data if enabled
@@ -1222,49 +1453,42 @@ $script:regionPricing = @{}
 $script:usingActualPricing = $false
 
 if ($FetchPricing) {
-    if ($UseActualPricing) {
-        Write-Host "Fetching actual pricing from Cost Management API..." -ForegroundColor DarkGray
-        Write-Host "  (Requires Billing Reader or Cost Management Reader role)" -ForegroundColor DarkGray
+    # Auto-detect: Try negotiated pricing first, fall back to retail
+    Write-Host "Checking for negotiated pricing (EA/MCA/CSP)..." -ForegroundColor DarkGray
 
-        $actualPricingSuccess = $true
-        foreach ($regionCode in $Regions) {
-            $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode
-            if ($actualPrices -and $actualPrices.Count -gt 0) {
-                if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
-                $script:regionPricing[$regionCode] = $actualPrices
-            }
-            else {
-                $actualPricingSuccess = $false
-                break
-            }
-        }
-
-        if ($actualPricingSuccess -and $script:regionPricing.Count -gt 0) {
-            $script:usingActualPricing = $true
-            Write-Host "Actual pricing loaded for $($Regions.Count) region(s)" -ForegroundColor Green
-            Write-Host "Note: Prices reflect your negotiated EA/MCA/CSP rates." -ForegroundColor DarkGreen
+    $actualPricingSuccess = $true
+    foreach ($regionCode in $Regions) {
+        $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode
+        if ($actualPrices -and $actualPrices.Count -gt 0) {
+            if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
+            $script:regionPricing[$regionCode] = $actualPrices
         }
         else {
-            Write-Host "Falling back to retail pricing..." -ForegroundColor DarkYellow
-            $script:regionPricing = @{}
+            $actualPricingSuccess = $false
+            break
         }
     }
 
-    # Fall back to retail pricing if needed
-    if (-not $script:usingActualPricing) {
-        Write-Host "Fetching retail pricing data..." -ForegroundColor DarkGray
+    if ($actualPricingSuccess -and $script:regionPricing.Count -gt 0) {
+        $script:usingActualPricing = $true
+        Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected)" -ForegroundColor Green
+    }
+    else {
+        # Fall back to retail pricing
+        Write-Host "No negotiated rates found, using retail pricing..." -ForegroundColor DarkGray
+        $script:regionPricing = @{}
         foreach ($regionCode in $Regions) {
             $pricingResult = Get-AzVMPricing -Region $regionCode
             # Handle potential array wrapping from function return
             if ($pricingResult -is [array]) { $pricingResult = $pricingResult[0] }
             $script:regionPricing[$regionCode] = $pricingResult
         }
-        Write-Host "Pricing data loaded for $($Regions.Count) region(s)" -ForegroundColor DarkGray
-        Write-Host "Note: Prices shown are Linux pay-as-you-go retail rates. EA/MCA/Reserved discounts not included." -ForegroundColor DarkYellow
+        Write-Host "$($Icons.Check) Using retail pricing (Linux pay-as-you-go)" -ForegroundColor DarkGray
     }
 }
 
 $allSubscriptionData = @()
+$scanStartTime = Get-Date
 
 foreach ($subId in $TargetSubIds) {
     $ctx = Get-AzContext -ErrorAction SilentlyContinue
@@ -1274,6 +1498,10 @@ foreach ($subId in $TargetSubIds) {
 
     $subName = (Get-AzSubscription -SubscriptionId $subId | Select-Object -First 1).Name
     Write-Host "[$subName] Scanning $($Regions.Count) region(s)..." -ForegroundColor Yellow
+
+    # Progress indicator for parallel scanning
+    $regionCount = $Regions.Count
+    Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $regionCount region(s) in parallel..." -PercentComplete 0
 
     $regionData = $Regions | ForEach-Object -Parallel {
         $region = [string]$_
@@ -1306,6 +1534,11 @@ foreach ($subId in $TargetSubIds) {
         }
     } -ThrottleLimit 4
 
+    Write-Progress -Activity "Scanning Azure Regions" -Completed
+
+    $scanElapsed = (Get-Date) - $scanStartTime
+    Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
+
     $allSubscriptionData += @{
         SubscriptionId   = $subId
         SubscriptionName = $subName
@@ -1318,17 +1551,26 @@ foreach ($subId in $TargetSubIds) {
 $allFamilyStats = @{}
 $familyDetails = @()
 $familySkuIndex = @{}
+$processStartTime = Get-Date
 
 foreach ($subscriptionData in $allSubscriptionData) {
     $subName = $subscriptionData.SubscriptionName
+    $totalRegions = $subscriptionData.RegionData.Count
+    $currentRegion = 0
 
     foreach ($data in $subscriptionData.RegionData) {
+        $currentRegion++
         $region = Get-SafeString $data.Region
 
+        # Progress bar for processing
+        $percentComplete = [math]::Round(($currentRegion / $totalRegions) * 100)
+        $elapsed = (Get-Date) - $processStartTime
+        Write-Progress -Activity "Processing Region Data" -Status "$region ($currentRegion of $totalRegions)" -PercentComplete $percentComplete -CurrentOperation "Elapsed: $([math]::Round($elapsed.TotalSeconds, 1))s"
+
         Write-Host "`n" -NoNewline
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
         Write-Host "REGION: $region" -ForegroundColor Yellow
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 
         if ($data.Error) {
             Write-Host "ERROR: $($data.Error)" -ForegroundColor Red
@@ -1354,10 +1596,10 @@ foreach ($subscriptionData in $allSubscriptionData) {
 
         if ($quotaLines) {
             # Fixed-width quota table (175 chars total)
-            $qColWidths = [ordered]@{ Family = 70; Used = 20; Limit = 20; Available = 25 }
+            $qColWidths = [ordered]@{ Family = 50; Used = 15; Limit = 15; Available = 15 }
             $qHeader = foreach ($c in $qColWidths.Keys) { $c.PadRight($qColWidths[$c]) }
             Write-Host ($qHeader -join '  ') -ForegroundColor Cyan
-            Write-Host ('-' * 175) -ForegroundColor Gray
+            Write-Host ('-' * $script:OutputWidth) -ForegroundColor Gray
             foreach ($q in $quotaLines) {
                 $qRow = foreach ($c in $qColWidths.Keys) {
                     $v = "$($q.$c)"
@@ -1481,7 +1723,9 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     ZoneStatus   = Format-ZoneStatus $skuRestrictions.ZonesOK $skuRestrictions.ZonesLimited $skuRestrictions.ZonesRestricted
                     Capacity     = [string]$skuRestrictions.Status
                     Reason       = ($skuRestrictions.RestrictionReasons -join ', ')
-                    QuotaAvail   = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
+                    QuotaAvail   = if ($null -ne $quotaInfo.Available) { $quotaInfo.Available } else { '?' }
+                    QuotaLimit   = if ($null -ne $quotaInfo.Limit) { $quotaInfo.Limit } else { $null }
+                    QuotaCurrent = if ($null -ne $quotaInfo.Current) { $quotaInfo.Current } else { $null }
                     ImgCompat    = $imgCompat
                     ImgReason    = $imgReason
                 }
@@ -1527,7 +1771,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 $col.PadRight($colWidths[$col])
             }
             Write-Host ($headerParts -join '  ') -ForegroundColor Cyan
-            Write-Host ('-' * 175) -ForegroundColor Gray
+            Write-Host ('-' * $script:OutputWidth) -ForegroundColor Gray
 
             # Data rows
             foreach ($row in $rows) {
@@ -1569,10 +1813,11 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
     }
     else {
         # Interactive mode
+        $drillWidth = if ($script:OutputWidth) { $script:OutputWidth } else { 100 }
         Write-Host "`n" -NoNewline
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
         Write-Host "DRILL-DOWN: SELECT FAMILIES" -ForegroundColor Green
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
 
         for ($i = 0; $i -lt $familyList.Count; $i++) {
             $fam = $familyList[$i]
@@ -1650,19 +1895,20 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 
     # Display drill-down results
     if ($SelectedFamilyFilter.Count -gt 0) {
+        $drillWidth = if ($script:OutputWidth) { $script:OutputWidth } else { 100 }
         Write-Host ""
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
         Write-Host "FAMILY / SKU DRILL-DOWN RESULTS" -ForegroundColor Green
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
+        Write-Host "Note: Avail shows the family's shared vCPU pool per region (not per SKU)." -ForegroundColor DarkGray
 
         foreach ($fam in $SelectedFamilyFilter) {
-            Write-Host "`nFamily: $fam" -ForegroundColor Cyan
+            Write-Host "`nFamily: $fam (shared quota per region)" -ForegroundColor Cyan
 
             # Show image requirements if checking compatibility
             if ($script:ImageReqs) {
                 Write-Host "Image: $ImageURN (Requires: $($script:ImageReqs.Gen) | $($script:ImageReqs.Arch))" -ForegroundColor DarkCyan
             }
-            Write-Host ("-" * 185) -ForegroundColor Gray
 
             $skuFilter = $null
             if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
@@ -1674,41 +1920,65 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
             }
 
             if ($detailRows.Count -gt 0) {
-                $sortedRows = $detailRows | Sort-Object Region, SKU
-                # Fixed-width drill-down table (185 chars to accommodate Gen/Arch/Img columns)
-                $dColWidths = [ordered]@{ Region = 20; SKU = 26; vCPU = 5; MemGiB = 6; Gen = 6; Arch = 6; ZoneStatus = 26; Capacity = 20 }
-                if ($FetchPricing) {
-                    $dColWidths['$/Hr'] = 8
-                    $dColWidths['$/Mo'] = 8
-                }
-                if ($script:ImageReqs) {
-                    $dColWidths['Img'] = 4
-                }
-                $dColWidths['Reason'] = 28
+                # Group by region and display with region sub-headers
+                $regionGroups = $detailRows | Group-Object Region | Sort-Object Name
 
-                $dHeader = foreach ($c in $dColWidths.Keys) { $c.PadRight($dColWidths[$c]) }
-                Write-Host ($dHeader -join '  ') -ForegroundColor Cyan
-                Write-Host ('-' * 185) -ForegroundColor Gray
-                foreach ($dr in $sortedRows) {
-                    $dRow = foreach ($c in $dColWidths.Keys) {
-                        # Map column names to object properties
-                        $propName = switch ($c) {
-                            'Img' { 'ImgCompat' }
-                            default { $c }
+                foreach ($regionGroup in $regionGroups) {
+                    $regionName = $regionGroup.Name
+                    $regionRows = $regionGroup.Group | Sort-Object SKU
+
+                    # Get quota info for this family in this region
+                    $regionQuota = $regionRows | Select-Object -First 1
+                    $quotaHeader = if ($null -ne $regionQuota.QuotaLimit -and $null -ne $regionQuota.QuotaCurrent) {
+                        $avail = $regionQuota.QuotaLimit - $regionQuota.QuotaCurrent
+                        "Quota: $($regionQuota.QuotaCurrent) of $($regionQuota.QuotaLimit) vCPUs used | $avail available"
+                    }
+                    elseif ($regionQuota.QuotaAvail -and $regionQuota.QuotaAvail -ne '?') {
+                        "Quota: $($regionQuota.QuotaAvail) vCPUs available"
+                    }
+                    else {
+                        "Quota: N/A"
+                    }
+
+                    Write-Host "`nRegion: $regionName ($quotaHeader)" -ForegroundColor Yellow
+                    Write-Host ("-" * $drillWidth) -ForegroundColor Gray
+
+                    # Fixed-width drill-down table (no Region column since it's in header)
+                    $dColWidths = [ordered]@{ SKU = 26; vCPU = 5; MemGiB = 6; Gen = 5; Arch = 5; ZoneStatus = 22; Capacity = 12; Avail = 8 }
+                    if ($FetchPricing) {
+                        $dColWidths['$/Hr'] = 8
+                        $dColWidths['$/Mo'] = 8
+                    }
+                    if ($script:ImageReqs) {
+                        $dColWidths['Img'] = 4
+                    }
+                    $dColWidths['Reason'] = 24
+
+                    $dHeader = foreach ($c in $dColWidths.Keys) { $c.PadRight($dColWidths[$c]) }
+                    Write-Host ($dHeader -join '  ') -ForegroundColor Cyan
+
+                    foreach ($dr in $regionRows) {
+                        $dRow = foreach ($c in $dColWidths.Keys) {
+                            # Map column names to object properties
+                            $propName = switch ($c) {
+                                'Img' { 'ImgCompat' }
+                                'Avail' { 'QuotaAvail' }
+                                default { $c }
+                            }
+                            $v = if ($dr.$propName -ne $null) { "$($dr.$propName)" } else { '' }
+                            $w = $dColWidths[$c]
+                            if ($v.Length -gt $w) { $v = $v.Substring(0, $w - 1) + '…' }
+                            $v.PadRight($w)
                         }
-                        $v = if ($dr.$propName -ne $null) { "$($dr.$propName)" } else { '' }
-                        $w = $dColWidths[$c]
-                        if ($v.Length -gt $w) { $v = $v.Substring(0, $w - 1) + '…' }
-                        $v.PadRight($w)
+                        # Determine row color based on capacity and image compatibility
+                        $color = switch ($dr.Capacity) {
+                            'OK' { if ($dr.ImgCompat -eq '✗' -or $dr.ImgCompat -eq '[-]') { 'DarkYellow' } else { 'Green' } }
+                            { $_ -match 'LIMITED|CAPACITY' } { 'Yellow' }
+                            { $_ -match 'RESTRICTED|BLOCKED' } { 'Red' }
+                            default { 'White' }
+                        }
+                        Write-Host ($dRow -join '  ') -ForegroundColor $color
                     }
-                    # Determine row color based on capacity and image compatibility
-                    $color = switch ($dr.Capacity) {
-                        'OK' { if ($dr.ImgCompat -eq '✗' -or $dr.ImgCompat -eq '[-]') { 'DarkYellow' } else { 'Green' } }
-                        { $_ -match 'LIMITED|CAPACITY' } { 'Yellow' }
-                        { $_ -match 'RESTRICTED|BLOCKED' } { 'Red' }
-                        default { 'White' }
-                    }
-                    Write-Host ($dRow -join '  ') -ForegroundColor $color
                 }
             }
             else {
@@ -1721,10 +1991,6 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 # === Multi-Region Matrix ============================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
-Write-Host "MULTI-REGION CAPACITY MATRIX" -ForegroundColor Green
-Write-Host ("=" * 175) -ForegroundColor Gray
-Write-Host ""
 
 # Build unique region list
 $allRegions = @()
@@ -1736,11 +2002,23 @@ foreach ($family in $allFamilyStats.Keys) {
 }
 $allRegions = @($allRegions | Sort-Object)
 
-# Header
+# Build header to determine width
 $headerLine = "Family".PadRight(10)
 foreach ($r in $allRegions) { $headerLine += " | " + $r.PadRight(15) }
+$matrixWidth = $headerLine.Length
+
+# Set script-level output width for consistent separators
+$script:OutputWidth = [Math]::Max($matrixWidth, 80)
+
+# Display section header with dynamic width
+Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
+Write-Host "MULTI-REGION CAPACITY MATRIX" -ForegroundColor Green
+Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
+Write-Host ""
+
+# Display table header
 Write-Host $headerLine -ForegroundColor Cyan
-Write-Host ("-" * 175) -ForegroundColor Gray
+Write-Host ("-" * $matrixWidth) -ForegroundColor Gray
 
 # Data rows
 foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
@@ -1775,13 +2053,34 @@ Write-Host ("  $($Icons.CAPACITY)".PadRight(20) + "Zone-level constraints") -For
 Write-Host ("  $($Icons.LIMITED)".PadRight(20) + "Subscription restricted") -ForegroundColor Yellow
 Write-Host ("  $($Icons.PARTIAL)".PadRight(20) + "Mixed zone availability") -ForegroundColor Yellow
 Write-Host ("  $($Icons.BLOCKED)".PadRight(20) + "Not available") -ForegroundColor Red
+Write-Host ""
+Write-Host "NEED MORE CAPACITY?" -ForegroundColor Cyan
+Write-Host "  LIMITED status: Request quota increase at:" -ForegroundColor Yellow
+# Use environment-aware portal URL
+$quotaPortalUrl = if ($script:AzureEndpoints -and $script:AzureEndpoints.EnvironmentName) {
+    switch ($script:AzureEndpoints.EnvironmentName) {
+        'AzureUSGovernment' { 'https://portal.azure.us/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
+        'AzureChinaCloud' { 'https://portal.azure.cn/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
+        'AzureGermanCloud' { 'https://portal.microsoftazure.de/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
+        default { 'https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
+    }
+}
+else {
+    'https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas'
+}
+Write-Host "  $quotaPortalUrl" -ForegroundColor DarkCyan
+if ($FetchPricing) {
+    Write-Host ""
+    Write-Host "PRICING NOTE:" -ForegroundColor Cyan
+    Write-Host "  Prices shown are Pay-As-You-Go (Linux). Azure Hybrid Benefit can reduce costs 40-60%." -ForegroundColor DarkGray
+}
 
 # === Deployment Recommendations =====================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "DEPLOYMENT RECOMMENDATIONS" -ForegroundColor Green
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
 
 $bestPerRegion = @{}
@@ -1825,44 +2124,115 @@ else {
 # === Detailed Breakdown =============================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "DETAILED CROSS-REGION BREAKDOWN" -ForegroundColor Green
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
 
-# Fixed-width formatted table (175 chars)
-$colFamily = 14
-$colFullCap = 55
+# Helper function to wrap region lists across multiple lines
+function Format-RegionList {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$Regions,
+        [int]$MaxWidth = 75
+    )
 
-$headerFmt = "{0,-$colFamily} {1,-$colFullCap} {2}" -f "Family", "Available Regions", "Constrained Regions"
+    # Handle null, empty, or non-array inputs
+    if ($null -eq $Regions) {
+        return , @('(none)')  # Comma forces array even for single element
+    }
+
+    # Convert to array if not already
+    $regionArray = @($Regions)
+
+    if ($regionArray.Count -eq 0) {
+        return , @('(none)')
+    }
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $currentLine = ""
+
+    foreach ($region in $regionArray) {
+        $regionStr = [string]$region
+        $separator = if ($currentLine) { ', ' } else { '' }
+        $testLine = $currentLine + $separator + $regionStr
+
+        if ($testLine.Length -gt $MaxWidth -and $currentLine) {
+            $lines.Add($currentLine)
+            $currentLine = $regionStr
+        }
+        else {
+            $currentLine = $testLine
+        }
+    }
+
+    if ($currentLine) {
+        $lines.Add($currentLine)
+    }
+
+    return , @($lines.ToArray())  # Comma forces array context
+}
+
+# Calculate column widths based on output width
+$colFamily = 14
+$colAvailable = [Math]::Max(40, [Math]::Floor(($script:OutputWidth - 14) * 0.35))
+$colConstrained = $script:OutputWidth - $colFamily - $colAvailable - 2  # -2 for spacing
+
+$headerFmt = "{0,-$colFamily} {1,-$colAvailable} {2}" -f "Family", "Available Regions", "Constrained Regions"
 Write-Host $headerFmt -ForegroundColor Cyan
-Write-Host ("-" * 175) -ForegroundColor Gray
+Write-Host ("-" * $script:OutputWidth) -ForegroundColor Gray
 
 $summaryRowsForExport = @()
 foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
     $stats = $allFamilyStats[$family]
-    $regionsOK = @()
-    $regionsConstrained = @()
+    $regionsOK = [System.Collections.Generic.List[string]]::new()
+    $regionsConstrained = [System.Collections.Generic.List[string]]::new()
 
     foreach ($regionKey in ($stats.Regions.Keys | Sort-Object)) {
-        $region = Get-SafeString $regionKey
-        $regionStat = $stats.Regions[$region]
+        $regionKeyStr = Get-SafeString $regionKey
+        $regionStat = $stats.Regions[$regionKey]  # Use original key for lookup
         if ($regionStat) {
             if ($regionStat.Capacity -eq 'OK') {
-                $regionsOK += $region
+                $regionsOK.Add($regionKeyStr)
             }
-            elseif ($regionStat.Capacity -match 'LIMITED|CAPACITY-CONSTRAINED|PARTIAL') {
-                $regionsConstrained += "$region ($($regionStat.Capacity))"
+            elseif ($regionStat.Capacity -match 'LIMITED|CAPACITY-CONSTRAINED|PARTIAL|RESTRICTED|BLOCKED') {
+                $regionsConstrained.Add("$regionKeyStr ($($regionStat.Capacity))")
             }
         }
     }
 
-    $fullCapStr = if ($regionsOK.Count -gt 0) { $regionsOK -join ', ' } else { '(none)' }
-    $constrainedStr = if ($regionsConstrained.Count -gt 0) { $regionsConstrained -join ' | ' } else { '(none)' }
+    # Format multi-line output
+    $okLines = @(Format-RegionList -Regions $regionsOK.ToArray() -MaxWidth $colAvailable)
+    $constrainedLines = @(Format-RegionList -Regions $regionsConstrained.ToArray() -MaxWidth $colConstrained)
 
-    $line = "{0,-$colFamily} {1,-$colFullCap} {2}" -f $family, $fullCapStr, $constrainedStr
-    $color = if ($regionsOK.Count -gt 0) { 'Green' } elseif ($regionsConstrained.Count -gt 0) { 'Yellow' } else { 'Gray' }
-    Write-Host $line -ForegroundColor $color
+    # Flatten if nested (PowerShell array quirk)
+    if ($okLines.Count -eq 1 -and $okLines[0] -is [array]) { $okLines = $okLines[0] }
+    if ($constrainedLines.Count -eq 1 -and $constrainedLines[0] -is [array]) { $constrainedLines = $constrainedLines[0] }
+
+    # Determine how many lines we need (max of both columns)
+    $maxLines = [Math]::Max(@($okLines).Count, @($constrainedLines).Count)
+
+    # Determine color for the family name based on availability
+    # Green  = Perfect (All regions OK)
+    # White  = Mixed (Some OK, some constrained - check details)
+    # Yellow = Constrained (No regions strictly OK, all have limitations)
+    # Gray   = Unavailable
+    $familyColor = if ($regionsOK.Count -gt 0 -and $regionsConstrained.Count -eq 0) { 'Green' }
+    elseif ($regionsOK.Count -gt 0 -and $regionsConstrained.Count -gt 0) { 'White' }
+    elseif ($regionsConstrained.Count -gt 0) { 'Yellow' }
+    else { 'Gray' }
+
+    # Iterate through lines to print
+    for ($i = 0; $i -lt $maxLines; $i++) {
+        $familyStr = if ($i -eq 0) { $family } else { '' }
+        $okStr = if ($i -lt @($okLines).Count) { @($okLines)[$i] } else { '' }
+        $constrainedStr = if ($i -lt @($constrainedLines).Count) { @($constrainedLines)[$i] } else { '' }
+
+        # Write each column with appropriate color
+        Write-Host ("{0,-$colFamily} " -f $familyStr) -ForegroundColor $familyColor -NoNewline
+        Write-Host ("{0,-$colAvailable} " -f $okStr) -ForegroundColor Green -NoNewline
+        Write-Host $constrainedStr -ForegroundColor Yellow
+    }
 
     # Export data
     $exportRow = [ordered]@{
@@ -1882,13 +2252,17 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
     $summaryRowsForExport += [pscustomobject]$exportRow
 }
 
+Write-Progress -Activity "Processing Region Data" -Completed
+
 # === Completion =====================================================
 
+$totalElapsed = (Get-Date) - $scanStartTime
+
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "SCAN COMPLETE" -ForegroundColor Green
-Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor DarkGray
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | Total time: $([math]::Round($totalElapsed.TotalSeconds, 1)) seconds" -ForegroundColor DarkGray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 
 # === Export =========================================================
 
@@ -1965,6 +2339,128 @@ if ($ExportPath) {
             # Center numeric columns
             $ws.Cells["B2:C$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
 
+            # === Add Compact Legend to Summary Sheet ===
+            $legendStartRow = $lastRow + 3  # Leave 2 blank rows
+
+            # Legend title - Capacity Status
+            $ws.Cells["A$legendStartRow"].Value = "CAPACITY STATUS"
+            $ws.Cells["A$legendStartRow`:C$legendStartRow"].Merge = $true
+            $ws.Cells["A$legendStartRow"].Style.Font.Bold = $true
+            $ws.Cells["A$legendStartRow"].Style.Font.Size = 11
+            $ws.Cells["A$legendStartRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $ws.Cells["A$legendStartRow"].Style.Fill.BackgroundColor.SetColor($headerBlue)
+            $ws.Cells["A$legendStartRow"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+
+            # Status codes table
+            $statusItems = @(
+                @{ Status = "OK"; Desc = "Full capacity available - ready for deployment" }
+                @{ Status = "LIMITED"; Desc = "Subscription restrictions - may require quota increase request" }
+                @{ Status = "CAPACITY-CONSTRAINED"; Desc = "Zone-level constraints - limited availability in some zones" }
+                @{ Status = "PARTIAL"; Desc = "Mixed zone availability - some zones OK, others restricted" }
+                @{ Status = "RESTRICTED"; Desc = "Not available for deployment in this region/subscription" }
+            )
+
+            $currentRow = $legendStartRow + 1
+            foreach ($item in $statusItems) {
+                $ws.Cells["A$currentRow"].Value = $item.Status
+                $ws.Cells["B$currentRow`:C$currentRow"].Merge = $true
+                $ws.Cells["B$currentRow"].Value = $item.Desc
+                $ws.Cells["A$currentRow"].Style.Font.Bold = $true
+                $ws.Cells["A$currentRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+
+                # Apply matching colors to status cell
+                $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                switch ($item.Status) {
+                    "OK" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($greenFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($greenText)
+                    }
+                    { $_ -in "LIMITED", "CAPACITY-CONSTRAINED", "PARTIAL" } {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($yellowFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($yellowText)
+                    }
+                    "RESTRICTED" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($redFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($redText)
+                    }
+                }
+
+                # Add borders to this row
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+
+                $currentRow++
+            }
+
+            # Image Compatibility section (if image checking was used)
+            $currentRow += 2  # Skip a row
+            $ws.Cells["A$currentRow"].Value = "IMAGE COMPATIBILITY (Img Column)"
+            $ws.Cells["A$currentRow`:C$currentRow"].Merge = $true
+            $ws.Cells["A$currentRow"].Style.Font.Bold = $true
+            $ws.Cells["A$currentRow"].Style.Font.Size = 11
+            $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($headerBlue)
+            $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+
+            $imgItems = @(
+                @{ Symbol = "✓"; Desc = "SKU is compatible with selected image (Gen & Arch match)" }
+                @{ Symbol = "✗"; Desc = "SKU is NOT compatible (wrong generation or architecture)" }
+                @{ Symbol = "[-]"; Desc = "Unable to determine compatibility" }
+            )
+
+            $currentRow++
+            foreach ($item in $imgItems) {
+                $ws.Cells["A$currentRow"].Value = $item.Symbol
+                $ws.Cells["B$currentRow`:C$currentRow"].Merge = $true
+                $ws.Cells["B$currentRow"].Value = $item.Desc
+                $ws.Cells["A$currentRow"].Style.Font.Bold = $true
+                $ws.Cells["A$currentRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+                $ws.Cells["A$currentRow"].Style.Font.Size = 12
+
+                # Color the symbol
+                $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                switch ($item.Symbol) {
+                    "✓" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($greenFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($greenText)
+                    }
+                    "✗" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($redFill)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($redText)
+                    }
+                    "[-]" {
+                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($lightGray)
+                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
+                    }
+                }
+
+                # Add borders
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+
+                $currentRow++
+            }
+
+            # Format note
+            $currentRow += 2
+            $ws.Cells["A$currentRow"].Value = "FORMAT:"
+            $ws.Cells["A$currentRow"].Style.Font.Bold = $true
+            $ws.Cells["B$currentRow"].Value = "STATUS (X/Y) = X SKUs available out of Y total"
+            $currentRow++
+            $ws.Cells["A$currentRow`:C$currentRow"].Merge = $true
+            $ws.Cells["A$currentRow"].Value = "See 'Legend' tab for detailed column descriptions"
+            $ws.Cells["A$currentRow"].Style.Font.Italic = $true
+            $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
+
+            # Set column widths for legend area
+            $ws.Column(1).Width = 22
+            $ws.Column(2).Width = 35
+            $ws.Column(3).Width = 25
+
             Close-ExcelPackage $excel
 
             # === Details Sheet ===
@@ -2004,6 +2500,9 @@ if ($ExportPath) {
                 # CAPACITY-CONSTRAINED - Light orange
                 Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType ContainsText -ConditionValue "CAPACITY" -BackgroundColor $yellowFill -ForegroundColor $yellowText
 
+                # PARTIAL - Yellow (mixed zone availability)
+                Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "PARTIAL" -BackgroundColor $yellowFill -ForegroundColor $yellowText
+
                 # RESTRICTED - Red
                 Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "RESTRICTED" -BackgroundColor $redFill -ForegroundColor $redText
             }
@@ -2024,9 +2523,116 @@ if ($ExportPath) {
 
             Close-ExcelPackage $excel
 
+            # === Legend Sheet ===
+            $legendData = @(
+                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "STATUS (X/Y)"; Description = "X = SKUs with full availability, Y = Total SKUs in family for that region" }
+                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "Example: OK (5/8)"; Description = "5 out of 8 SKUs are fully available with OK status" }
+                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "OK"; Description = "Full capacity available - SKU can be deployed without restrictions" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "LIMITED"; Description = "Subscription-level restrictions apply - may require quota increase or support request" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "CAPACITY-CONSTRAINED"; Description = "Zone-level constraints - limited availability in some availability zones" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "PARTIAL"; Description = "Mixed zone availability - some zones OK, others restricted (e.g., Zone 1 available, Zones 2,3 blocked)" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "RESTRICTED"; Description = "SKU is not available for deployment in this region/subscription" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "N/A"; Description = "SKU family not available in this region" }
+                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "Family"; Description = "VM family identifier (e.g., Dv5, Ev5, Mv2)" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "Total_SKUs"; Description = "Total number of SKUs scanned across all regions" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "SKUs_OK"; Description = "Number of SKUs with full availability (OK status)" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "<Region>_Status"; Description = "Capacity status for that region with (Available/Total) count" }
+                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Family"; Description = "VM family identifier" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "SKU"; Description = "Full SKU name (e.g., Standard_D2s_v5)" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Region"; Description = "Azure region code" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "vCPU"; Description = "Number of virtual CPUs" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "MemGiB"; Description = "Memory in GiB" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Zones"; Description = "Availability zones where SKU is available" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Capacity"; Description = "Current capacity status" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Restrictions"; Description = "Any restrictions or capacity messages" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "QuotaAvail"; Description = "Available vCPU quota for this family (Limit - Current Usage)" }
+                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Green"; Description = "Full availability - ready for deployment" }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Yellow/Orange"; Description = "Limited or constrained - may have restrictions" }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Red"; Description = "Restricted - not available for deployment" }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Gray"; Description = "Not applicable or unavailable in region" }
+            )
+
+            $excel = $legendData | Export-Excel -Path $xlsxFile -WorksheetName "Legend" -AutoSize -Append -PassThru
+
+            $ws = $excel.Workbook.Worksheets["Legend"]
+            $legendLastRow = $ws.Dimension.End.Row
+
+            # Style header row
+            $ws.Cells["A1:C1"].Style.Font.Bold = $true
+            $ws.Cells["A1:C1"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+            $ws.Cells["A1:C1"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $ws.Cells["A1:C1"].Style.Fill.BackgroundColor.SetColor($headerBlue)
+
+            # Style category column
+            $ws.Cells["A2:A$legendLastRow"].Style.Font.Bold = $true
+
+            # Add borders
+            $ws.Cells["A1:C$legendLastRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+            $ws.Cells["A1:C$legendLastRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+            $ws.Cells["A1:C$legendLastRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+            $ws.Cells["A1:C$legendLastRow"].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+
+            # Apply colors to color coding rows
+            for ($row = 2; $row -le $legendLastRow; $row++) {
+                $itemValue = $ws.Cells["B$row"].Value
+                if ($itemValue -eq "Green") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($greenFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($greenText)
+                }
+                elseif ($itemValue -eq "Yellow/Orange") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($yellowFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($yellowText)
+                }
+                elseif ($itemValue -eq "Red") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($redFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($redText)
+                }
+                elseif ($itemValue -eq "Gray") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($lightGray)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
+                }
+                # Style status values in Legend
+                elseif ($itemValue -eq "OK") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($greenFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($greenText)
+                }
+                elseif ($itemValue -eq "LIMITED" -or $itemValue -eq "CAPACITY-CONSTRAINED" -or $itemValue -eq "PARTIAL") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($yellowFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($yellowText)
+                }
+                elseif ($itemValue -eq "RESTRICTED") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($redFill)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor($redText)
+                }
+                elseif ($itemValue -eq "N/A") {
+                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($lightGray)
+                    $ws.Cells["B$row"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
+                }
+            }
+
+            # Set column widths
+            $ws.Column(1).Width = 20
+            $ws.Column(2).Width = 25
+            $ws.Column(3).Width = 70
+
+            Close-ExcelPackage $excel
+
             Write-Host "  $($Icons.Check) XLSX: $xlsxFile" -ForegroundColor Green
             Write-Host "    - Summary sheet with color-coded status" -ForegroundColor DarkGray
             Write-Host "    - Details sheet with filters and conditional formatting" -ForegroundColor DarkGray
+            Write-Host "    - Legend sheet explaining status codes and format" -ForegroundColor DarkGray
         }
         catch {
             Write-Host "  $($Icons.Warning) XLSX formatting failed: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -2055,4 +2661,16 @@ if ($ExportPath) {
     }
 
     Write-Host "`nExport complete!" -ForegroundColor Green
+
+    # Prompt to open Excel file
+    if ($useXLSX -and (Test-Path $xlsxFile)) {
+        if (-not $NoPrompt) {
+            Write-Host ""
+            $openExcel = Read-Host "Open Excel file now? (Y/n)"
+            if ($openExcel -eq '' -or $openExcel -match '^[Yy]') {
+                Write-Host "Opening $xlsxFile..." -ForegroundColor Cyan
+                Start-Process $xlsxFile
+            }
+        }
+    }
 }
