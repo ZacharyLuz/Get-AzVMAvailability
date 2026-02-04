@@ -171,7 +171,7 @@ param(
     [switch]$UseAsciiIcons,
 
     [Parameter(Mandatory = $false, HelpMessage = "Azure cloud environment (default: auto-detect from Az context)")]
-    [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud", "AzureGermanCloud", "AzureStack")]
+    [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud", "AzureGermanCloud")]
     [string]$Environment
 )
 
@@ -2024,8 +2024,7 @@ Write-Host ""
 function Format-RegionList {
     param(
         [string[]]$Regions,
-        [int]$MaxWidth = 75,
-        [int]$IndentSpaces = 14
+        [int]$MaxWidth = 75
     )
 
     if ($Regions.Count -eq 0) {

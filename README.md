@@ -142,9 +142,9 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 | Parameter          | Type     | Description                                                                                                               |
 | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `-SubscriptionId`  | String[] | Azure subscription ID(s) to scan                                                                                          |
-| `-Region`          | String[] | Azure region code(s) (e.g., 'eastus', 'westus2')                                                                          |
-| `-Environment`     | String   | Azure cloud (default: auto-detect). Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud, AzureStack |
-| `-ExportPath`      | String   | Directory for export files                                                                                                |
+| `-Region`          | String[] | Azure region code(s) (e.g., 'eastus', 'westus2')                                                     |
+| `-Environment`     | String   | Azure cloud (default: auto-detect). Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud |
+| `-ExportPath`      | String   | Directory for export files                                                                           |
 | `-AutoExport`      | Switch   | Export without prompting                                                                                                  |
 | `-EnableDrillDown` | Switch   | Interactive family/SKU exploration                                                                                        |
 | `-FamilyFilter`    | String[] | Filter to specific VM families                                                                                            |
