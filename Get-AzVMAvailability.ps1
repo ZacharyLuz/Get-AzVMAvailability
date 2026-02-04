@@ -243,7 +243,15 @@ if ($RegionPreset) {
 }
 $SelectedFamilyFilter = $FamilyFilter
 $SelectedSkuFilter = @{}
-$script:TargetEnvironment = $Environment  # Explicit environment override (null = auto-detect)
+
+# Only override environment if explicitly specified (preserve auto-detected sovereign clouds)
+if ($Environment) {
+    $script:TargetEnvironment = $Environment
+}
+
+# Initialize Azure endpoints for environment-aware URLs (quota portal, pricing API)
+# This ensures sovereign cloud users get correct URLs even without -ShowPricing
+$script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
 
 # Detect execution environment (Azure Cloud Shell vs local)
 $isCloudShell = $env:CLOUD_SHELL -eq "true" -or (Test-Path "/home/system" -ErrorAction SilentlyContinue)

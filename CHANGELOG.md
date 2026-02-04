@@ -70,6 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Excel Legend export now uses `-Append` (was overwriting Summary/Details sheets)
 - PARTIAL status now included in Legend and has yellow styling in Excel
 - Region limit prompt respects `-NoPrompt` (was hanging in automation)
+- **Sovereign cloud quota URLs** - Fixed environment detection being overwritten; quota portal URLs now correctly point to sovereign cloud portals (portal.azure.us, portal.azure.cn) even without `-ShowPricing`
+
+### Added (CI/CD)
+- **GitHub Actions workflow** - PSScriptAnalyzer linting and Pester tests on pull requests
+- **Branch protection** - Main branch now requires passing PSScriptAnalyzer checks
 
 ### Removed
 - `AzureStack` from `-Environment` options (not applicable for this tool's use case)
