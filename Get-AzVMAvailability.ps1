@@ -79,7 +79,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.4.0
+    Version:        1.5.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -1983,7 +1983,8 @@ $quotaPortalUrl = if ($script:AzureEndpoints -and $script:AzureEndpoints.Environ
         'AzureGermanCloud' { 'https://portal.microsoftazure.de/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
         default { 'https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
     }
-} else {
+}
+else {
     'https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas'
 }
 Write-Host "  $quotaPortalUrl" -ForegroundColor DarkCyan
