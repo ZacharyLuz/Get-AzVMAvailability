@@ -5,36 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.0] - 2026-01-28
+## [1.5.0] - 2026-02-03
 
 ### Added
+- **Excel Legend Sheet** - New "Legend" worksheet in XLSX exports explaining:
+  - Status format `(X/Y)` where X = available SKUs, Y = total SKUs
+  - Capacity status codes with color coding (OK, LIMITED, CAPACITY-CONSTRAINED, PARTIAL, RESTRICTED, N/A)
+  - Column definitions for Summary and Details sheets
 - **Sovereign Cloud Support** - Automatic detection and support for Azure cloud environments
   - Azure Commercial (`AzureCloud`)
   - Azure Government (`AzureUSGovernment`)
   - Azure China (`AzureChinaCloud`)
   - Azure Germany (`AzureGermanCloud`)
 - **New `-Environment` Parameter** - Optional explicit override for cloud environment
-  - Options: `AzureCloud`, `AzureUSGovernment`, `AzureChinaCloud`, `AzureGermanCloud`
-  - Default: auto-detect from `Get-AzContext`
-  - Example: `-Environment AzureUSGovernment`
-- **New `Get-AzureEndpoints` Function** - Resolves API endpoints based on current Azure context
-  - Automatically detects environment from `Get-AzContext`
-  - Supports explicit override via `-EnvironmentName` parameter
-  - Falls back gracefully to Commercial cloud if detection fails
+- **Region Limit (5 max)** - Warns when >5 regions specified for readability
+  - Interactive mode: prompts to truncate or cancel
+  - `-NoPrompt` mode: auto-truncates with warning
+- **Drill-Down Region Sub-Headers** - Each region shows quota breakdown:
+  - Format: `Region: eastus (Quota: 459 of 1,700 vCPUs used | 1,241 available)`
+  - SKUs grouped under their region for clarity
+- **NEED MORE CAPACITY? Section** - Guidance for quota increases
+  - Environment-aware portal link (Commercial/Gov/China/Germany)
+  - Hybrid Benefit pricing note when `-ShowPricing` enabled
 - **Pester Tests** - Unit tests for endpoint resolution (`tests/Get-AzureEndpoints.Tests.ps1`)
-  - Mock-based testing for all cloud environments
-  - URL normalization validation
-  - Integration tests for URL construction
+- **Documentation**
+  - `docs/Excel-Legend-Reference.md` - Comprehensive Legend explanation
+  - Common Region Presets table in README (US, Europe, Asia, Gov, China)
 
 ### Changed
-- Pricing API URL now derived from `ManagementPortalUrl` instead of hard-coded
-- Cost Management API now uses environment-specific `ResourceManagerUrl`
-- Token acquisition uses dynamic ARM endpoint for sovereign clouds
 - **Breaking**: Removed `-UseActualPricing` switch; `-ShowPricing` now auto-detects negotiated rates (EA/MCA/CSP) and falls back to retail pricing automatically
+- Multi-region output now wraps long region lists intelligently across lines
+- Dynamic separator widths based on region count (no more hardcoded 175 chars)
+- Pricing API URL derived from `ManagementPortalUrl` instead of hard-coded
+- Cost Management API uses environment-specific `ResourceManagerUrl`
+- Quota URL in help text now environment-aware (Gov/China use correct portal)
 
-### Technical
-- Endpoint resolution cached in `$script:AzureEndpoints` for performance
-- Verbose output shows resolved endpoints for debugging
+### Fixed
+- Excel Legend export now uses `-Append` (was overwriting Summary/Details sheets)
+- PARTIAL status now included in Legend and has yellow styling in Excel
+- Region limit prompt respects `-NoPrompt` (was hanging in automation)
+- `$script:OutputWidth` now properly initialized (was causing empty separators)
+
+### Removed
+- `AzureStack` from `-Environment` options (not applicable for this tool's use case)
+- Unused `IndentSpaces` parameter from `Format-RegionList` function
 
 ## [1.4.0] - 2026-01-27
 
