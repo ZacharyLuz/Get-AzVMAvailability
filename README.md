@@ -116,17 +116,11 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ### Check Specific SKUs with Pricing
 ```powershell
-# Check specific SKUs with pricing information
+# Pricing auto-detects negotiated rates (EA/MCA/CSP), falls back to retail
 .\Get-AzVMAvailability.ps1 `
     -Region "eastus","westus2" `
     -SkuFilter "Standard_D*_v5" `
     -ShowPricing
-
-# Use actual negotiated pricing (requires billing permissions)
-.\Get-AzVMAvailability.ps1 `
-    -Region "eastus" `
-    -ShowPricing `
-    -UseActualPricing
 ```
 
 ### Full Parameter Example
@@ -145,23 +139,22 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ## Parameters
 
-| Parameter           | Type     | Description                                                                                                               |
-| ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `-SubscriptionId`   | String[] | Azure subscription ID(s) to scan                                                                                          |
-| `-Region`           | String[] | Azure region code(s) (e.g., 'eastus', 'westus2')                                                                          |
-| `-Environment`      | String   | Azure cloud (default: auto-detect). Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud, AzureStack |
-| `-ExportPath`       | String   | Directory for export files                                                                                                |
-| `-AutoExport`       | Switch   | Export without prompting                                                                                                  |
-| `-EnableDrillDown`  | Switch   | Interactive family/SKU exploration                                                                                        |
-| `-FamilyFilter`     | String[] | Filter to specific VM families                                                                                            |
-| `-SkuFilter`        | String[] | Filter to specific SKUs (supports wildcards)                                                                              |
-| `-ShowPricing`      | Switch   | Include hourly/monthly pricing columns                                                                                    |
-| `-UseActualPricing` | Switch   | Use Cost Management API for negotiated rates                                                                              |
-| `-ImageURN`         | String   | Check SKU compatibility with image (format: Publisher:Offer:Sku:Version)                                                  |
-| `-CompactOutput`    | Switch   | Use compact output for narrow terminals                                                                                   |
-| `-NoPrompt`         | Switch   | Skip interactive prompts                                                                                                  |
-| `-OutputFormat`     | String   | 'Auto', 'CSV', or 'XLSX'                                                                                                  |
-| `-UseAsciiIcons`    | Switch   | Force ASCII instead of Unicode icons                                                                                      |
+| Parameter          | Type     | Description                                                                                                               |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `-SubscriptionId`  | String[] | Azure subscription ID(s) to scan                                                                                          |
+| `-Region`          | String[] | Azure region code(s) (e.g., 'eastus', 'westus2')                                                                          |
+| `-Environment`     | String   | Azure cloud (default: auto-detect). Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud, AzureStack |
+| `-ExportPath`      | String   | Directory for export files                                                                                                |
+| `-AutoExport`      | Switch   | Export without prompting                                                                                                  |
+| `-EnableDrillDown` | Switch   | Interactive family/SKU exploration                                                                                        |
+| `-FamilyFilter`    | String[] | Filter to specific VM families                                                                                            |
+| `-SkuFilter`       | String[] | Filter to specific SKUs (supports wildcards)                                                                              |
+| `-ShowPricing`     | Switch   | Show pricing (auto-detects negotiated EA/MCA/CSP rates, falls back to retail)                                             |
+| `-ImageURN`        | String   | Check SKU compatibility with image (format: Publisher:Offer:Sku:Version)                                                  |
+| `-CompactOutput`   | Switch   | Use compact output for narrow terminals                                                                                   |
+| `-NoPrompt`        | Switch   | Skip interactive prompts                                                                                                  |
+| `-OutputFormat`    | String   | 'Auto', 'CSV', or 'XLSX'                                                                                                  |
+| `-UseAsciiIcons`   | Switch   | Force ASCII instead of Unicode icons                                                                                      |
 
 ## Common Region Presets
 
@@ -205,19 +198,21 @@ Family     | eastus          | eastus2
 D          | ⚠ LIMITED       | ✓ OK
 ```
 
-### Pricing Options
+### Pricing (Auto-Detection)
 
-**Retail Pricing (Default with `-ShowPricing`):**
-- Uses the public Azure Retail Prices API
-- No authentication required
-- Shows Linux pay-as-you-go rates
-- Does NOT include EA/MCA/Reserved discounts
+With `-ShowPricing`, the script automatically detects the best pricing source:
 
-**Actual Pricing (`-UseActualPricing`):**
-- Uses Azure Cost Management API
-- Requires Billing Reader or Cost Management Reader role
-- Shows your negotiated rates (EA, MCA, or CSP discounts applied)
-- Falls back to retail pricing if access is denied
+1. **First, tries negotiated pricing** (EA/MCA/CSP)
+   - Uses Azure Cost Management API
+   - Requires Billing Reader or Cost Management Reader role
+   - Shows your actual discounted rates
+
+2. **Falls back to retail pricing** if negotiated rates unavailable
+   - Uses the public Azure Retail Prices API
+   - No special permissions required
+   - Shows Linux pay-as-you-go rates
+
+> **Note**: You'll see which pricing source is being used in the console output.
 
 ### Excel Export
 - Color-coded status cells (green/yellow/red)

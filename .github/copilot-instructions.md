@@ -21,15 +21,15 @@
 
 ## Build, Test, and Run
 
-- **Run Main Script:**  
+- **Run Main Script:**
   ```powershell
   .\Get-AzVMAvailability.ps1
   ```
-- **Run Tests:**  
+- **Run Tests:**
   ```powershell
   Invoke-Pester .\tests\Get-AzureEndpoints.Tests.ps1 -Output Detailed
   ```
-- **Requirements:**  
+- **Requirements:**
   - PowerShell 7+
   - Az.Compute, Az.Resources modules
   - Azure login (`Connect-AzAccount`)
@@ -44,7 +44,7 @@
 
 ## Branch Protection
 
-- Main/master branches are protected from deletion and require PRs for changes (see `Protect_Main_Branch.json`).
+- Main/master branches are protected from deletion and require PRs for changes.
 
 ## Contribution & Security
 

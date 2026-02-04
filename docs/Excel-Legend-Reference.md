@@ -27,13 +27,14 @@ When you see a value like `OK (5/8)` in the Summary sheet, here's what it means:
 
 ## Capacity Status Codes
 
-| Status                   | Color    | Description                                                                           |
-| ------------------------ | -------- | ------------------------------------------------------------------------------------- |
-| **OK**                   | 🟢 Green  | Full capacity available - SKU can be deployed without restrictions                    |
-| **LIMITED**              | 🟡 Yellow | Subscription-level restrictions apply - may require quota increase or support request |
-| **CAPACITY-CONSTRAINED** | 🟡 Yellow | Zone-level constraints - limited availability in some availability zones              |
-| **RESTRICTED**           | 🔴 Red    | SKU is not available for deployment in this region/subscription                       |
-| **N/A**                  | ⚪ Gray   | SKU family not available in this region                                               |
+| Status                   | Color    | Description                                                                                     |
+| ------------------------ | -------- | ----------------------------------------------------------------------------------------------- |
+| **OK**                   | 🟢 Green  | Full capacity available - SKU can be deployed without restrictions                              |
+| **LIMITED**              | 🟡 Yellow | Subscription-level restrictions apply - may require quota increase or support request           |
+| **CAPACITY-CONSTRAINED** | 🟡 Yellow | Zone-level constraints - limited availability in some availability zones                        |
+| **PARTIAL**              | 🟡 Yellow | Mixed zone availability - some zones OK, others restricted (e.g., Zone 1 OK, Zones 2,3 blocked) |
+| **RESTRICTED**           | 🔴 Red    | SKU is not available for deployment in this region/subscription                                 |
+| **N/A**                  | ⚪ Gray   | SKU family not available in this region                                                         |
 
 ---
 

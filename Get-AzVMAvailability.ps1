@@ -45,12 +45,10 @@
     Filter to specific SKU names. Supports wildcards (e.g., 'Standard_D*_v5').
 
 .PARAMETER ShowPricing
-    Include estimated hourly pricing for VM SKUs from Azure Retail Prices API.
-    Adds ~5-10 seconds to execution time. Without -NoPrompt, prompts interactively.
-
-.PARAMETER UseActualPricing
-    Use actual negotiated pricing from Cost Management API instead of retail prices.
-    Requires Billing Reader or Cost Management Reader role on the subscription.
+    Show hourly/monthly pricing for VM SKUs.
+    Auto-detects negotiated rates (EA/MCA/CSP) via Cost Management API.
+    Falls back to retail pricing if negotiated rates unavailable.
+    Adds ~5-10 seconds to execution time.
 
 .PARAMETER ImageURN
     Check SKU compatibility with a specific VM image.
@@ -153,11 +151,8 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Filter to specific SKUs (supports wildcards)")]
     [string[]]$SkuFilter,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Show estimated hourly pricing for SKUs")]
+    [Parameter(Mandatory = $false, HelpMessage = "Show hourly pricing (auto-detects negotiated rates, falls back to retail)")]
     [switch]$ShowPricing,
-
-    [Parameter(Mandatory = $false, HelpMessage = "Use actual pricing from Cost Management API (requires billing permissions)")]
-    [switch]$UseActualPricing,
 
     [Parameter(Mandatory = $false, HelpMessage = "VM image URN to check compatibility (format: Publisher:Offer:Sku:Version)")]
     [string]$ImageURN,
@@ -1379,45 +1374,37 @@ $script:regionPricing = @{}
 $script:usingActualPricing = $false
 
 if ($FetchPricing) {
-    if ($UseActualPricing) {
-        Write-Host "Fetching actual pricing from Cost Management API..." -ForegroundColor DarkGray
-        Write-Host "  (Requires Billing Reader or Cost Management Reader role)" -ForegroundColor DarkGray
+    # Auto-detect: Try negotiated pricing first, fall back to retail
+    Write-Host "Checking for negotiated pricing (EA/MCA/CSP)..." -ForegroundColor DarkGray
 
-        $actualPricingSuccess = $true
-        foreach ($regionCode in $Regions) {
-            $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode
-            if ($actualPrices -and $actualPrices.Count -gt 0) {
-                if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
-                $script:regionPricing[$regionCode] = $actualPrices
-            }
-            else {
-                $actualPricingSuccess = $false
-                break
-            }
-        }
-
-        if ($actualPricingSuccess -and $script:regionPricing.Count -gt 0) {
-            $script:usingActualPricing = $true
-            Write-Host "Actual pricing loaded for $($Regions.Count) region(s)" -ForegroundColor Green
-            Write-Host "Note: Prices reflect your negotiated EA/MCA/CSP rates." -ForegroundColor DarkGreen
+    $actualPricingSuccess = $true
+    foreach ($regionCode in $Regions) {
+        $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode
+        if ($actualPrices -and $actualPrices.Count -gt 0) {
+            if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
+            $script:regionPricing[$regionCode] = $actualPrices
         }
         else {
-            Write-Host "Falling back to retail pricing..." -ForegroundColor DarkYellow
-            $script:regionPricing = @{}
+            $actualPricingSuccess = $false
+            break
         }
     }
 
-    # Fall back to retail pricing if needed
-    if (-not $script:usingActualPricing) {
-        Write-Host "Fetching retail pricing data..." -ForegroundColor DarkGray
+    if ($actualPricingSuccess -and $script:regionPricing.Count -gt 0) {
+        $script:usingActualPricing = $true
+        Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected)" -ForegroundColor Green
+    }
+    else {
+        # Fall back to retail pricing
+        Write-Host "No negotiated rates found, using retail pricing..." -ForegroundColor DarkGray
+        $script:regionPricing = @{}
         foreach ($regionCode in $Regions) {
             $pricingResult = Get-AzVMPricing -Region $regionCode
             # Handle potential array wrapping from function return
             if ($pricingResult -is [array]) { $pricingResult = $pricingResult[0] }
             $script:regionPricing[$regionCode] = $pricingResult
         }
-        Write-Host "Pricing data loaded for $($Regions.Count) region(s)" -ForegroundColor DarkGray
-        Write-Host "Note: Prices shown are Linux pay-as-you-go retail rates. EA/MCA/Reserved discounts not included." -ForegroundColor DarkYellow
+        Write-Host "$($Icons.Check) Using retail pricing (Linux pay-as-you-go)" -ForegroundColor DarkGray
     }
 }
 
@@ -2255,6 +2242,9 @@ if ($ExportPath) {
                 # CAPACITY-CONSTRAINED - Light orange
                 Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType ContainsText -ConditionValue "CAPACITY" -BackgroundColor $yellowFill -ForegroundColor $yellowText
 
+                # PARTIAL - Yellow (mixed zone availability)
+                Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "PARTIAL" -BackgroundColor $yellowFill -ForegroundColor $yellowText
+
                 # RESTRICTED - Red
                 Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "RESTRICTED" -BackgroundColor $redFill -ForegroundColor $redText
             }
@@ -2283,6 +2273,7 @@ if ($ExportPath) {
                 [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "OK"; Description = "Full capacity available - SKU can be deployed without restrictions" }
                 [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "LIMITED"; Description = "Subscription-level restrictions apply - may require quota increase or support request" }
                 [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "CAPACITY-CONSTRAINED"; Description = "Zone-level constraints - limited availability in some availability zones" }
+                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "PARTIAL"; Description = "Mixed zone availability - some zones OK, others restricted (e.g., Zone 1 available, Zones 2,3 blocked)" }
                 [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "RESTRICTED"; Description = "SKU is not available for deployment in this region/subscription" }
                 [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "N/A"; Description = "SKU family not available in this region" }
                 [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
@@ -2307,7 +2298,7 @@ if ($ExportPath) {
                 [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Gray"; Description = "Not applicable or unavailable in region" }
             )
 
-            $excel = $legendData | Export-Excel -Path $xlsxFile -WorksheetName "Legend" -AutoSize -PassThru
+            $excel = $legendData | Export-Excel -Path $xlsxFile -WorksheetName "Legend" -AutoSize -Append -PassThru
 
             $ws = $excel.Workbook.Worksheets["Legend"]
             $legendLastRow = $ws.Dimension.End.Row
