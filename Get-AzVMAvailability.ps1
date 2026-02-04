@@ -126,6 +126,22 @@
     .\Get-AzVMAvailability.ps1 -NoPrompt -ShowPricing -Region "eastus","westus2"
     Automated scan with pricing enabled, no interactive prompts.
 
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -RegionPreset USEastWest -NoPrompt
+    Scan US East/West regions (eastus, eastus2, westus, westus2) using a preset.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing
+    Check DR region pair for Azure Site Recovery planning with pricing.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -RegionPreset Europe -NoPrompt -AutoExport
+    Scan all major European regions with auto-export.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -RegionPreset USGov -NoPrompt
+    Scan Azure Government regions (auto-sets environment to AzureUSGovernment).
+
 .LINK
     https://github.com/zacharyluz/Get-AzVMAvailability
 #>
@@ -139,6 +155,10 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Azure region(s) to scan")]
     [Alias("Location")]
     [string[]]$Region,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Predefined region sets for common scenarios")]
+    [ValidateSet("USEastWest", "USCentral", "USMajor", "Europe", "AsiaPacific", "Global", "USGov", "China", "ASR-EastWest", "ASR-CentralUS")]
+    [string]$RegionPreset,
 
     [Parameter(Mandatory = $false, HelpMessage = "Directory path for export")]
     [string]$ExportPath,
@@ -190,6 +210,37 @@ $ScriptVersion = "1.5.0"
 $TargetSubIds = $SubscriptionId
 $Regions = $Region
 $EnableDrill = $EnableDrillDown.IsPresent
+
+# Region Presets - expand preset name to actual region array
+# Note: All presets limited to 5 regions max for performance
+$RegionPresets = @{
+    'USEastWest'    = @('eastus', 'eastus2', 'westus', 'westus2')
+    'USCentral'     = @('centralus', 'northcentralus', 'southcentralus', 'westcentralus')
+    'USMajor'       = @('eastus', 'eastus2', 'centralus', 'westus', 'westus2')  # Top 5 US regions by usage
+    'Europe'        = @('westeurope', 'northeurope', 'uksouth', 'francecentral', 'germanywestcentral')
+    'AsiaPacific'   = @('eastasia', 'southeastasia', 'japaneast', 'australiaeast', 'koreacentral')
+    'Global'        = @('eastus', 'westeurope', 'southeastasia', 'australiaeast', 'brazilsouth')
+    'USGov'         = @('usgovvirginia', 'usgovtexas', 'usgovarizona')  # Azure Government (AzureUSGovernment)
+    'China'         = @('chinaeast', 'chinanorth', 'chinaeast2', 'chinanorth2')  # Azure China / Mooncake (AzureChinaCloud)
+    'ASR-EastWest'  = @('eastus', 'westus2')      # Azure Site Recovery pair
+    'ASR-CentralUS' = @('centralus', 'eastus2')   # Azure Site Recovery pair
+}
+
+# If RegionPreset is specified, expand it (takes precedence over -Region if both specified)
+if ($RegionPreset) {
+    $Regions = $RegionPresets[$RegionPreset]
+    Write-Verbose "Using region preset '$RegionPreset': $($Regions -join ', ')"
+
+    # Auto-set environment for sovereign cloud presets
+    if ($RegionPreset -eq 'USGov' -and -not $Environment) {
+        $script:TargetEnvironment = 'AzureUSGovernment'
+        Write-Verbose "Auto-setting environment to AzureUSGovernment for USGov preset"
+    }
+    elseif ($RegionPreset -eq 'China' -and -not $Environment) {
+        $script:TargetEnvironment = 'AzureChinaCloud'
+        Write-Verbose "Auto-setting environment to AzureChinaCloud for China preset"
+    }
+}
 $SelectedFamilyFilter = $FamilyFilter
 $SelectedSkuFilter = @{}
 $script:TargetEnvironment = $Environment  # Explicit environment override (null = auto-detect)
@@ -1364,13 +1415,19 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
 
 # === Data Collection ================================================
 
+# Calculate consistent output width based on table columns
+# Base columns: Family(12) + SKUs(6) + OK(5) + Largest(18) + Zones(28) + Status(22) + Quota(10) = 101
+# Plus spacing (2 chars between each of 7 columns = 12) = 113 base
+# With pricing: +20 (two 10-char columns) = 133
+$script:OutputWidth = if ($FetchPricing) { 133 } else { 113 }
+# Ensure minimum width and cap at reasonable maximum
+$script:OutputWidth = [Math]::Max($script:OutputWidth, 100)
+$script:OutputWidth = [Math]::Min($script:OutputWidth, 150)
+
 Write-Host "`n" -NoNewline
-# Use default width until regions are processed
-$tempWidth = if ($Regions.Count -le 5) { 10 + ($Regions.Count * 18) } else { 100 }
-if ($tempWidth -lt 80) { $tempWidth = 80 }
-Write-Host ("=" * $tempWidth) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "GET-AZVMAVAILABILITY v$ScriptVersion" -ForegroundColor Green
-Write-Host ("=" * $tempWidth) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
 if ($SkuFilter -and $SkuFilter.Count -gt 0) {
     Write-Host "SKU Filter: $($SkuFilter -join ', ')" -ForegroundColor Yellow
@@ -1380,6 +1437,7 @@ if ($script:ImageReqs) {
     Write-Host "Image: $ImageURN" -ForegroundColor Cyan
     Write-Host "Requirements: $($script:ImageReqs.Gen) | $($script:ImageReqs.Arch)" -ForegroundColor DarkCyan
 }
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
 
 # Fetch pricing data if enabled
@@ -1422,6 +1480,7 @@ if ($FetchPricing) {
 }
 
 $allSubscriptionData = @()
+$scanStartTime = Get-Date
 
 foreach ($subId in $TargetSubIds) {
     $ctx = Get-AzContext -ErrorAction SilentlyContinue
@@ -1431,6 +1490,10 @@ foreach ($subId in $TargetSubIds) {
 
     $subName = (Get-AzSubscription -SubscriptionId $subId | Select-Object -First 1).Name
     Write-Host "[$subName] Scanning $($Regions.Count) region(s)..." -ForegroundColor Yellow
+
+    # Progress indicator for parallel scanning
+    $regionCount = $Regions.Count
+    Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $regionCount region(s) in parallel..." -PercentComplete 0
 
     $regionData = $Regions | ForEach-Object -Parallel {
         $region = [string]$_
@@ -1463,6 +1526,11 @@ foreach ($subId in $TargetSubIds) {
         }
     } -ThrottleLimit 4
 
+    Write-Progress -Activity "Scanning Azure Regions" -Completed
+
+    $scanElapsed = (Get-Date) - $scanStartTime
+    Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
+
     $allSubscriptionData += @{
         SubscriptionId   = $subId
         SubscriptionName = $subName
@@ -1475,21 +1543,26 @@ foreach ($subId in $TargetSubIds) {
 $allFamilyStats = @{}
 $familyDetails = @()
 $familySkuIndex = @{}
+$processStartTime = Get-Date
 
 foreach ($subscriptionData in $allSubscriptionData) {
     $subName = $subscriptionData.SubscriptionName
+    $totalRegions = $subscriptionData.RegionData.Count
+    $currentRegion = 0
 
     foreach ($data in $subscriptionData.RegionData) {
+        $currentRegion++
         $region = Get-SafeString $data.Region
 
-        # Use OutputWidth if available, otherwise calculate temp width
-        $sectionWidth = if ($script:OutputWidth) { $script:OutputWidth } else { 10 + ($Regions.Count * 18) }
-        if ($sectionWidth -lt 80) { $sectionWidth = 80 }
+        # Progress bar for processing
+        $percentComplete = [math]::Round(($currentRegion / $totalRegions) * 100)
+        $elapsed = (Get-Date) - $processStartTime
+        Write-Progress -Activity "Processing Region Data" -Status "$region ($currentRegion of $totalRegions)" -PercentComplete $percentComplete -CurrentOperation "Elapsed: $([math]::Round($elapsed.TotalSeconds, 1))s"
 
         Write-Host "`n" -NoNewline
-        Write-Host ("=" * $sectionWidth) -ForegroundColor Gray
+        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
         Write-Host "REGION: $region" -ForegroundColor Yellow
-        Write-Host ("=" * $sectionWidth) -ForegroundColor Gray
+        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 
         if ($data.Error) {
             Write-Host "ERROR: $($data.Error)" -ForegroundColor Red
@@ -1515,10 +1588,10 @@ foreach ($subscriptionData in $allSubscriptionData) {
 
         if ($quotaLines) {
             # Fixed-width quota table (175 chars total)
-            $qColWidths = [ordered]@{ Family = 70; Used = 20; Limit = 20; Available = 25 }
+            $qColWidths = [ordered]@{ Family = 50; Used = 15; Limit = 15; Available = 15 }
             $qHeader = foreach ($c in $qColWidths.Keys) { $c.PadRight($qColWidths[$c]) }
             Write-Host ($qHeader -join '  ') -ForegroundColor Cyan
-            Write-Host ('-' * $sectionWidth) -ForegroundColor Gray
+            Write-Host ('-' * $script:OutputWidth) -ForegroundColor Gray
             foreach ($q in $quotaLines) {
                 $qRow = foreach ($c in $qColWidths.Keys) {
                     $v = "$($q.$c)"
@@ -1642,9 +1715,9 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     ZoneStatus   = Format-ZoneStatus $skuRestrictions.ZonesOK $skuRestrictions.ZonesLimited $skuRestrictions.ZonesRestricted
                     Capacity     = [string]$skuRestrictions.Status
                     Reason       = ($skuRestrictions.RestrictionReasons -join ', ')
-                    QuotaAvail   = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
-                    QuotaLimit   = if ($quotaInfo.Limit) { $quotaInfo.Limit } else { $null }
-                    QuotaCurrent = if ($quotaInfo.Current) { $quotaInfo.Current } else { $null }
+                    QuotaAvail   = if ($null -ne $quotaInfo.Available) { $quotaInfo.Available } else { '?' }
+                    QuotaLimit   = if ($null -ne $quotaInfo.Limit) { $quotaInfo.Limit } else { $null }
+                    QuotaCurrent = if ($null -ne $quotaInfo.Current) { $quotaInfo.Current } else { $null }
                     ImgCompat    = $imgCompat
                     ImgReason    = $imgReason
                 }
@@ -1690,7 +1763,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 $col.PadRight($colWidths[$col])
             }
             Write-Host ($headerParts -join '  ') -ForegroundColor Cyan
-            Write-Host ('-' * $sectionWidth) -ForegroundColor Gray
+            Write-Host ('-' * $script:OutputWidth) -ForegroundColor Gray
 
             # Data rows
             foreach ($row in $rows) {
@@ -1848,7 +1921,7 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 
                     # Get quota info for this family in this region
                     $regionQuota = $regionRows | Select-Object -First 1
-                    $quotaHeader = if ($regionQuota.QuotaLimit -and $null -ne $regionQuota.QuotaCurrent) {
+                    $quotaHeader = if ($null -ne $regionQuota.QuotaLimit -and $null -ne $regionQuota.QuotaCurrent) {
                         $avail = $regionQuota.QuotaLimit - $regionQuota.QuotaCurrent
                         "Quota: $($regionQuota.QuotaCurrent) of $($regionQuota.QuotaLimit) vCPUs used | $avail available"
                     }
@@ -2051,25 +2124,34 @@ Write-Host ""
 # Helper function to wrap region lists across multiple lines
 function Format-RegionList {
     param(
-        [string[]]$Regions,
+        [Parameter(Mandatory = $false)]
+        [object]$Regions,
         [int]$MaxWidth = 75
     )
 
-    if ($Regions.Count -eq 0) {
-        return @('(none)')
+    # Handle null, empty, or non-array inputs
+    if ($null -eq $Regions) {
+        return , @('(none)')  # Comma forces array even for single element
     }
 
-    $lines = @()
+    # Convert to array if not already
+    $regionArray = @($Regions)
+
+    if ($regionArray.Count -eq 0) {
+        return , @('(none)')
+    }
+
+    $lines = [System.Collections.Generic.List[string]]::new()
     $currentLine = ""
 
-    foreach ($region in $Regions) {
+    foreach ($region in $regionArray) {
+        $regionStr = [string]$region
         $separator = if ($currentLine) { ', ' } else { '' }
-        $testLine = $currentLine + $separator + $region
+        $testLine = $currentLine + $separator + $regionStr
 
         if ($testLine.Length -gt $MaxWidth -and $currentLine) {
-            # Current line is full, start a new one
-            $lines += $currentLine
-            $currentLine = $region
+            $lines.Add($currentLine)
+            $currentLine = $regionStr
         }
         else {
             $currentLine = $testLine
@@ -2077,15 +2159,16 @@ function Format-RegionList {
     }
 
     if ($currentLine) {
-        $lines += $currentLine
+        $lines.Add($currentLine)
     }
 
-    return $lines
+    return , @($lines.ToArray())  # Comma forces array context
 }
 
+# Calculate column widths based on output width
 $colFamily = 14
-$colAvailable = 40
-$colConstrained = 80
+$colAvailable = [Math]::Max(40, [Math]::Floor(($script:OutputWidth - 14) * 0.35))
+$colConstrained = $script:OutputWidth - $colFamily - $colAvailable - 2  # -2 for spacing
 
 $headerFmt = "{0,-$colFamily} {1,-$colAvailable} {2}" -f "Family", "Available Regions", "Constrained Regions"
 Write-Host $headerFmt -ForegroundColor Cyan
@@ -2094,39 +2177,53 @@ Write-Host ("-" * $script:OutputWidth) -ForegroundColor Gray
 $summaryRowsForExport = @()
 foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
     $stats = $allFamilyStats[$family]
-    $regionsOK = @()
-    $regionsConstrained = @()
+    $regionsOK = [System.Collections.Generic.List[string]]::new()
+    $regionsConstrained = [System.Collections.Generic.List[string]]::new()
 
     foreach ($regionKey in ($stats.Regions.Keys | Sort-Object)) {
-        $region = Get-SafeString $regionKey
-        $regionStat = $stats.Regions[$region]
+        $regionKeyStr = Get-SafeString $regionKey
+        $regionStat = $stats.Regions[$regionKey]  # Use original key for lookup
         if ($regionStat) {
             if ($regionStat.Capacity -eq 'OK') {
-                $regionsOK += $region
+                $regionsOK.Add($regionKeyStr)
             }
-            elseif ($regionStat.Capacity -match 'LIMITED|CAPACITY-CONSTRAINED|PARTIAL') {
-                $regionsConstrained += "$region ($($regionStat.Capacity))"
+            elseif ($regionStat.Capacity -match 'LIMITED|CAPACITY-CONSTRAINED|PARTIAL|RESTRICTED|BLOCKED') {
+                $regionsConstrained.Add("$regionKeyStr ($($regionStat.Capacity))")
             }
         }
     }
 
     # Format multi-line output
-    $okLines = Format-RegionList -Regions $regionsOK -MaxWidth $colAvailable
-    $constrainedLines = Format-RegionList -Regions $regionsConstrained -MaxWidth $colConstrained
+    $okLines = @(Format-RegionList -Regions $regionsOK.ToArray() -MaxWidth $colAvailable)
+    $constrainedLines = @(Format-RegionList -Regions $regionsConstrained.ToArray() -MaxWidth $colConstrained)
+
+    # Flatten if nested (PowerShell array quirk)
+    if ($okLines.Count -eq 1 -and $okLines[0] -is [array]) { $okLines = $okLines[0] }
+    if ($constrainedLines.Count -eq 1 -and $constrainedLines[0] -is [array]) { $constrainedLines = $constrainedLines[0] }
 
     # Determine how many lines we need (max of both columns)
-    $maxLines = [Math]::Max($okLines.Count, $constrainedLines.Count)
+    $maxLines = [Math]::Max(@($okLines).Count, @($constrainedLines).Count)
 
-    # Determine color for the family based on availability
-    $familyColor = if ($regionsOK.Count -gt 0) { 'Green' } elseif ($regionsConstrained.Count -gt 0) { 'Yellow' } else { 'Gray' }
+    # Determine color for the family name based on availability
+    # Green  = Perfect (All regions OK)
+    # White  = Mixed (Some OK, some constrained - check details)
+    # Yellow = Constrained (No regions strictly OK, all have limitations)
+    # Gray   = Unavailable
+    $familyColor = if ($regionsOK.Count -gt 0 -and $regionsConstrained.Count -eq 0) { 'Green' }
+    elseif ($regionsOK.Count -gt 0 -and $regionsConstrained.Count -gt 0) { 'White' }
+    elseif ($regionsConstrained.Count -gt 0) { 'Yellow' }
+    else { 'Gray' }
 
+    # Iterate through lines to print
     for ($i = 0; $i -lt $maxLines; $i++) {
         $familyStr = if ($i -eq 0) { $family } else { '' }
-        $okStr = if ($i -lt $okLines.Count) { $okLines[$i] } else { '' }
-        $constrainedStr = if ($i -lt $constrainedLines.Count) { $constrainedLines[$i] } else { '' }
+        $okStr = if ($i -lt @($okLines).Count) { @($okLines)[$i] } else { '' }
+        $constrainedStr = if ($i -lt @($constrainedLines).Count) { @($constrainedLines)[$i] } else { '' }
 
-        $line = "{0,-$colFamily} {1,-$colAvailable} {2}" -f $familyStr, $okStr, $constrainedStr
-        Write-Host $line -ForegroundColor $familyColor
+        # Write each column with appropriate color
+        Write-Host ("{0,-$colFamily} " -f $familyStr) -ForegroundColor $familyColor -NoNewline
+        Write-Host ("{0,-$colAvailable} " -f $okStr) -ForegroundColor Green -NoNewline
+        Write-Host $constrainedStr -ForegroundColor Yellow
     }
 
     # Export data
@@ -2147,12 +2244,16 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
     $summaryRowsForExport += [pscustomobject]$exportRow
 }
 
+Write-Progress -Activity "Processing Region Data" -Completed
+
 # === Completion =====================================================
+
+$totalElapsed = (Get-Date) - $scanStartTime
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "SCAN COMPLETE" -ForegroundColor Green
-Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor DarkGray
+Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | Total time: $([math]::Round($totalElapsed.TotalSeconds, 1)) seconds" -ForegroundColor DarkGray
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 
 # === Export =========================================================
@@ -2430,4 +2531,16 @@ if ($ExportPath) {
     }
 
     Write-Host "`nExport complete!" -ForegroundColor Green
+
+    # Prompt to open Excel file
+    if ($useXLSX -and (Test-Path $xlsxFile)) {
+        if (-not $NoPrompt) {
+            Write-Host ""
+            $openExcel = Read-Host "Open Excel file now? (Y/n)"
+            if ($openExcel -eq '' -or $openExcel -match '^[Yy]') {
+                Write-Host "Opening $xlsxFile..." -ForegroundColor Cyan
+                Start-Process $xlsxFile
+            }
+        }
+    }
 }
