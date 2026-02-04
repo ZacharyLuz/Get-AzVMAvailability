@@ -50,6 +50,7 @@
 
 - See `CONTRIBUTING.md` for guidelines.
 - See `SECURITY.md` for vulnerability reporting.
+- **Always update `CHANGELOG.md`** when making functional changes (new features, bug fixes, breaking changes).
 
 ## Additional Notes
 
