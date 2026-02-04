@@ -1012,7 +1012,7 @@ if (-not $Regions) {
     }
     else {
         Write-Host "`nSTEP 2: SELECT REGION(S)" -ForegroundColor Green
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * 100) -ForegroundColor Gray
         Write-Host ""
         Write-Host "FAST PATH: Type region codes now to skip the long list (comma/space separated)" -ForegroundColor Yellow
         Write-Host "Examples: eastus eastus2 westus3  |  Press Enter to show full menu" -ForegroundColor DarkGray
@@ -1082,6 +1082,28 @@ if (-not $Regions) {
 }
 else {
     $Regions = @($Regions | ForEach-Object { $_.ToLower() })
+}
+
+# Validate region count limit
+$maxRegions = 5
+if ($Regions.Count -gt $maxRegions) {
+    Write-Host "`n" -NoNewline
+    Write-Host "WARNING: " -ForegroundColor Yellow -NoNewline
+    Write-Host "You've specified $($Regions.Count) regions. For optimal performance and readability," -ForegroundColor White
+    Write-Host "         the maximum recommended is $maxRegions regions per scan." -ForegroundColor White
+    Write-Host "`nOptions:" -ForegroundColor Cyan
+    Write-Host "  1. Continue with first $maxRegions regions: $($Regions[0..($maxRegions-1)] -join ', ')" -ForegroundColor Gray
+    Write-Host "  2. Cancel and re-run with fewer regions" -ForegroundColor Gray
+    Write-Host "`nContinue with first $maxRegions regions? (y/N): " -ForegroundColor Yellow -NoNewline
+    $limitInput = Read-Host
+    if ($limitInput -match '^y(es)?$') {
+        $Regions = @($Regions[0..($maxRegions - 1)])
+        Write-Host "Proceeding with: $($Regions -join ', ')" -ForegroundColor Green
+    }
+    else {
+        Write-Host "Scan cancelled. Please re-run with $maxRegions or fewer regions." -ForegroundColor Yellow
+        exit 0
+    }
 }
 
 # Drill-down prompt
@@ -1335,9 +1357,12 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
 # === Data Collection ================================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
+# Use default width until regions are processed
+$tempWidth = if ($Regions.Count -le 5) { 10 + ($Regions.Count * 18) } else { 100 }
+if ($tempWidth -lt 80) { $tempWidth = 80 }
+Write-Host ("=" * $tempWidth) -ForegroundColor Gray
 Write-Host "GET-AZVMAVAILABILITY v$ScriptVersion" -ForegroundColor Green
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $tempWidth) -ForegroundColor Gray
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
 if ($SkuFilter -and $SkuFilter.Count -gt 0) {
     Write-Host "SKU Filter: $($SkuFilter -join ', ')" -ForegroundColor Yellow
@@ -1457,10 +1482,14 @@ foreach ($subscriptionData in $allSubscriptionData) {
     foreach ($data in $subscriptionData.RegionData) {
         $region = Get-SafeString $data.Region
 
+        # Use OutputWidth if available, otherwise calculate temp width
+        $sectionWidth = if ($script:OutputWidth) { $script:OutputWidth } else { 10 + ($Regions.Count * 18) }
+        if ($sectionWidth -lt 80) { $sectionWidth = 80 }
+
         Write-Host "`n" -NoNewline
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $sectionWidth) -ForegroundColor Gray
         Write-Host "REGION: $region" -ForegroundColor Yellow
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $sectionWidth) -ForegroundColor Gray
 
         if ($data.Error) {
             Write-Host "ERROR: $($data.Error)" -ForegroundColor Red
@@ -1489,7 +1518,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
             $qColWidths = [ordered]@{ Family = 70; Used = 20; Limit = 20; Available = 25 }
             $qHeader = foreach ($c in $qColWidths.Keys) { $c.PadRight($qColWidths[$c]) }
             Write-Host ($qHeader -join '  ') -ForegroundColor Cyan
-            Write-Host ('-' * 175) -ForegroundColor Gray
+            Write-Host ('-' * $sectionWidth) -ForegroundColor Gray
             foreach ($q in $quotaLines) {
                 $qRow = foreach ($c in $qColWidths.Keys) {
                     $v = "$($q.$c)"
@@ -1614,6 +1643,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     Capacity     = [string]$skuRestrictions.Status
                     Reason       = ($skuRestrictions.RestrictionReasons -join ', ')
                     QuotaAvail   = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
+                    QuotaLimit   = if ($quotaInfo.Limit) { $quotaInfo.Limit } else { $null }
+                    QuotaCurrent = if ($quotaInfo.Current) { $quotaInfo.Current } else { $null }
                     ImgCompat    = $imgCompat
                     ImgReason    = $imgReason
                 }
@@ -1659,7 +1690,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 $col.PadRight($colWidths[$col])
             }
             Write-Host ($headerParts -join '  ') -ForegroundColor Cyan
-            Write-Host ('-' * 175) -ForegroundColor Gray
+            Write-Host ('-' * $sectionWidth) -ForegroundColor Gray
 
             # Data rows
             foreach ($row in $rows) {
@@ -1701,10 +1732,11 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
     }
     else {
         # Interactive mode
+        $drillWidth = if ($script:OutputWidth) { $script:OutputWidth } else { 100 }
         Write-Host "`n" -NoNewline
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
         Write-Host "DRILL-DOWN: SELECT FAMILIES" -ForegroundColor Green
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
 
         for ($i = 0; $i -lt $familyList.Count; $i++) {
             $fam = $familyList[$i]
@@ -1782,19 +1814,20 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 
     # Display drill-down results
     if ($SelectedFamilyFilter.Count -gt 0) {
+        $drillWidth = if ($script:OutputWidth) { $script:OutputWidth } else { 100 }
         Write-Host ""
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
         Write-Host "FAMILY / SKU DRILL-DOWN RESULTS" -ForegroundColor Green
-        Write-Host ("=" * 175) -ForegroundColor Gray
+        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
+        Write-Host "Note: Avail shows the family's shared vCPU pool per region (not per SKU)." -ForegroundColor DarkGray
 
         foreach ($fam in $SelectedFamilyFilter) {
-            Write-Host "`nFamily: $fam" -ForegroundColor Cyan
+            Write-Host "`nFamily: $fam (shared quota per region)" -ForegroundColor Cyan
 
             # Show image requirements if checking compatibility
             if ($script:ImageReqs) {
                 Write-Host "Image: $ImageURN (Requires: $($script:ImageReqs.Gen) | $($script:ImageReqs.Arch))" -ForegroundColor DarkCyan
             }
-            Write-Host ("-" * 185) -ForegroundColor Gray
 
             $skuFilter = $null
             if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
@@ -1806,41 +1839,65 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
             }
 
             if ($detailRows.Count -gt 0) {
-                $sortedRows = $detailRows | Sort-Object Region, SKU
-                # Fixed-width drill-down table (185 chars to accommodate Gen/Arch/Img columns)
-                $dColWidths = [ordered]@{ Region = 20; SKU = 26; vCPU = 5; MemGiB = 6; Gen = 6; Arch = 6; ZoneStatus = 26; Capacity = 20 }
-                if ($FetchPricing) {
-                    $dColWidths['$/Hr'] = 8
-                    $dColWidths['$/Mo'] = 8
-                }
-                if ($script:ImageReqs) {
-                    $dColWidths['Img'] = 4
-                }
-                $dColWidths['Reason'] = 28
+                # Group by region and display with region sub-headers
+                $regionGroups = $detailRows | Group-Object Region | Sort-Object Name
 
-                $dHeader = foreach ($c in $dColWidths.Keys) { $c.PadRight($dColWidths[$c]) }
-                Write-Host ($dHeader -join '  ') -ForegroundColor Cyan
-                Write-Host ('-' * 185) -ForegroundColor Gray
-                foreach ($dr in $sortedRows) {
-                    $dRow = foreach ($c in $dColWidths.Keys) {
-                        # Map column names to object properties
-                        $propName = switch ($c) {
-                            'Img' { 'ImgCompat' }
-                            default { $c }
+                foreach ($regionGroup in $regionGroups) {
+                    $regionName = $regionGroup.Name
+                    $regionRows = $regionGroup.Group | Sort-Object SKU
+
+                    # Get quota info for this family in this region
+                    $regionQuota = $regionRows | Select-Object -First 1
+                    $quotaHeader = if ($regionQuota.QuotaLimit -and $null -ne $regionQuota.QuotaCurrent) {
+                        $avail = $regionQuota.QuotaLimit - $regionQuota.QuotaCurrent
+                        "Quota: $($regionQuota.QuotaCurrent) of $($regionQuota.QuotaLimit) vCPUs used | $avail available"
+                    }
+                    elseif ($regionQuota.QuotaAvail -and $regionQuota.QuotaAvail -ne '?') {
+                        "Quota: $($regionQuota.QuotaAvail) vCPUs available"
+                    }
+                    else {
+                        "Quota: N/A"
+                    }
+
+                    Write-Host "`nRegion: $regionName ($quotaHeader)" -ForegroundColor Yellow
+                    Write-Host ("-" * $drillWidth) -ForegroundColor Gray
+
+                    # Fixed-width drill-down table (no Region column since it's in header)
+                    $dColWidths = [ordered]@{ SKU = 26; vCPU = 5; MemGiB = 6; Gen = 5; Arch = 5; ZoneStatus = 22; Capacity = 12; Avail = 8 }
+                    if ($FetchPricing) {
+                        $dColWidths['$/Hr'] = 8
+                        $dColWidths['$/Mo'] = 8
+                    }
+                    if ($script:ImageReqs) {
+                        $dColWidths['Img'] = 4
+                    }
+                    $dColWidths['Reason'] = 24
+
+                    $dHeader = foreach ($c in $dColWidths.Keys) { $c.PadRight($dColWidths[$c]) }
+                    Write-Host ($dHeader -join '  ') -ForegroundColor Cyan
+
+                    foreach ($dr in $regionRows) {
+                        $dRow = foreach ($c in $dColWidths.Keys) {
+                            # Map column names to object properties
+                            $propName = switch ($c) {
+                                'Img' { 'ImgCompat' }
+                                'Avail' { 'QuotaAvail' }
+                                default { $c }
+                            }
+                            $v = if ($dr.$propName -ne $null) { "$($dr.$propName)" } else { '' }
+                            $w = $dColWidths[$c]
+                            if ($v.Length -gt $w) { $v = $v.Substring(0, $w - 1) + '…' }
+                            $v.PadRight($w)
                         }
-                        $v = if ($dr.$propName -ne $null) { "$($dr.$propName)" } else { '' }
-                        $w = $dColWidths[$c]
-                        if ($v.Length -gt $w) { $v = $v.Substring(0, $w - 1) + '…' }
-                        $v.PadRight($w)
+                        # Determine row color based on capacity and image compatibility
+                        $color = switch ($dr.Capacity) {
+                            'OK' { if ($dr.ImgCompat -eq '✗' -or $dr.ImgCompat -eq '[-]') { 'DarkYellow' } else { 'Green' } }
+                            { $_ -match 'LIMITED|CAPACITY' } { 'Yellow' }
+                            { $_ -match 'RESTRICTED|BLOCKED' } { 'Red' }
+                            default { 'White' }
+                        }
+                        Write-Host ($dRow -join '  ') -ForegroundColor $color
                     }
-                    # Determine row color based on capacity and image compatibility
-                    $color = switch ($dr.Capacity) {
-                        'OK' { if ($dr.ImgCompat -eq '✗' -or $dr.ImgCompat -eq '[-]') { 'DarkYellow' } else { 'Green' } }
-                        { $_ -match 'LIMITED|CAPACITY' } { 'Yellow' }
-                        { $_ -match 'RESTRICTED|BLOCKED' } { 'Red' }
-                        default { 'White' }
-                    }
-                    Write-Host ($dRow -join '  ') -ForegroundColor $color
                 }
             }
             else {
@@ -1853,10 +1910,6 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 # === Multi-Region Matrix ============================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
-Write-Host "MULTI-REGION CAPACITY MATRIX" -ForegroundColor Green
-Write-Host ("=" * 175) -ForegroundColor Gray
-Write-Host ""
 
 # Build unique region list
 $allRegions = @()
@@ -1868,11 +1921,20 @@ foreach ($family in $allFamilyStats.Keys) {
 }
 $allRegions = @($allRegions | Sort-Object)
 
-# Header
+# Build header to determine width
 $headerLine = "Family".PadRight(10)
 foreach ($r in $allRegions) { $headerLine += " | " + $r.PadRight(15) }
+$matrixWidth = $headerLine.Length
+
+# Display section header with dynamic width
+Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
+Write-Host "MULTI-REGION CAPACITY MATRIX" -ForegroundColor Green
+Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
+Write-Host ""
+
+# Display table header
 Write-Host $headerLine -ForegroundColor Cyan
-Write-Host ("-" * 175) -ForegroundColor Gray
+Write-Host ("-" * $matrixWidth) -ForegroundColor Gray
 
 # Data rows
 foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
@@ -1907,13 +1969,22 @@ Write-Host ("  $($Icons.CAPACITY)".PadRight(20) + "Zone-level constraints") -For
 Write-Host ("  $($Icons.LIMITED)".PadRight(20) + "Subscription restricted") -ForegroundColor Yellow
 Write-Host ("  $($Icons.PARTIAL)".PadRight(20) + "Mixed zone availability") -ForegroundColor Yellow
 Write-Host ("  $($Icons.BLOCKED)".PadRight(20) + "Not available") -ForegroundColor Red
+Write-Host ""
+Write-Host "NEED MORE CAPACITY?" -ForegroundColor Cyan
+Write-Host "  LIMITED status: Request quota increase at:" -ForegroundColor Yellow
+Write-Host "  https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas" -ForegroundColor DarkCyan
+if ($FetchPricing) {
+    Write-Host ""
+    Write-Host "PRICING NOTE:" -ForegroundColor Cyan
+    Write-Host "  Prices shown are Pay-As-You-Go (Linux). Azure Hybrid Benefit can reduce costs 40-60%." -ForegroundColor DarkGray
+}
 
 # === Deployment Recommendations =====================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "DEPLOYMENT RECOMMENDATIONS" -ForegroundColor Green
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
 
 $bestPerRegion = @{}
@@ -1957,9 +2028,9 @@ else {
 # === Detailed Breakdown =============================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "DETAILED CROSS-REGION BREAKDOWN" -ForegroundColor Green
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
 
 # Helper function to wrap region lists across multiple lines
@@ -2004,7 +2075,7 @@ $colConstrained = 80
 
 $headerFmt = "{0,-$colFamily} {1,-$colAvailable} {2}" -f "Family", "Available Regions", "Constrained Regions"
 Write-Host $headerFmt -ForegroundColor Cyan
-Write-Host ("-" * 175) -ForegroundColor Gray
+Write-Host ("-" * $script:OutputWidth) -ForegroundColor Gray
 
 $summaryRowsForExport = @()
 foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
@@ -2065,10 +2136,10 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
 # === Completion =====================================================
 
 Write-Host "`n" -NoNewline
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "SCAN COMPLETE" -ForegroundColor Green
 Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor DarkGray
-Write-Host ("=" * 175) -ForegroundColor Gray
+Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 
 # === Export =========================================================
 

@@ -91,6 +91,8 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ## Usage Examples
 
+> **💡 Tip**: When copying multi-line commands, ensure backticks (`` ` ``) at the end of each line are preserved. If copying from GitHub, use the "Copy" button in code blocks.
+
 ### Check Specific Regions
 ```powershell
 .\Get-AzVMAvailability.ps1 -Region "eastus","westus2","centralus"
@@ -98,25 +100,38 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ### Check GPU SKU Availability
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus","eastus2","southcentralus" -FamilyFilter "NC","ND","NV"
+# Single line (recommended for copy-paste)
+.\Get-AzVMAvailability.ps1 `
+    -Region "eastus","eastus2","southcentralus" `
+    -FamilyFilter "NC","ND","NV"
 ```
 
 ### Export to Specific Location
 ```powershell
-.\Get-AzVMAvailability.ps1 -ExportPath "C:\Reports" -AutoExport -OutputFormat XLSX
+.\Get-AzVMAvailability.ps1 `
+    -ExportPath "C:\Reports" `
+    -AutoExport `
+    -OutputFormat XLSX
 ```
 
 ### Check Specific SKUs with Pricing
 ```powershell
 # Check specific SKUs with pricing information
-.\Get-AzVMAvailability.ps1 -Region "eastus","westus2" -SkuFilter "Standard_D*_v5" -ShowPricing
+.\Get-AzVMAvailability.ps1 `
+    -Region "eastus","westus2" `
+    -SkuFilter "Standard_D*_v5" `
+    -ShowPricing
 
 # Use actual negotiated pricing (requires billing permissions)
-.\Get-AzVMAvailability.ps1 -Region "eastus" -ShowPricing -UseActualPricing
+.\Get-AzVMAvailability.ps1 `
+    -Region "eastus" `
+    -ShowPricing `
+    -UseActualPricing
 ```
 
 ### Full Parameter Example
 ```powershell
+# Multi-line format with backticks for readability
 .\Get-AzVMAvailability.ps1 `
     -SubscriptionId "your-subscription-id" `
     -Region "eastus","westus2","centralus" `
@@ -147,6 +162,22 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 | `-NoPrompt`         | Switch   | Skip interactive prompts                                                                                                  |
 | `-OutputFormat`     | String   | 'Auto', 'CSV', or 'XLSX'                                                                                                  |
 | `-UseAsciiIcons`    | Switch   | Force ASCII instead of Unicode icons                                                                                      |
+
+## Common Region Presets
+
+Copy these region sets based on your cloud environment:
+
+| Scenario             | Region Parameter                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------- |
+| **US East/West**     | `-Region "eastus","eastus2","westus","westus2"`                                                         |
+| **US Central**       | `-Region "centralus","northcentralus","southcentralus","westcentralus"`                                 |
+| **US All**           | `-Region "eastus","eastus2","centralus","northcentralus","southcentralus","westus","westus2","westus3"` |
+| **Europe**           | `-Region "westeurope","northeurope","uksouth","francecentral","germanywestcentral"`                     |
+| **Asia Pacific**     | `-Region "eastasia","southeastasia","japaneast","australiaeast","koreacentral"`                         |
+| **Azure Government** | `-Region "usgovvirginia","usgovtexas","usgovarizona" -Environment AzureUSGovernment`                    |
+| **Azure China**      | `-Region "chinaeast","chinanorth","chinaeast2","chinanorth2" -Environment AzureChinaCloud`              |
+
+> **Note**: Maximum 5 regions per scan for optimal performance and readability.
 
 ## Output
 
