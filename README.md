@@ -7,6 +7,15 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Version](https://img.shields.io/badge/Version-1.6.0-brightgreen)
 
+## Disclosure & Disclaimer
+
+The author is a Microsoft employee; however, this is a **personal open-source project**. It is **not** an official Microsoft product, nor is it endorsed, sponsored, or supported by Microsoft.
+
+- **No warranty**: Provided "as-is" under the [MIT License](LICENSE).
+- **No official support**: For Azure platform issues, use [Azure Support](https://azure.microsoft.com/support/).
+- **No confidential information**: This tool uses only publicly documented Azure APIs. Please do not share internal or confidential information in issues, pull requests, or discussions.
+- **Trademarks**: "Microsoft" and "Azure" are trademarks of Microsoft Corporation. Their use here is for identification only and does not imply endorsement.
+
 ## Overview
 
 Get-AzVMAvailability helps you identify which Azure regions have available capacity for your VM deployments. It scans multiple regions in parallel and provides detailed insights into SKU availability, zone restrictions, quota limits, pricing, and image compatibility.
@@ -403,8 +412,15 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 ## Author
 
-**Zachary Luz**
-Microsoft
+**Zachary Luz** — Personal project (not an official Microsoft product)
+
+## Support & Responsible Use
+
+This tool queries only **public Azure APIs** (SKU availability, quota, retail pricing) against your own Azure subscriptions. It reads subscription metadata (such as subscription IDs/names, regions, quotas, and usage) and writes results locally (console output and CSV/XLSX exports); it does **not** transmit this data off your machine except as required to call Azure APIs.
+
+- **Issues & PRs**: Welcome! Please do not include subscription IDs, tenant IDs, internal URLs, or any confidential information.
+- **Azure support**: For Azure platform issues or outages, contact [Azure Support](https://azure.microsoft.com/support/) — not this repository.
+- **Exported files**: Review CSV/XLSX exports before sharing externally — they may contain subscription IDs, region information, quotas, and usage details for your environment.
 
 ## Changelog
 

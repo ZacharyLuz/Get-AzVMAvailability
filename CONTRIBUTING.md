@@ -1,5 +1,8 @@
 # Contributing to Get-AzVMAvailability
 
+> **This is a personal open-source project, not an official Microsoft product.** Contributing here does not create any relationship with, or obligation for, Microsoft.
+> Please do not include confidential or internal information in issues, PRs, or discussions.
+
 Thank you for your interest in contributing! This document provides guidelines for contributing to this project.
 
 ## How to Contribute

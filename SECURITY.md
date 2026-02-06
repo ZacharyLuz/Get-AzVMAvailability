@@ -1,9 +1,13 @@
 # Security Policy
 
+> **This is a personal open-source project, not an official Microsoft product.** Do not report security issues or vulnerabilities to the Microsoft Security Response Center (MSRC). Please use this repository's reporting process below.
+
 ## Supported Versions
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 1.6.x   | :white_check_mark: |
+| 1.5.x   | :white_check_mark: |
 | 1.4.x   | :white_check_mark: |
 | 1.3.x   | :white_check_mark: |
 | 1.2.x   | :white_check_mark: |
