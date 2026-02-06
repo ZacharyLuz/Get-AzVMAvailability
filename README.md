@@ -416,11 +416,11 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 ## Support & Responsible Use
 
-This tool queries only **public Azure APIs** (SKU availability, quota, retail pricing). It does not access, store, or transmit any confidential or customer data.
+This tool queries only **public Azure APIs** (SKU availability, quota, retail pricing) against your own Azure subscriptions. It reads subscription metadata (such as subscription IDs/names, regions, quotas, and usage) and writes results locally (console output and CSV/XLSX exports); it does **not** transmit this data off your machine except as required to call Azure APIs.
 
 - **Issues & PRs**: Welcome! Please do not include subscription IDs, tenant IDs, internal URLs, or any confidential information.
 - **Azure support**: For Azure platform issues or outages, contact [Azure Support](https://azure.microsoft.com/support/) — not this repository.
-- **Exported files**: Review CSV/XLSX exports before sharing externally — they may contain subscription IDs and region-specific data.
+- **Exported files**: Review CSV/XLSX exports before sharing externally — they may contain subscription IDs, region information, quotas, and usage details for your environment.
 
 ## Changelog
 

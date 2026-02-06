@@ -1,6 +1,6 @@
 # Security Policy
 
-> **This is a personal open-source project, not an official Microsoft product.** Do not report issues to the Microsoft Security Response Center (MSRC). Please use this repository's reporting process below.
+> **This is a personal open-source project, not an official Microsoft product.** Do not report security issues or vulnerabilities to the Microsoft Security Response Center (MSRC). Please use this repository's reporting process below.
 
 ## Supported Versions
 
