@@ -204,7 +204,7 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 # === Configuration ==================================================
 # Script metadata
-$ScriptVersion = "1.5.1"
+$ScriptVersion = "1.6.0"
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -266,6 +266,7 @@ $supportsUnicode = -not $UseAsciiIcons -and (
 )
 
 # Define icons based on terminal capability
+# Shorter labels for narrow terminal support (Cloud Shell compatibility)
 $Icons = if ($supportsUnicode) {
     @{
         OK       = '✓ OK'
@@ -273,7 +274,7 @@ $Icons = if ($supportsUnicode) {
         LIMITED  = '⚠ LIMITED'
         PARTIAL  = '⚡ PARTIAL'
         BLOCKED  = '✗ BLOCKED'
-        UNKNOWN  = '? UNKNOWN'
+        UNKNOWN  = '? N/A'
         Check    = '✓'
         Warning  = '⚠'
         Error    = '✗'
@@ -281,12 +282,12 @@ $Icons = if ($supportsUnicode) {
 }
 else {
     @{
-        OK       = '[+] OK'
-        CAPACITY = '[!] CAPACITY'
-        LIMITED  = '[!] LIMITED'
-        PARTIAL  = '[~] PARTIAL'
-        BLOCKED  = '[-] BLOCKED'
-        UNKNOWN  = '[?] UNKNOWN'
+        OK       = '[OK]'
+        CAPACITY = '[CAPACITY]'
+        LIMITED  = '[LIMITED]'
+        PARTIAL  = '[PARTIAL]'
+        BLOCKED  = '[BLOCKED]'
+        UNKNOWN  = '[N/A]'
         Check    = '[+]'
         Warning  = '[!]'
         Error    = '[-]'
@@ -2005,9 +2006,10 @@ foreach ($family in $allFamilyStats.Keys) {
 }
 $allRegions = @($allRegions | Sort-Object)
 
-# Build header to determine width
+# Build header to determine width (use 12-char columns for Cloud Shell compatibility)
+$colWidth = 12
 $headerLine = "Family".PadRight(10)
-foreach ($r in $allRegions) { $headerLine += " | " + $r.PadRight(15) }
+foreach ($r in $allRegions) { $headerLine += " | " + $r.PadRight($colWidth) }
 $matrixWidth = $headerLine.Length
 
 # Set script-level output width for consistent separators
@@ -2017,6 +2019,10 @@ $script:OutputWidth = [Math]::Max($matrixWidth, 80)
 Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
 Write-Host "MULTI-REGION CAPACITY MATRIX" -ForegroundColor Green
 Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
+Write-Host ""
+Write-Host "SUMMARY: Best-case status for each VM family (e.g., D, F, NC) per region." -ForegroundColor DarkGray
+Write-Host "This shows if ANY SKUs in the family are available - not all SKUs." -ForegroundColor DarkGray
+Write-Host "For individual SKU details, see the detailed table above." -ForegroundColor DarkGray
 Write-Host ""
 
 # Display table header
@@ -2038,10 +2044,10 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
             $icon = Get-StatusIcon $status
             if ($status -eq 'OK') { $bestStatus = 'OK' }
             elseif ($status -match 'CONSTRAINED|PARTIAL' -and $bestStatus -ne 'OK') { $bestStatus = 'MIXED' }
-            $line += " | " + $icon.PadRight(15)
+            $line += " | " + $icon.PadRight($colWidth)
         }
         else {
-            $line += " | " + "-".PadRight(15)
+            $line += " | " + "-".PadRight($colWidth)
         }
     }
 
@@ -2050,12 +2056,20 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
 }
 
 Write-Host ""
-Write-Host "LEGEND:" -ForegroundColor Cyan
-Write-Host ("  $($Icons.OK)".PadRight(20) + "Full capacity available") -ForegroundColor Green
-Write-Host ("  $($Icons.CAPACITY)".PadRight(20) + "Zone-level constraints") -ForegroundColor Yellow
-Write-Host ("  $($Icons.LIMITED)".PadRight(20) + "Subscription restricted") -ForegroundColor Yellow
-Write-Host ("  $($Icons.PARTIAL)".PadRight(20) + "Mixed zone availability") -ForegroundColor Yellow
-Write-Host ("  $($Icons.BLOCKED)".PadRight(20) + "Not available") -ForegroundColor Red
+Write-Host "HOW TO READ THIS:" -ForegroundColor Cyan
+Write-Host "  Green row  = At least one SKU in this family is fully available." -ForegroundColor Green
+Write-Host "  Yellow row = Some SKUs may work, but there are constraints." -ForegroundColor Yellow
+Write-Host "  Gray row   = No SKUs from this family available in scanned regions." -ForegroundColor Gray
+Write-Host ""
+Write-Host "STATUS MEANINGS:" -ForegroundColor Cyan
+Write-Host ("  $($Icons.OK)".PadRight(16) + "= At least one SKU deployable with no restrictions") -ForegroundColor Green
+Write-Host ("  $($Icons.CAPACITY)".PadRight(16) + "= Azure has limited capacity - some SKUs may fail") -ForegroundColor Yellow
+Write-Host ("  $($Icons.LIMITED)".PadRight(16) + "= Your subscription quota is insufficient") -ForegroundColor Yellow
+Write-Host ("  $($Icons.PARTIAL)".PadRight(16) + "= Only some availability zones have capacity") -ForegroundColor Yellow
+Write-Host ("  $($Icons.BLOCKED)".PadRight(16) + "= No SKUs in this family can be deployed") -ForegroundColor Red
+Write-Host ""
+Write-Host "NOTE: 'OK' means SOME SKUs work, not ALL. Check the detailed table above" -ForegroundColor DarkYellow
+Write-Host "      for specific SKU availability (e.g., Standard_D4s_v5 vs Standard_D8s_v5)." -ForegroundColor DarkYellow
 Write-Host ""
 Write-Host "NEED MORE CAPACITY?" -ForegroundColor Cyan
 Write-Host "  LIMITED status: Request quota increase at:" -ForegroundColor Yellow
@@ -2131,6 +2145,14 @@ Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "DETAILED CROSS-REGION BREAKDOWN" -ForegroundColor Green
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
+Write-Host "SUMMARY: Shows which regions have capacity for each VM family." -ForegroundColor DarkGray
+Write-Host "  'Available'   = At least one SKU in this family can be deployed here" -ForegroundColor DarkGray
+Write-Host "  'Constrained' = Family has issues in this region (see reason in parentheses)" -ForegroundColor DarkGray
+Write-Host "  '(none)'      = No regions in that category for this family" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "IMPORTANT: This is a family-level summary. Individual SKUs within a family" -ForegroundColor DarkYellow
+Write-Host "           may have different availability. Check the detailed table above." -ForegroundColor DarkYellow
+Write-Host ""
 
 # Helper function to wrap region lists across multiple lines
 function Format-RegionList {
@@ -2176,14 +2198,30 @@ function Format-RegionList {
     return , @($lines.ToArray())  # Comma forces array context
 }
 
-# Calculate column widths based on output width
-$colFamily = 14
-$colAvailable = [Math]::Max(40, [Math]::Floor(($script:OutputWidth - 14) * 0.35))
-$colConstrained = $script:OutputWidth - $colFamily - $colAvailable - 2  # -2 for spacing
+# Calculate column widths based on ACTUAL terminal width for better Cloud Shell support
+# Try to detect actual console width, fall back to a safe default
+$actualWidth = try {
+    $hostWidth = $Host.UI.RawUI.WindowSize.Width
+    if ($hostWidth -gt 0) { $hostWidth } else { 80 }
+}
+catch { 80 }
 
-$headerFmt = "{0,-$colFamily} {1,-$colAvailable} {2}" -f "Family", "Available Regions", "Constrained Regions"
-Write-Host $headerFmt -ForegroundColor Cyan
-Write-Host ("-" * $script:OutputWidth) -ForegroundColor Gray
+# Use the smaller of OutputWidth or actual terminal width for this table
+$tableWidth = [Math]::Min($script:OutputWidth, $actualWidth - 2)
+$tableWidth = [Math]::Max($tableWidth, 70)  # Minimum 70 chars for readability
+
+# Fixed column widths for consistent alignment
+# Family: 8 chars, Available: 20 chars, Constrained: rest
+$colFamily = 8
+$colAvailable = 20
+$colConstrained = [Math]::Max(30, $tableWidth - $colFamily - $colAvailable - 4)
+
+# Build header with exact spacing
+$headerFamily = "Family".PadRight($colFamily)
+$headerAvail = "Available".PadRight($colAvailable)
+$headerConst = "Constrained"
+Write-Host "$headerFamily  $headerAvail  $headerConst" -ForegroundColor Cyan
+Write-Host ("-" * $tableWidth) -ForegroundColor Gray
 
 $summaryRowsForExport = @()
 foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
@@ -2199,7 +2237,12 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
                 $regionsOK.Add($regionKeyStr)
             }
             elseif ($regionStat.Capacity -match 'LIMITED|CAPACITY-CONSTRAINED|PARTIAL|RESTRICTED|BLOCKED') {
-                $regionsConstrained.Add("$regionKeyStr ($($regionStat.Capacity))")
+                # Shorten status labels for narrow terminals
+                $shortStatus = switch -Regex ($regionStat.Capacity) {
+                    'CAPACITY-CONSTRAINED' { 'CAPACITY' }
+                    default { $regionStat.Capacity }
+                }
+                $regionsConstrained.Add("$regionKeyStr ($shortStatus)")
             }
         }
     }
@@ -2231,9 +2274,9 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
         $okStr = if ($i -lt @($okLines).Count) { @($okLines)[$i] } else { '' }
         $constrainedStr = if ($i -lt @($constrainedLines).Count) { @($constrainedLines)[$i] } else { '' }
 
-        # Write each column with appropriate color
-        Write-Host ("{0,-$colFamily} " -f $familyStr) -ForegroundColor $familyColor -NoNewline
-        Write-Host ("{0,-$colAvailable} " -f $okStr) -ForegroundColor Green -NoNewline
+        # Write each column with appropriate color (use 2 spaces between columns for clarity)
+        Write-Host ("{0,-$colFamily}  " -f $familyStr) -ForegroundColor $familyColor -NoNewline
+        Write-Host ("{0,-$colAvailable}  " -f $okStr) -ForegroundColor Green -NoNewline
         Write-Host $constrainedStr -ForegroundColor Yellow
     }
 
