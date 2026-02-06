@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-02-06
+
+### Improved
+- **Cloud Shell compatibility** - Optimized table output for narrow terminals (80-char width)
+  - Reduced Matrix column width from 15 to 12 characters
+  - Shortened ASCII status labels (`[OK]` instead of `[+] OK`)
+  - Cross-Region Breakdown now detects actual terminal width
+  - Fixed column widths for consistent alignment (Family: 8, Available: 20, Constrained: 30+)
+  - Shortened `CAPACITY-CONSTRAINED` to `CAPACITY` in output
+
+### Added
+- **User-friendly explanations** - Added clear guidance to help users interpret summary tables
+  - Matrix intro: explains this shows "ANY SKUs" not "ALL SKUs" per family
+  - Row color guide: Green (available), Yellow (constrained), Gray (unavailable)
+  - Expanded status meanings with actionable descriptions
+  - Warning note: "'OK' means SOME SKUs work, not ALL"
+  - Cross-Region Breakdown intro explaining Available/Constrained/(none) meanings
+  - Important note clarifying family-level vs SKU-level results
+
 ## [1.5.1] - 2026-02-04
 
 ### Fixed
