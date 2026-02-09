@@ -196,7 +196,11 @@ param(
 
     [Parameter(Mandatory = $false, HelpMessage = "Azure cloud environment (default: auto-detect from Az context)")]
     [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud", "AzureGermanCloud")]
-    [string]$Environment
+    [string]$Environment,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Max retry attempts for transient API errors (429, 503, timeouts)")]
+    [ValidateRange(0, 10)]
+    [int]$MaxRetries = 3
 )
 
 $ErrorActionPreference = 'Continue'
@@ -317,6 +321,77 @@ function Get-SafeString {
     }
     if ($null -eq $Value) { return '' }
     return "$Value"  # String interpolation is safer than .ToString()
+}
+
+function Invoke-WithRetry {
+    <#
+    .SYNOPSIS
+        Executes a script block with retry logic for transient Azure API errors.
+    .DESCRIPTION
+        Wraps any API call with automatic retry on:
+        - HTTP 429 (Too Many Requests) — reads Retry-After header
+        - HTTP 503 (Service Unavailable) — transient Azure outages
+        - Network timeouts and WebExceptions
+        Uses exponential backoff with jitter between retries.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock,
+
+        [Parameter(Mandatory = $false)]
+        [int]$MaxRetries = 3,
+
+        [Parameter(Mandatory = $false)]
+        [string]$OperationName = 'API call'
+    )
+
+    $attempt = 0
+    while ($true) {
+        try {
+            return & $ScriptBlock
+        }
+        catch {
+            $attempt++
+            $ex = $_.Exception
+            $isRetryable = $false
+            $waitSeconds = [math]::Pow(2, $attempt)  # Exponential: 2, 4, 8...
+
+            # HTTP 429 — Too Many Requests (throttled)
+            $statusCode = if ($ex.Response) { $ex.Response.StatusCode.value__ } else { $null }
+            if ($statusCode -eq 429 -or $ex.Message -match '429|Too Many Requests') {
+                $isRetryable = $true
+                if ($ex.Response -and $ex.Response.Headers) {
+                    $retryAfter = $ex.Response.Headers['Retry-After']
+                    if ($retryAfter -and [int]::TryParse($retryAfter, [ref]$null)) {
+                        $waitSeconds = [int]$retryAfter
+                    }
+                }
+            }
+            # HTTP 503 — Service Unavailable
+            elseif ($statusCode -eq 503 -or $ex.Message -match '503|Service Unavailable') {
+                $isRetryable = $true
+            }
+            # Network errors — timeouts, connection failures
+            elseif ($ex -is [System.Net.WebException] -or
+                $ex -is [System.Net.Http.HttpRequestException] -or
+                $ex.InnerException -is [System.Net.WebException] -or
+                $ex.InnerException -is [System.Net.Http.HttpRequestException] -or
+                $ex.Message -match 'timed?\s*out|connection.*reset|connection.*refused') {
+                $isRetryable = $true
+            }
+
+            if (-not $isRetryable -or $attempt -ge $MaxRetries) {
+                throw
+            }
+
+            # Add jitter (0-25%) to prevent thundering herd
+            $jitter = Get-Random -Minimum 0 -Maximum ([math]::Max(1, [int]($waitSeconds * 0.25)))
+            $waitSeconds += $jitter
+
+            Write-Verbose "$OperationName failed (attempt $attempt/$MaxRetries): $($ex.Message). Retrying in ${waitSeconds}s..."
+            Start-Sleep -Seconds $waitSeconds
+        }
+    }
 }
 
 function Get-GeoGroup {
@@ -819,7 +894,10 @@ function Get-AzVMPricing {
         $maxPages = 20  # Fetch up to 20 pages (~20,000 price entries)
 
         while ($nextLink -and $pageCount -lt $maxPages) {
-            $response = Invoke-RestMethod -Uri $nextLink -Method Get -TimeoutSec 30
+            $uri = $nextLink
+            $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Retail Pricing API (page $($pageCount + 1))" -ScriptBlock {
+                Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 30
+            }
             $pageCount++
 
             foreach ($item in $response.Items) {
@@ -909,7 +987,9 @@ function Get-AzActualPricing {
         # Using the consumption price sheet endpoint with environment-specific ARM URL
         $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=contains(meterCategory,'Virtual Machines')"
 
-        $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
+        $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API" -ScriptBlock {
+            Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
+        }
 
         if ($response.properties.pricesheets) {
             foreach ($item in $response.properties.pricesheets) {
@@ -1509,10 +1589,38 @@ foreach ($subId in $TargetSubIds) {
 
     $regionData = $Regions | ForEach-Object -Parallel {
         $region = [string]$_
-        $skuFilterCopy = $using:SkuFilter  # Pass filter to parallel block
+        $skuFilterCopy = $using:SkuFilter
+        $maxRetries = $using:MaxRetries
+
+        # Inline retry — parallel runspaces cannot see script-scope functions
+        $retryCall = {
+            param([scriptblock]$Action, [int]$Retries)
+            $attempt = 0
+            while ($true) {
+                try {
+                    return (& $Action)
+                }
+                catch {
+                    $attempt++
+                    $msg = $_.Exception.Message
+                    $isThrottle = $msg -match '429' -or $msg -match 'Too Many Requests' -or
+                    $msg -match '503' -or $msg -match 'ServiceUnavailable'
+                    if ($isThrottle -and $attempt -le $Retries) {
+                        $baseDelay = [math]::Pow(2, $attempt)
+                        $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
+                        Start-Sleep -Milliseconds (($baseDelay + $jitter) * 1000)
+                        continue
+                    }
+                    throw
+                }
+            }
+        }
+
         try {
-            $allSkus = Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
-            Where-Object { $_.ResourceType -eq 'virtualMachines' }
+            $allSkus = & $retryCall -Action {
+                Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
+                Where-Object { $_.ResourceType -eq 'virtualMachines' }
+            } -Retries $maxRetries
 
             # Apply SKU filter if specified
             if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
@@ -1530,7 +1638,10 @@ foreach ($subId in $TargetSubIds) {
                 }
             }
 
-            $quotas = Get-AzVMUsage -Location $region -ErrorAction Stop
+            $quotas = & $retryCall -Action {
+                Get-AzVMUsage -Location $region -ErrorAction Stop
+            } -Retries $maxRetries
+
             @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
         }
         catch {
