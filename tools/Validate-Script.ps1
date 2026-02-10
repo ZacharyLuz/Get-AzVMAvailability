@@ -141,38 +141,71 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
             $versionMismatches += ".NOTES Version: $notesVer"
         }
     }
+    else {
+        $versionMismatches += ".NOTES: Version pattern not found"
+    }
 
     # Check README badge
     $readmePath = Join-Path $repoRoot 'README.md'
     if (Test-Path $readmePath) {
-        $readmeContent = Get-Content $readmePath -Raw
-        if ($readmeContent -match 'Version-([\d.]+)') {
-            $readmeVer = $matches[1]
-            if ($readmeVer -ne $scriptVer) {
-                $versionMismatches += "README.md badge: $readmeVer"
+        try {
+            $readmeContent = Get-Content $readmePath -Raw -ErrorAction Stop
+            if ($readmeContent -match 'img\.shields\.io/badge/Version-([\d.]+)') {
+                $readmeVer = $matches[1]
+                if ($readmeVer -ne $scriptVer) {
+                    $versionMismatches += "README.md badge: $readmeVer"
+                }
+            }
+            else {
+                $versionMismatches += "README.md: version badge pattern not found"
             }
         }
+        catch {
+            $versionMismatches += "README.md: failed to read — $($_.Exception.Message)"
+        }
+    }
+    else {
+        $versionMismatches += "README.md: file not found"
     }
 
     # Check CHANGELOG has an entry for this version
     $changelogPath = Join-Path $repoRoot 'CHANGELOG.md'
     if (Test-Path $changelogPath) {
-        $changelogContent = Get-Content $changelogPath -Raw
-        if ($changelogContent -notmatch [regex]::Escape("[$scriptVer]")) {
-            $versionMismatches += "CHANGELOG.md: no [$scriptVer] entry"
+        try {
+            $changelogContent = Get-Content $changelogPath -Raw -ErrorAction Stop
+            if ($changelogContent -notmatch [regex]::Escape("[$scriptVer]")) {
+                $versionMismatches += "CHANGELOG.md: no [$scriptVer] entry"
+            }
         }
+        catch {
+            $versionMismatches += "CHANGELOG.md: failed to read — $($_.Exception.Message)"
+        }
+    }
+    else {
+        $versionMismatches += "CHANGELOG.md: file not found"
     }
 
     # Check ROADMAP Current Release
     $roadmapPath = Join-Path $repoRoot 'ROADMAP.md'
     if (Test-Path $roadmapPath) {
-        $roadmapContent = Get-Content $roadmapPath -Raw
-        if ($roadmapContent -match 'Current Release:\s*v([\d.]+)') {
-            $roadmapVer = $matches[1]
-            if ($roadmapVer -ne $scriptVer) {
-                $versionMismatches += "ROADMAP.md Current Release: v$roadmapVer"
+        try {
+            $roadmapContent = Get-Content $roadmapPath -Raw -ErrorAction Stop
+            if ($roadmapContent -match 'Current Release:\s*v([\d.]+)') {
+                $roadmapVer = $matches[1]
+                if ($roadmapVer -ne $scriptVer) {
+                    $versionMismatches += "ROADMAP.md Current Release: v$roadmapVer"
+                }
+            }
+            else {
+                $versionMismatches += "ROADMAP.md: Current Release pattern not found"
             }
         }
+        catch {
+            $versionMismatches += "ROADMAP.md: failed to read — $($_.Exception.Message)"
+        }
+    }
+    else {
+        $versionMismatches += "ROADMAP.md: file not found"
     }
 
     if ($versionMismatches.Count -eq 0) {
