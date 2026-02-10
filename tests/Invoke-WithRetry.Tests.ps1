@@ -44,13 +44,6 @@ Describe "Invoke-WithRetry" {
         }
 
         It "Does not retry on ArgumentException" {
-            $callCount = 0
-            $action = {
-                $callCount++
-                throw [System.ArgumentException]::new("Bad argument")
-            }.GetNewClosure()
-
-            # Use a variable in the outer scope for tracking
             $script:retryCallCount = 0
             {
                 Invoke-WithRetry -ScriptBlock {
