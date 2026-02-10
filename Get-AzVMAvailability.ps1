@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Get-AzVMAvailability - Comprehensive SKU availability and capacity scanner.
 
@@ -79,7 +79,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.5.0
+    Version:        1.7.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -207,8 +207,19 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
 
 #region Configuration
-# Script metadata
-$ScriptVersion = "1.6.0"
+$ScriptVersion = "1.7.0"
+
+#region Constants
+$HoursPerMonth = 730
+$ParallelThrottleLimit = 4
+$OutputWidthWithPricing = 133
+$OutputWidthBase = 113
+$OutputWidthMin = 100
+$OutputWidthMax = 150
+$DefaultTerminalWidth = 80
+$MinTableWidth = 70
+$ExcelDescriptionColumnWidth = 70
+#endregion Constants
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -937,7 +948,7 @@ function Get-AzVMPricing {
                 if (-not $allPrices[$vmSize] -or $item.skuName -notmatch 'Spot') {
                     $allPrices[$vmSize] = @{
                         Hourly   = [math]::Round($item.retailPrice, 4)
-                        Monthly  = [math]::Round($item.retailPrice * 730, 2)  # 730 hours/month avg
+                        Monthly  = [math]::Round($item.retailPrice * $HoursPerMonth, 2)
                         Currency = $item.currencyCode
                         Meter    = $item.meterName
                     }
@@ -1027,7 +1038,7 @@ function Get-AzActualPricing {
                     if ($vmSize -and -not $allPrices.ContainsKey($vmSize)) {
                         $allPrices[$vmSize] = @{
                             Hourly       = [math]::Round($item.unitPrice, 4)
-                            Monthly      = [math]::Round($item.unitPrice * 730, 2)
+                            Monthly      = [math]::Round($item.unitPrice * $HoursPerMonth, 2)
                             Currency     = $item.currencyCode
                             Meter        = $item.meterName
                             IsNegotiated = $true
@@ -1467,10 +1478,9 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
 # Base columns: Family(12) + SKUs(6) + OK(5) + Largest(18) + Zones(28) + Status(22) + Quota(10) = 101
 # Plus spacing (2 chars between each of 7 columns = 12) = 113 base
 # With pricing: +20 (two 10-char columns) = 133
-$script:OutputWidth = if ($FetchPricing) { 133 } else { 113 }
-# Ensure minimum width and cap at reasonable maximum
-$script:OutputWidth = [Math]::Max($script:OutputWidth, 100)
-$script:OutputWidth = [Math]::Min($script:OutputWidth, 150)
+$script:OutputWidth = if ($FetchPricing) { $OutputWidthWithPricing } else { $OutputWidthBase }
+$script:OutputWidth = [Math]::Max($script:OutputWidth, $OutputWidthMin)
+$script:OutputWidth = [Math]::Min($script:OutputWidth, $OutputWidthMax)
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
@@ -1581,15 +1591,15 @@ foreach ($subId in $TargetSubIds) {
             if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
                 $allSkus = $allSkus | Where-Object {
                     $skuName = $_.Name
-                    $matches = $false
+                    $isMatch = $false
                     foreach ($pattern in $skuFilterCopy) {
                         $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
                         if ($skuName -match $regexPattern) {
-                            $matches = $true
+                            $isMatch = $true
                             break
                         }
                     }
-                    $matches
+                    $isMatch
                 }
             }
 
@@ -1602,7 +1612,7 @@ foreach ($subId in $TargetSubIds) {
         catch {
             @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
         }
-    } -ThrottleLimit 4
+    } -ThrottleLimit $ParallelThrottleLimit
 
     Write-Progress -Activity "Scanning Azure Regions" -Completed
 
@@ -1842,7 +1852,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
 
             foreach ($row in $rows) {
                 $rowParts = foreach ($col in $colWidths.Keys) {
-                    $val = if ($row.$col -ne $null) { "$($row.$col)" } else { '' }
+                    $val = if ($null -ne $row.$col) { "$($row.$col)" } else { '' }
                     $width = $colWidths[$col]
                     if ($val.Length -gt $width) { $val = $val.Substring(0, $width - 1) + '…' }
                     $val.PadRight($width)
@@ -2031,7 +2041,7 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
                                 'Avail' { 'QuotaAvail' }
                                 default { $c }
                             }
-                            $v = if ($dr.$propName -ne $null) { "$($dr.$propName)" } else { '' }
+                            $v = if ($null -ne $dr.$propName) { "$($dr.$propName)" } else { '' }
                             $w = $dColWidths[$c]
                             if ($v.Length -gt $w) { $v = $v.Substring(0, $w - 1) + '…' }
                             $v.PadRight($w)
@@ -2075,7 +2085,7 @@ foreach ($r in $allRegions) { $headerLine += " | " + $r.PadRight($colWidth) }
 $matrixWidth = $headerLine.Length
 
 # Set script-level output width for consistent separators
-$script:OutputWidth = [Math]::Max($matrixWidth, 80)
+$script:OutputWidth = [Math]::Max($matrixWidth, $DefaultTerminalWidth)
 
 # Display section header with dynamic width
 Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
@@ -2222,13 +2232,13 @@ Write-Host ""
 # Try to detect actual console width, fall back to a safe default
 $actualWidth = try {
     $hostWidth = $Host.UI.RawUI.WindowSize.Width
-    if ($hostWidth -gt 0) { $hostWidth } else { 80 }
+    if ($hostWidth -gt 0) { $hostWidth } else { $DefaultTerminalWidth }
 }
-catch { 80 }
+catch { $DefaultTerminalWidth }
 
 # Use the smaller of OutputWidth or actual terminal width for this table
 $tableWidth = [Math]::Min($script:OutputWidth, $actualWidth - 2)
-$tableWidth = [Math]::Max($tableWidth, 70)  # Minimum 70 chars for readability
+$tableWidth = [Math]::Max($tableWidth, $MinTableWidth)
 
 # Fixed column widths for consistent alignment
 # Family: 8 chars, Available: 20 chars, Constrained: rest
@@ -2673,7 +2683,7 @@ if ($ExportPath) {
 
             $ws.Column(1).Width = 20
             $ws.Column(2).Width = 25
-            $ws.Column(3).Width = 70
+            $ws.Column(3).Width = $ExcelDescriptionColumnWidth
 
             Close-ExcelPackage $excel
 

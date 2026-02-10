@@ -95,36 +95,37 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
-## Version 1.7.0 (Planned)
+## Version 1.7.0 (Released)
 **Theme: Code Quality & Resilience**
 
 ### Developer Guardrails
-- [ ] **PSScriptAnalyzer Config** - Shared linter settings for local + CI consistency
-- [ ] **EditorConfig** - Enforce consistent formatting across editors
-- [ ] **VS Code Settings** - Lint-on-save for anyone cloning the repo
-- [ ] **Validation Script** - `tools/Validate-Script.ps1` for pre-commit checks (syntax + lint + tests + AI comment scan)
-- [ ] **PR Template** - Quality checklist for every pull request
-- [ ] **Copilot Instructions** - Guardrail workflow for AI-assisted development
+- [x] **PSScriptAnalyzer Config** - Shared linter settings for local + CI consistency
+- [x] **EditorConfig** - Enforce consistent formatting across editors
+- [x] **VS Code Settings** - Lint-on-save for anyone cloning the repo
+- [x] **Validation Script** - `tools/Validate-Script.ps1` for pre-commit checks (syntax + lint + tests + AI comment scan)
+- [x] **PR Template** - Quality checklist for every pull request
+- [x] **Copilot Instructions** - Guardrail workflow for AI-assisted development
 
 ### Resilience
-- [ ] **Retry Logic** - `Invoke-WithRetry` helper with exponential backoff for 429/503/transient errors
-- [ ] **`-MaxRetries` Parameter** - Configurable retry count (default 3)
-- [ ] **Parallel Retry** - Inline retry loop for region scanning in `-Parallel` block
+- [x] **Retry Logic** - `Invoke-WithRetry` helper with exponential backoff for 429/503/transient errors
+- [x] **`-MaxRetries` Parameter** - Configurable retry count (default 3)
+- [x] **Parallel Retry** - Inline retry loop for region scanning in `-Parallel` block
 
 ### Code Cleanup
-- [ ] **`#region` Blocks** - Replace `# ===` banners with collapsible PowerShell regions
-- [ ] **Comment Cleanup** - Remove ~40-50 "what" comments, keep "why" comments
-- [ ] **Dead Code Removal** - Remove unused functions (`Format-FixedWidthTable`, `Get-SkuSizeAvailability`)
-- [ ] **Function Organization** - Move `Format-RegionList` to helper functions section
-- [ ] **Named Constants** - Replace magic numbers with descriptive variables
+- [x] **`#region` Blocks** - Replace `# ===` banners with collapsible PowerShell regions
+- [x] **Comment Cleanup** - Remove ~30 "what" comments, keep "why" comments
+- [x] **Dead Code Removal** - Remove unused functions (`Format-FixedWidthTable`, `Get-SkuSizeAvailability`)
+- [x] **Function Organization** - Move `Format-RegionList` to helper functions section
+- [x] **Named Constants** - Replace magic numbers with descriptive variables
 
 ### Testing
-- [ ] **Retry Tests** - Pester tests for `Invoke-WithRetry` behavior
-- [ ] **Helper Function Tests** - Tests for `Get-SkuFamily`, `Get-RestrictionDetails`, `Format-ZoneStatus`, `Test-SkuMatchesFilter`, `Get-CapValue`
+- [x] **Retry Tests** - Pester tests for `Invoke-WithRetry` behavior
+- [x] **Helper Function Tests** - Tests for `Get-SkuFamily`, `Get-RestrictionDetails`, `Format-ZoneStatus`, `Test-SkuMatchesFilter`, `Get-CapValue`
 
 ### Housekeeping
-- [ ] **Version Sync** - Align `.NOTES`, `$ScriptVersion`, and ROADMAP versions
-- [ ] **Fix Empty Catch** - Add `Write-Verbose` to silent catch block in image search
+- [x] **Version Sync** - Align `$ScriptVersion`, CHANGELOG, and ROADMAP
+- [x] **Fix Empty Catch** - Add `Write-Verbose` to silent catch block in image search
+- [x] **Fix Lint Warnings** - `$matches` variable shadowing, null comparison order
 
 ---
 

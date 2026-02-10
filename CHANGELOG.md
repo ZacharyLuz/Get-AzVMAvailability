@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-02-09
+
+### Added
+- **Retry resilience** — `Invoke-WithRetry` function with exponential backoff + jitter
+  - Handles HTTP 429 (reads Retry-After header), 503, WebException, and timeouts
+  - Wraps Retail Pricing API, Cost Management API, and parallel region scanning calls
+  - Configurable via new `-MaxRetries` parameter (default 3, range 0-10)
+- **Developer guardrails** — automated quality checks for contributors
+  - `tools/Validate-Script.ps1` — 4-check pre-commit gate (syntax, lint, tests, AI-comment scan)
+  - `.editorconfig` — enforced formatting (UTF-8 BOM, CRLF, 4-space indent)
+  - `PSScriptAnalyzerSettings.psd1` — shared lint settings for VS Code and CI
+  - `.github/PULL_REQUEST_TEMPLATE.md` — quality checklist
+- **Expanded test coverage** — 76 Pester tests (was 20)
+  - 11 tests for `Invoke-WithRetry` (success, retry on 429/503/timeout, exhaustion)
+  - 45 tests for helper functions (`Get-SafeString`, `Get-CapValue`, `Get-SkuFamily`,
+    `Get-RestrictionDetails`, `Format-ZoneStatus`, `Test-SkuMatchesFilter`, `Get-GeoGroup`)
+
+### Changed
+- **Named constants** — replaced magic numbers with descriptive variables
+  - `$HoursPerMonth` (730), `$ParallelThrottleLimit` (4), `$OutputWidthWithPricing` (133), etc.
+- **Collapsible sections** — converted `# ===` banners to `#region`/`#endregion` markers
+- **Code cleanup** — removed ~30 "what" comments, 5 AI-pattern comments, 2 dead functions
+  - Deleted `Format-FixedWidthTable` (63 lines, zero call sites)
+  - Deleted `Get-SkuSizeAvailability` (12 lines, zero call sites)
+  - Relocated `Format-RegionList` to helper functions section
+
+### Fixed
+- Empty catch block in image search now logs via `Write-Verbose`
+- `$matches` automatic variable shadowing renamed to `$isMatch`
+- Null comparisons moved to correct side (`$null -ne $value`)
+- CI workflow updated to use shared PSScriptAnalyzer settings file
+
 ## [1.6.0] - 2026-02-06
 
 ### Improved
