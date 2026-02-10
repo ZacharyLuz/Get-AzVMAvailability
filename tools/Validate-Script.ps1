@@ -2,8 +2,9 @@
 .SYNOPSIS
     Pre-commit validation script for Get-AzVMAvailability.
 .DESCRIPTION
-    Runs four checks in sequence: syntax validation, PSScriptAnalyzer linting,
-    Pester tests, and an AI-comment pattern scan. Run this before every commit.
+    Runs five checks in sequence: syntax validation, PSScriptAnalyzer linting,
+    Pester tests, AI-comment pattern scan, and version consistency.
+    Run this before every commit.
 
     Exit code 0 = all checks passed. Non-zero = at least one check failed.
 .EXAMPLE
@@ -28,7 +29,7 @@ Write-Host " GET-AZVMAVAILABILITY VALIDATION" -ForegroundColor Cyan
 Write-Host "========================================`n" -ForegroundColor Cyan
 
 # ── Check 1: Syntax Validation ──────────────────────────────────────
-Write-Host "[1/4] Syntax Check" -ForegroundColor Yellow
+Write-Host "[1/5] Syntax Check" -ForegroundColor Yellow
 try {
     $content = Get-Content $mainScript -Raw -ErrorAction Stop
     [scriptblock]::Create($content) | Out-Null
@@ -40,7 +41,7 @@ catch {
 }
 
 # ── Check 2: PSScriptAnalyzer ───────────────────────────────────────
-Write-Host "[2/4] PSScriptAnalyzer" -ForegroundColor Yellow
+Write-Host "[2/5] PSScriptAnalyzer" -ForegroundColor Yellow
 $hasAnalyzer = Get-Module -ListAvailable PSScriptAnalyzer -ErrorAction SilentlyContinue
 if (-not $hasAnalyzer) {
     Write-Host "  SKIP  PSScriptAnalyzer not installed (Install-Module PSScriptAnalyzer)" -ForegroundColor DarkYellow
@@ -64,7 +65,7 @@ else {
 }
 
 # ── Check 3: Pester Tests ──────────────────────────────────────────
-Write-Host "[3/4] Pester Tests" -ForegroundColor Yellow
+Write-Host "[3/5] Pester Tests" -ForegroundColor Yellow
 if ($SkipTests) {
     Write-Host "  SKIP  -SkipTests specified" -ForegroundColor DarkYellow
 }
@@ -92,7 +93,7 @@ else {
 }
 
 # ── Check 4: AI Comment Pattern Scan ───────────────────────────────
-Write-Host "[4/4] AI Comment Pattern Scan" -ForegroundColor Yellow
+Write-Host "[4/5] AI Comment Pattern Scan" -ForegroundColor Yellow
 $aiPatterns = @(
     @{ Pattern = '# Must be (after|before|placed)'; Desc = 'Instructional placement comment' }
     @{ Pattern = '# Note:.*see (below|above)'; Desc = 'Cross-reference instruction' }
@@ -123,6 +124,70 @@ else {
         Write-Host "           $($hit.Content)" -ForegroundColor Gray
     }
     # Warning only — does not increment fail count
+}
+
+# ── Check 5: Version Consistency ────────────────────────────────────
+Write-Host "[5/5] Version Consistency" -ForegroundColor Yellow
+$versionMismatches = @()
+
+# Extract $ScriptVersion from the main script (source of truth)
+if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
+    $scriptVer = $matches[1]
+
+    # Check .NOTES Version in comment-based help
+    if ($content -match '\.NOTES[\s\S]*?Version\s*:\s*([\d.]+)') {
+        $notesVer = $matches[1]
+        if ($notesVer -ne $scriptVer) {
+            $versionMismatches += ".NOTES Version: $notesVer"
+        }
+    }
+
+    # Check README badge
+    $readmePath = Join-Path $repoRoot 'README.md'
+    if (Test-Path $readmePath) {
+        $readmeContent = Get-Content $readmePath -Raw
+        if ($readmeContent -match 'Version-([\d.]+)') {
+            $readmeVer = $matches[1]
+            if ($readmeVer -ne $scriptVer) {
+                $versionMismatches += "README.md badge: $readmeVer"
+            }
+        }
+    }
+
+    # Check CHANGELOG has an entry for this version
+    $changelogPath = Join-Path $repoRoot 'CHANGELOG.md'
+    if (Test-Path $changelogPath) {
+        $changelogContent = Get-Content $changelogPath -Raw
+        if ($changelogContent -notmatch [regex]::Escape("[$scriptVer]")) {
+            $versionMismatches += "CHANGELOG.md: no [$scriptVer] entry"
+        }
+    }
+
+    # Check ROADMAP Current Release
+    $roadmapPath = Join-Path $repoRoot 'ROADMAP.md'
+    if (Test-Path $roadmapPath) {
+        $roadmapContent = Get-Content $roadmapPath -Raw
+        if ($roadmapContent -match 'Current Release:\s*v([\d.]+)') {
+            $roadmapVer = $matches[1]
+            if ($roadmapVer -ne $scriptVer) {
+                $versionMismatches += "ROADMAP.md Current Release: v$roadmapVer"
+            }
+        }
+    }
+
+    if ($versionMismatches.Count -eq 0) {
+        Write-Host "  PASS  All version references match v$scriptVer" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  FAIL  \$ScriptVersion is v$scriptVer but mismatches found:" -ForegroundColor Red
+        foreach ($m in $versionMismatches) {
+            Write-Host "         $m" -ForegroundColor Red
+        }
+        $failCount++
+    }
+}
+else {
+    Write-Host "  SKIP  Could not find \$ScriptVersion in script" -ForegroundColor DarkYellow
 }
 
 # ── Summary ─────────────────────────────────────────────────────────

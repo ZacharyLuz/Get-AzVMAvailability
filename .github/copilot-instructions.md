@@ -95,7 +95,7 @@ Run the validation script to catch issues before they reach GitHub:
 ```powershell
 .\tools\Validate-Script.ps1
 ```
-This runs four checks: syntax validation, PSScriptAnalyzer linting, Pester tests, and an AI-comment pattern scan.
+This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests, AI-comment pattern scan, and version consistency.
 
 ### Linting
 - PSScriptAnalyzer settings are in `PSScriptAnalyzerSettings.psd1` at the repo root.
