@@ -1,0 +1,34 @@
+# EditorConfig — consistent formatting across all editors
+# https://editorconfig.org
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# PowerShell files need UTF-8 with BOM for correct encoding
+[*.ps1]
+charset = utf-8-bom
+
+[*.psm1]
+charset = utf-8-bom
+
+[*.psd1]
+charset = utf-8-bom
+
+# Markdown allows trailing whitespace for line breaks
+[*.md]
+trim_trailing_whitespace = false
+
+# YAML uses 2-space indent by convention
+[*.{yml,yaml}]
+indent_size = 2
+
+# JSON uses 2-space indent by convention
+[*.json]
+indent_size = 2

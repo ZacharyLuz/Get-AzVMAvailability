@@ -12,8 +12,9 @@
 *.tmp
 *~
 
-# VS Code
-.vscode/
+# VS Code (allow .vscode/settings.json for shared linter config)
+.vscode/*
+!.vscode/settings.json
 *.code-workspace
 
 # OS generated

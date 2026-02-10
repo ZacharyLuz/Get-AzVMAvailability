@@ -9,7 +9,7 @@ on:
 
 permissions:
     contents: read
-    security-events: write  # Required for SARIF upload to code scanning
+    security-events: write # Required for SARIF upload to code scanning
 
 jobs:
     lint:
@@ -25,8 +25,7 @@ jobs:
                   path: .
                   recurse: true
                   output: results.sarif
-                  # Exclude informational rules, focus on warnings/errors
-                  excludeRule: '"PSAvoidUsingWriteHost"'
+                  settings: ./PSScriptAnalyzerSettings.psd1
 
             - name: Upload SARIF results
               uses: github/codeql-action/upload-sarif@v3

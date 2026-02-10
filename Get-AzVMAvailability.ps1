@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Get-AzVMAvailability - Comprehensive SKU availability and capacity scanner.
 
@@ -79,7 +79,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.5.0
+    Version:        1.7.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -196,15 +196,30 @@ param(
 
     [Parameter(Mandatory = $false, HelpMessage = "Azure cloud environment (default: auto-detect from Az context)")]
     [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud", "AzureGermanCloud")]
-    [string]$Environment
+    [string]$Environment,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Max retry attempts for transient API errors (429, 503, timeouts)")]
+    [ValidateRange(0, 10)]
+    [int]$MaxRetries = 3
 )
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
 
-# === Configuration ==================================================
-# Script metadata
-$ScriptVersion = "1.6.0"
+#region Configuration
+$ScriptVersion = "1.7.0"
+
+#region Constants
+$HoursPerMonth = 730
+$ParallelThrottleLimit = 4
+$OutputWidthWithPricing = 133
+$OutputWidthBase = 113
+$OutputWidthMin = 100
+$OutputWidthMax = 150
+$DefaultTerminalWidth = 80
+$MinTableWidth = 70
+$ExcelDescriptionColumnWidth = 70
+#endregion Constants
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -248,8 +263,6 @@ $SelectedSkuFilter = @{}
 if ($Environment) {
     $script:TargetEnvironment = $Environment
 }
-
-# Note: Azure endpoints initialized after function definitions (see below "Initialize Azure endpoints")
 
 # Detect execution environment (Azure Cloud Shell vs local)
 $isCloudShell = $env:CLOUD_SHELL -eq "true" -or (Test-Path "/home/system" -ErrorAction SilentlyContinue)
@@ -298,7 +311,8 @@ if ($AutoExport -and -not $ExportPath) {
     $ExportPath = $defaultExportPath
 }
 
-# === Helper Functions ===============================================
+#endregion Configuration
+#region Helper Functions
 
 function Get-SafeString {
     <#
@@ -317,6 +331,77 @@ function Get-SafeString {
     }
     if ($null -eq $Value) { return '' }
     return "$Value"  # String interpolation is safer than .ToString()
+}
+
+function Invoke-WithRetry {
+    <#
+    .SYNOPSIS
+        Executes a script block with retry logic for transient Azure API errors.
+    .DESCRIPTION
+        Wraps any API call with automatic retry on:
+        - HTTP 429 (Too Many Requests) — reads Retry-After header
+        - HTTP 503 (Service Unavailable) — transient Azure outages
+        - Network timeouts and WebExceptions
+        Uses exponential backoff with jitter between retries.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock,
+
+        [Parameter(Mandatory = $false)]
+        [int]$MaxRetries = 3,
+
+        [Parameter(Mandatory = $false)]
+        [string]$OperationName = 'API call'
+    )
+
+    $attempt = 0
+    while ($true) {
+        try {
+            return & $ScriptBlock
+        }
+        catch {
+            $attempt++
+            $ex = $_.Exception
+            $isRetryable = $false
+            $waitSeconds = [math]::Pow(2, $attempt)  # Exponential: 2, 4, 8...
+
+            # HTTP 429 — Too Many Requests (throttled)
+            $statusCode = if ($ex.Response) { $ex.Response.StatusCode.value__ } else { $null }
+            if ($statusCode -eq 429 -or $ex.Message -match '429|Too Many Requests') {
+                $isRetryable = $true
+                if ($ex.Response -and $ex.Response.Headers) {
+                    $retryAfter = $ex.Response.Headers['Retry-After']
+                    if ($retryAfter -and [int]::TryParse($retryAfter, [ref]$null)) {
+                        $waitSeconds = [int]$retryAfter
+                    }
+                }
+            }
+            # HTTP 503 — Service Unavailable
+            elseif ($statusCode -eq 503 -or $ex.Message -match '503|Service Unavailable') {
+                $isRetryable = $true
+            }
+            # Network errors — timeouts, connection failures
+            elseif ($ex -is [System.Net.WebException] -or
+                $ex -is [System.Net.Http.HttpRequestException] -or
+                $ex.InnerException -is [System.Net.WebException] -or
+                $ex.InnerException -is [System.Net.Http.HttpRequestException] -or
+                $ex.Message -match 'timed?\s*out|connection.*reset|connection.*refused') {
+                $isRetryable = $true
+            }
+
+            if (-not $isRetryable -or $attempt -ge $MaxRetries) {
+                throw
+            }
+
+            # Add jitter (0-25%) to prevent thundering herd
+            $jitter = Get-Random -Minimum 0 -Maximum ([math]::Max(1, [int]($waitSeconds * 0.25)))
+            $waitSeconds += $jitter
+
+            Write-Verbose "$OperationName failed (attempt $attempt/$MaxRetries): $($ex.Message). Retrying in ${waitSeconds}s..."
+            Start-Sleep -Seconds $waitSeconds
+        }
+    }
 }
 
 function Get-GeoGroup {
@@ -454,7 +539,6 @@ function Get-AzureEndpoints {
 }
 
 function Get-CapValue {
-    # Extracts a specific capability value (like vCPUs, MemoryGB) from a SKU object
     param([object]$Sku, [string]$Name)
     $cap = $Sku.Capabilities | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
     if ($cap) { return $cap.Value }
@@ -462,7 +546,6 @@ function Get-CapValue {
 }
 
 function Get-SkuFamily {
-    # Extracts the VM family prefix from a SKU name (e.g., Standard_D2s_v3 -> D)
     param([string]$SkuName)
     if ($SkuName -match 'Standard_([A-Z]+)\d') {
         return $matches[1]
@@ -471,7 +554,6 @@ function Get-SkuFamily {
 }
 
 function Get-RestrictionReason {
-    # Gets the primary restriction reason for a SKU (e.g., NotAvailableForSubscription)
     param([object]$Sku)
     if ($Sku.Restrictions -and $Sku.Restrictions.Count -gt 0) {
         return $Sku.Restrictions[0].ReasonCode
@@ -553,7 +635,6 @@ function Get-RestrictionDetails {
 }
 
 function Format-ZoneStatus {
-    # Formats zone availability into a human-readable string
     param([array]$OK, [array]$Limited, [array]$Restricted)
     $parts = @()
     if ($OK.Count -gt 0) { $parts += "✓ Zones $($OK -join ',')" }
@@ -563,20 +644,48 @@ function Format-ZoneStatus {
     return $parts -join ' | '
 }
 
-function Get-SkuSizeAvailability {
-    # Checks if any SKU sizes in a family are available (unrestricted or capacity-constrained)
-    param([array]$Skus)
-    foreach ($sku in $Skus) {
-        $details = Get-RestrictionDetails $sku
-        if ($details.Status -eq 'OK' -or $details.Status -eq 'CAPACITY-CONSTRAINED') {
-            return $true
+function Format-RegionList {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$Regions,
+        [int]$MaxWidth = 75
+    )
+
+    if ($null -eq $Regions) {
+        return , @('(none)')
+    }
+
+    $regionArray = @($Regions)
+
+    if ($regionArray.Count -eq 0) {
+        return , @('(none)')
+    }
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $currentLine = ""
+
+    foreach ($region in $regionArray) {
+        $regionStr = [string]$region
+        $separator = if ($currentLine) { ', ' } else { '' }
+        $testLine = $currentLine + $separator + $regionStr
+
+        if ($testLine.Length -gt $MaxWidth -and $currentLine) {
+            $lines.Add($currentLine)
+            $currentLine = $regionStr
+        }
+        else {
+            $currentLine = $testLine
         }
     }
-    return $false
+
+    if ($currentLine) {
+        $lines.Add($currentLine)
+    }
+
+    return , @($lines.ToArray())
 }
 
 function Get-QuotaAvailable {
-    # Calculates available vCPU quota for a VM family in the subscription
     param([object[]]$Quotas, [string]$FamilyName, [int]$RequiredvCPUs = 0)
     $quota = $Quotas | Where-Object { $_.Name.LocalizedValue -match $FamilyName } | Select-Object -First 1
     if (-not $quota) { return @{ Available = $null; OK = $null; Limit = $null; Current = $null } }
@@ -590,7 +699,6 @@ function Get-QuotaAvailable {
 }
 
 function Get-StatusIcon {
-    # Returns the appropriate status icon (Unicode or ASCII) based on capacity status
     param([string]$Status)
     switch ($Status) {
         'OK' { return $Icons.OK }
@@ -603,7 +711,6 @@ function Get-StatusIcon {
 }
 
 function Test-ImportExcelModule {
-    # Checks if the ImportExcel module is available for styled XLSX export
     try {
         $module = Get-Module ImportExcel -ListAvailable -ErrorAction SilentlyContinue
         if ($module) {
@@ -640,7 +747,8 @@ function Test-SkuMatchesFilter {
     return $false
 }
 
-# === Image Compatibility Functions ==================================
+#endregion Helper Functions
+#region Image Compatibility Functions
 
 function Get-ImageRequirements {
     <#
@@ -804,7 +912,6 @@ function Get-AzVMPricing {
         $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
     }
 
-    # Azure region name to ARM location mapping
     $armLocation = $Region.ToLower() -replace '\s', ''
 
     # Build filter for the API - get Linux consumption pricing
@@ -819,7 +926,10 @@ function Get-AzVMPricing {
         $maxPages = 20  # Fetch up to 20 pages (~20,000 price entries)
 
         while ($nextLink -and $pageCount -lt $maxPages) {
-            $response = Invoke-RestMethod -Uri $nextLink -Method Get -TimeoutSec 30
+            $uri = $nextLink
+            $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Retail Pricing API (page $($pageCount + 1))" -ScriptBlock {
+                Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 30
+            }
             $pageCount++
 
             foreach ($item in $response.Items) {
@@ -838,7 +948,7 @@ function Get-AzVMPricing {
                 if (-not $allPrices[$vmSize] -or $item.skuName -notmatch 'Spot') {
                     $allPrices[$vmSize] = @{
                         Hourly   = [math]::Round($item.retailPrice, 4)
-                        Monthly  = [math]::Round($item.retailPrice * 730, 2)  # 730 hours/month avg
+                        Monthly  = [math]::Round($item.retailPrice * $HoursPerMonth, 2)
                         Currency = $item.currencyCode
                         Meter    = $item.meterName
                     }
@@ -848,7 +958,6 @@ function Get-AzVMPricing {
             $nextLink = $response.NextPageLink
         }
 
-        # Cache the results
         $script:PricingCache[$armLocation] = $allPrices
 
         return $allPrices
@@ -909,7 +1018,9 @@ function Get-AzActualPricing {
         # Using the consumption price sheet endpoint with environment-specific ARM URL
         $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=contains(meterCategory,'Virtual Machines')"
 
-        $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
+        $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API" -ScriptBlock {
+            Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
+        }
 
         if ($response.properties.pricesheets) {
             foreach ($item in $response.properties.pricesheets) {
@@ -927,7 +1038,7 @@ function Get-AzActualPricing {
                     if ($vmSize -and -not $allPrices.ContainsKey($vmSize)) {
                         $allPrices[$vmSize] = @{
                             Hourly       = [math]::Round($item.unitPrice, 4)
-                            Monthly      = [math]::Round($item.unitPrice * 730, 2)
+                            Monthly      = [math]::Round($item.unitPrice * $HoursPerMonth, 2)
                             Currency     = $item.currencyCode
                             Meter        = $item.meterName
                             IsNegotiated = $true
@@ -937,7 +1048,6 @@ function Get-AzActualPricing {
             }
         }
 
-        # Cache the results
         $script:ActualPricingCache[$cacheKey] = $allPrices
         return $allPrices
     }
@@ -958,76 +1068,12 @@ function Get-AzActualPricing {
     }
 }
 
-function Format-FixedWidthTable {
-    <#
-    .SYNOPSIS
-        Formats data as a fixed-width aligned table with customizable column widths.
-    .DESCRIPTION
-        Outputs a consistently aligned table regardless of data length.
-        Truncates or pads values to fit specified widths.
-    #>
-    param(
-        [Parameter(Mandatory = $true)]
-        [array]$Data,
-
-        [Parameter(Mandatory = $true)]
-        [hashtable]$ColumnWidths,  # @{ ColumnName = Width }
-
-        [Parameter(Mandatory = $false)]
-        [string]$HeaderColor = 'Cyan',
-
-        [Parameter(Mandatory = $false)]
-        [hashtable]$RowColors  # @{ ColumnName = { param($value) return 'Green' } }
-    )
-
-    if (-not $Data -or $Data.Count -eq 0) { return }
-
-    # Get column names in order (from first row or ColumnWidths keys)
-    $columns = @($ColumnWidths.Keys)
-
-    # Build header
-    $headerParts = @()
-    foreach ($col in $columns) {
-        $width = $ColumnWidths[$col]
-        $headerParts += $col.PadRight($width).Substring(0, [Math]::Min($width, $col.Length + $width))
-    }
-    $headerLine = ($headerParts -join '  ')
-    Write-Host $headerLine -ForegroundColor $HeaderColor
-    Write-Host ('-' * $headerLine.Length) -ForegroundColor Gray
-
-    # Build data rows
-    foreach ($row in $Data) {
-        $rowParts = @()
-        $rowColor = 'White'
-
-        foreach ($col in $columns) {
-            $width = $ColumnWidths[$col]
-            $value = if ($row.$col -ne $null) { "$($row.$col)" } else { '' }
-
-            # Truncate if too long
-            if ($value.Length -gt $width) {
-                $value = $value.Substring(0, $width - 1) + '…'
-            }
-
-            $rowParts += $value.PadRight($width)
-
-            # Determine row color from first matching color rule
-            if ($RowColors -and $RowColors[$col]) {
-                $colorResult = & $RowColors[$col] $row.$col
-                if ($colorResult) { $rowColor = $colorResult }
-            }
-        }
-
-        Write-Host ($rowParts -join '  ') -ForegroundColor $rowColor
-    }
-}
-
-# === Initialize Azure Endpoints =====================================
-# Must be after function definitions, before main execution
-# This ensures sovereign cloud users get correct URLs (quota portal, pricing API)
+#endregion Image Compatibility Functions
+#region Initialize Azure Endpoints
 $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
 
-# === Interactive Prompts ============================================
+#endregion Initialize Azure Endpoints
+#region Interactive Prompts
 # Prompt user for subscription(s) if not provided via parameters
 
 if (-not $TargetSubIds) {
@@ -1288,7 +1334,7 @@ if (-not $ImageURN -and -not $NoPrompt) {
                                 $offerResults += @{ Publisher = $pub; Offer = $offer.Offer }
                             }
                         }
-                        catch { }
+                        catch { Write-Verbose "Image search failed for publisher '$pub': $_" }
                     }
 
                     if ($publishers -or $offerResults) {
@@ -1425,16 +1471,16 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
     Write-Host "Created: $ExportPath" -ForegroundColor Green
 }
 
-# === Data Collection ================================================
+#endregion Interactive Prompts
+#region Data Collection
 
 # Calculate consistent output width based on table columns
 # Base columns: Family(12) + SKUs(6) + OK(5) + Largest(18) + Zones(28) + Status(22) + Quota(10) = 101
 # Plus spacing (2 chars between each of 7 columns = 12) = 113 base
 # With pricing: +20 (two 10-char columns) = 133
-$script:OutputWidth = if ($FetchPricing) { 133 } else { 113 }
-# Ensure minimum width and cap at reasonable maximum
-$script:OutputWidth = [Math]::Max($script:OutputWidth, 100)
-$script:OutputWidth = [Math]::Min($script:OutputWidth, 150)
+$script:OutputWidth = if ($FetchPricing) { $OutputWidthWithPricing } else { $OutputWidthBase }
+$script:OutputWidth = [Math]::Max($script:OutputWidth, $OutputWidthMin)
+$script:OutputWidth = [Math]::Min($script:OutputWidth, $OutputWidthMax)
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
@@ -1483,7 +1529,6 @@ if ($FetchPricing) {
         $script:regionPricing = @{}
         foreach ($regionCode in $Regions) {
             $pricingResult = Get-AzVMPricing -Region $regionCode
-            # Handle potential array wrapping from function return
             if ($pricingResult -is [array]) { $pricingResult = $pricingResult[0] }
             $script:regionPricing[$regionCode] = $pricingResult
         }
@@ -1509,34 +1554,65 @@ foreach ($subId in $TargetSubIds) {
 
     $regionData = $Regions | ForEach-Object -Parallel {
         $region = [string]$_
-        $skuFilterCopy = $using:SkuFilter  # Pass filter to parallel block
+        $skuFilterCopy = $using:SkuFilter
+        $maxRetries = $using:MaxRetries
+
+        # Inline retry — parallel runspaces cannot see script-scope functions
+        $retryCall = {
+            param([scriptblock]$Action, [int]$Retries)
+            $attempt = 0
+            while ($true) {
+                try {
+                    return (& $Action)
+                }
+                catch {
+                    $attempt++
+                    $msg = $_.Exception.Message
+                    $isThrottle = $msg -match '429' -or $msg -match 'Too Many Requests' -or
+                    $msg -match '503' -or $msg -match 'ServiceUnavailable'
+                    if ($isThrottle -and $attempt -le $Retries) {
+                        $baseDelay = [math]::Pow(2, $attempt)
+                        $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
+                        Start-Sleep -Milliseconds (($baseDelay + $jitter) * 1000)
+                        continue
+                    }
+                    throw
+                }
+            }
+        }
+
         try {
-            $allSkus = Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
-            Where-Object { $_.ResourceType -eq 'virtualMachines' }
+            $allSkus = & $retryCall -Action {
+                Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
+                Where-Object { $_.ResourceType -eq 'virtualMachines' }
+            } -Retries $maxRetries
 
             # Apply SKU filter if specified
             if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
                 $allSkus = $allSkus | Where-Object {
                     $skuName = $_.Name
-                    $matches = $false
+                    $isMatch = $false
                     foreach ($pattern in $skuFilterCopy) {
                         $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
                         if ($skuName -match $regexPattern) {
-                            $matches = $true
+                            $isMatch = $true
                             break
                         }
                     }
-                    $matches
+                    $isMatch
                 }
             }
 
-            $quotas = Get-AzVMUsage -Location $region -ErrorAction Stop
+            $quotas = & $retryCall -Action {
+                Get-AzVMUsage -Location $region -ErrorAction Stop
+            } -Retries $maxRetries
+
             @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
         }
         catch {
             @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
         }
-    } -ThrottleLimit 4
+    } -ThrottleLimit $ParallelThrottleLimit
 
     Write-Progress -Activity "Scanning Azure Regions" -Completed
 
@@ -1550,7 +1626,8 @@ foreach ($subId in $TargetSubIds) {
     }
 }
 
-# === Process Results ================================================
+#endregion Data Collection
+#region Process Results
 
 $allFamilyStats = @{}
 $familyDetails = @()
@@ -1581,7 +1658,6 @@ foreach ($subscriptionData in $allSubscriptionData) {
             continue
         }
 
-        # Group SKUs by family
         $familyGroups = @{}
         foreach ($sku in $data.Skus) {
             $family = Get-SkuFamily $sku.Name
@@ -1589,7 +1665,6 @@ foreach ($subscriptionData in $allSubscriptionData) {
             $familyGroups[$family] += $sku
         }
 
-        # Display quota summary
         Write-Host "`nQUOTA SUMMARY:" -ForegroundColor Cyan
         $quotaLines = $data.Quotas | Where-Object {
             $_.Name.Value -match 'Total Regional vCPUs|Family vCPUs'
@@ -1618,7 +1693,6 @@ foreach ($subscriptionData in $allSubscriptionData) {
             Write-Host "No quota data available" -ForegroundColor DarkYellow
         }
 
-        # Display SKU families table
         Write-Host "SKU FAMILIES:" -ForegroundColor Cyan
 
         $rows = @()
@@ -1770,17 +1844,15 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 $colWidths['$/Mo'] = 10
             }
 
-            # Header
             $headerParts = foreach ($col in $colWidths.Keys) {
                 $col.PadRight($colWidths[$col])
             }
             Write-Host ($headerParts -join '  ') -ForegroundColor Cyan
             Write-Host ('-' * $script:OutputWidth) -ForegroundColor Gray
 
-            # Data rows
             foreach ($row in $rows) {
                 $rowParts = foreach ($col in $colWidths.Keys) {
-                    $val = if ($row.$col -ne $null) { "$($row.$col)" } else { '' }
+                    $val = if ($null -ne $row.$col) { "$($row.$col)" } else { '' }
                     $width = $colWidths[$col]
                     if ($val.Length -gt $width) { $val = $val.Substring(0, $width - 1) + '…' }
                     $val.PadRight($width)
@@ -1798,7 +1870,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
     }
 }
 
-# === Drill-Down (if enabled) ========================================
+#endregion Process Results
+#region Drill-Down (if enabled)
 
 if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
     $familyList = @($familySkuIndex.Keys | Sort-Object)
@@ -1813,7 +1886,6 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
             # Select all families
             $familyList
         }
-        # Don't populate SelectedSkuFilter - this means all SKUs will be included
     }
     else {
         # Interactive mode
@@ -1969,7 +2041,7 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
                                 'Avail' { 'QuotaAvail' }
                                 default { $c }
                             }
-                            $v = if ($dr.$propName -ne $null) { "$($dr.$propName)" } else { '' }
+                            $v = if ($null -ne $dr.$propName) { "$($dr.$propName)" } else { '' }
                             $w = $dColWidths[$c]
                             if ($v.Length -gt $w) { $v = $v.Substring(0, $w - 1) + '…' }
                             $v.PadRight($w)
@@ -1992,7 +2064,8 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
     }
 }
 
-# === Multi-Region Matrix ============================================
+#endregion Drill-Down (if enabled)
+#region Multi-Region Matrix
 
 Write-Host "`n" -NoNewline
 
@@ -2006,14 +2079,13 @@ foreach ($family in $allFamilyStats.Keys) {
 }
 $allRegions = @($allRegions | Sort-Object)
 
-# Build header to determine width (use 12-char columns for Cloud Shell compatibility)
 $colWidth = 12
 $headerLine = "Family".PadRight(10)
 foreach ($r in $allRegions) { $headerLine += " | " + $r.PadRight($colWidth) }
 $matrixWidth = $headerLine.Length
 
 # Set script-level output width for consistent separators
-$script:OutputWidth = [Math]::Max($matrixWidth, 80)
+$script:OutputWidth = [Math]::Max($matrixWidth, $DefaultTerminalWidth)
 
 # Display section header with dynamic width
 Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
@@ -2092,7 +2164,8 @@ if ($FetchPricing) {
     Write-Host "  Prices shown are Pay-As-You-Go (Linux). Azure Hybrid Benefit can reduce costs 40-60%." -ForegroundColor DarkGray
 }
 
-# === Deployment Recommendations =====================================
+#endregion Multi-Region Matrix
+#region Deployment Recommendations
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
@@ -2138,7 +2211,8 @@ else {
     }
 }
 
-# === Detailed Breakdown =============================================
+#endregion Deployment Recommendations
+#region Detailed Breakdown
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
@@ -2154,61 +2228,17 @@ Write-Host "IMPORTANT: This is a family-level summary. Individual SKUs within a 
 Write-Host "           may have different availability. Check the detailed table above." -ForegroundColor DarkYellow
 Write-Host ""
 
-# Helper function to wrap region lists across multiple lines
-function Format-RegionList {
-    param(
-        [Parameter(Mandatory = $false)]
-        [object]$Regions,
-        [int]$MaxWidth = 75
-    )
-
-    # Handle null, empty, or non-array inputs
-    if ($null -eq $Regions) {
-        return , @('(none)')  # Comma forces array even for single element
-    }
-
-    # Convert to array if not already
-    $regionArray = @($Regions)
-
-    if ($regionArray.Count -eq 0) {
-        return , @('(none)')
-    }
-
-    $lines = [System.Collections.Generic.List[string]]::new()
-    $currentLine = ""
-
-    foreach ($region in $regionArray) {
-        $regionStr = [string]$region
-        $separator = if ($currentLine) { ', ' } else { '' }
-        $testLine = $currentLine + $separator + $regionStr
-
-        if ($testLine.Length -gt $MaxWidth -and $currentLine) {
-            $lines.Add($currentLine)
-            $currentLine = $regionStr
-        }
-        else {
-            $currentLine = $testLine
-        }
-    }
-
-    if ($currentLine) {
-        $lines.Add($currentLine)
-    }
-
-    return , @($lines.ToArray())  # Comma forces array context
-}
-
 # Calculate column widths based on ACTUAL terminal width for better Cloud Shell support
 # Try to detect actual console width, fall back to a safe default
 $actualWidth = try {
     $hostWidth = $Host.UI.RawUI.WindowSize.Width
-    if ($hostWidth -gt 0) { $hostWidth } else { 80 }
+    if ($hostWidth -gt 0) { $hostWidth } else { $DefaultTerminalWidth }
 }
-catch { 80 }
+catch { $DefaultTerminalWidth }
 
 # Use the smaller of OutputWidth or actual terminal width for this table
 $tableWidth = [Math]::Min($script:OutputWidth, $actualWidth - 2)
-$tableWidth = [Math]::Max($tableWidth, 70)  # Minimum 70 chars for readability
+$tableWidth = [Math]::Max($tableWidth, $MinTableWidth)
 
 # Fixed column widths for consistent alignment
 # Family: 8 chars, Available: 20 chars, Constrained: rest
@@ -2216,7 +2246,6 @@ $colFamily = 8
 $colAvailable = 20
 $colConstrained = [Math]::Max(30, $tableWidth - $colFamily - $colAvailable - 4)
 
-# Build header with exact spacing
 $headerFamily = "Family".PadRight($colFamily)
 $headerAvail = "Available".PadRight($colAvailable)
 $headerConst = "Constrained"
@@ -2300,7 +2329,8 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
 
 Write-Progress -Activity "Processing Region Data" -Completed
 
-# === Completion =====================================================
+#endregion Detailed Breakdown
+#region Completion
 
 $totalElapsed = (Get-Date) - $scanStartTime
 
@@ -2310,7 +2340,8 @@ Write-Host "SCAN COMPLETE" -ForegroundColor Green
 Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | Total time: $([math]::Round($totalElapsed.TotalSeconds, 1)) seconds" -ForegroundColor DarkGray
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 
-# === Export =========================================================
+#endregion Completion
+#region Export
 
 if ($ExportPath) {
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -2333,14 +2364,13 @@ if ($ExportPath) {
             $headerBlue = [System.Drawing.Color]::FromArgb(0, 120, 212)  # Azure blue
             $lightGray = [System.Drawing.Color]::FromArgb(242, 242, 242)
 
-            # === Summary Sheet ===
+            #region Summary Sheet
             $excel = $summaryRowsForExport | Export-Excel -Path $xlsxFile -WorksheetName "Summary" -AutoSize -FreezeTopRow -PassThru
 
             $ws = $excel.Workbook.Worksheets["Summary"]
             $lastRow = $ws.Dimension.End.Row
             $lastCol = $ws.Dimension.End.Column
 
-            # Style header row
             $headerRange = $ws.Cells["A1:$([char](64 + $lastCol))1"]
             $headerRange.Style.Font.Bold = $true
             $headerRange.Style.Font.Color.SetColor([System.Drawing.Color]::White)
@@ -2348,7 +2378,6 @@ if ($ExportPath) {
             $headerRange.Style.Fill.BackgroundColor.SetColor($headerBlue)
             $headerRange.Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
 
-            # Add alternating row colors
             for ($row = 2; $row -le $lastRow; $row++) {
                 if ($row % 2 -eq 0) {
                     $rowRange = $ws.Cells["A$row`:$([char](64 + $lastCol))$row"]
@@ -2357,7 +2386,6 @@ if ($ExportPath) {
                 }
             }
 
-            # Apply conditional formatting to status columns (columns D onwards)
             for ($col = 4; $col -le $lastCol; $col++) {
                 $colLetter = [char](64 + $col)
                 $statusRange = "$colLetter`2:$colLetter$lastRow"
@@ -2375,17 +2403,15 @@ if ($ExportPath) {
                 Add-ConditionalFormatting -Worksheet $ws -Range $statusRange -RuleType Equal -ConditionValue "N/A" -BackgroundColor $lightGray -ForegroundColor ([System.Drawing.Color]::Gray)
             }
 
-            # Add borders
             $dataRange = $ws.Cells["A1:$([char](64 + $lastCol))$lastRow"]
             $dataRange.Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
 
-            # Center numeric columns
             $ws.Cells["B2:C$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
 
-            # === Add Compact Legend to Summary Sheet ===
+            #region Add Compact Legend to Summary Sheet
             $legendStartRow = $lastRow + 3  # Leave 2 blank rows
 
             # Legend title - Capacity Status
@@ -2431,7 +2457,6 @@ if ($ExportPath) {
                     }
                 }
 
-                # Add borders to this row
                 $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
                 $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
                 $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
@@ -2465,7 +2490,6 @@ if ($ExportPath) {
                 $ws.Cells["A$currentRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
                 $ws.Cells["A$currentRow"].Style.Font.Size = 12
 
-                # Color the symbol
                 $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
                 switch ($item.Symbol) {
                     "✓" {
@@ -2482,7 +2506,6 @@ if ($ExportPath) {
                     }
                 }
 
-                # Add borders
                 $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
                 $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
                 $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
@@ -2491,7 +2514,6 @@ if ($ExportPath) {
                 $currentRow++
             }
 
-            # Format note
             $currentRow += 2
             $ws.Cells["A$currentRow"].Value = "FORMAT:"
             $ws.Cells["A$currentRow"].Style.Font.Bold = $true
@@ -2502,21 +2524,19 @@ if ($ExportPath) {
             $ws.Cells["A$currentRow"].Style.Font.Italic = $true
             $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
 
-            # Set column widths for legend area
             $ws.Column(1).Width = 22
             $ws.Column(2).Width = 35
             $ws.Column(3).Width = 25
 
             Close-ExcelPackage $excel
 
-            # === Details Sheet ===
+            #region Details Sheet
             $excel = $familyDetails | Export-Excel -Path $xlsxFile -WorksheetName "Details" -AutoSize -FreezeTopRow -Append -PassThru
 
             $ws = $excel.Workbook.Worksheets["Details"]
             $lastRow = $ws.Dimension.End.Row
             $lastCol = $ws.Dimension.End.Column
 
-            # Style header row
             $headerRange = $ws.Cells["A1:$([char](64 + $lastCol))1"]
             $headerRange.Style.Font.Bold = $true
             $headerRange.Style.Font.Color.SetColor([System.Drawing.Color]::White)
@@ -2524,7 +2544,6 @@ if ($ExportPath) {
             $headerRange.Style.Fill.BackgroundColor.SetColor($headerBlue)
             $headerRange.Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
 
-            # Find Capacity column (usually column H or 8)
             $capacityCol = $null
             for ($c = 1; $c -le $lastCol; $c++) {
                 if ($ws.Cells[1, $c].Value -eq "Capacity") {
@@ -2553,23 +2572,20 @@ if ($ExportPath) {
                 Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "RESTRICTED" -BackgroundColor $redFill -ForegroundColor $redText
             }
 
-            # Add borders to details
             $dataRange = $ws.Cells["A1:$([char](64 + $lastCol))$lastRow"]
             $dataRange.Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
 
-            # Center numeric columns (vCPU, MemGiB, QuotaAvail)
             $ws.Cells["E2:F$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
             $ws.Cells["J2:J$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
 
-            # Add filter to header
             $ws.Cells["A1:$([char](64 + $lastCol))1"].AutoFilter = $true
 
             Close-ExcelPackage $excel
 
-            # === Legend Sheet ===
+            #region Legend Sheet
             $legendData = @(
                 [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "STATUS (X/Y)"; Description = "X = SKUs with full availability, Y = Total SKUs in family for that region" }
                 [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "Example: OK (5/8)"; Description = "5 out of 8 SKUs are fully available with OK status" }
@@ -2607,16 +2623,13 @@ if ($ExportPath) {
             $ws = $excel.Workbook.Worksheets["Legend"]
             $legendLastRow = $ws.Dimension.End.Row
 
-            # Style header row
             $ws.Cells["A1:C1"].Style.Font.Bold = $true
             $ws.Cells["A1:C1"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
             $ws.Cells["A1:C1"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
             $ws.Cells["A1:C1"].Style.Fill.BackgroundColor.SetColor($headerBlue)
 
-            # Style category column
             $ws.Cells["A2:A$legendLastRow"].Style.Font.Bold = $true
 
-            # Add borders
             $ws.Cells["A1:C$legendLastRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $ws.Cells["A1:C$legendLastRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $ws.Cells["A1:C$legendLastRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
@@ -2668,10 +2681,9 @@ if ($ExportPath) {
                 }
             }
 
-            # Set column widths
             $ws.Column(1).Width = 20
             $ws.Column(2).Width = 25
-            $ws.Column(3).Width = 70
+            $ws.Column(3).Width = $ExcelDescriptionColumnWidth
 
             Close-ExcelPackage $excel
 
@@ -2720,3 +2732,4 @@ if ($ExportPath) {
         }
     }
 }
+#endregion Export

@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Release: v1.4.0
+## Current Release: v1.7.0
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
@@ -68,6 +68,64 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 ### New Parameters
 - `-ImageURN` - Check compatibility with specific image (e.g., 'Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest')
 - `-CompactOutput` - Use compact output for narrow terminals
+
+---
+
+## Version 1.5.0 / 1.5.1 (Released)
+**Theme: Pricing Enhancements**
+
+### Completed Features
+- ✅ **Negotiated Pricing** - Auto-detect EA/MCA/CSP rates via Cost Management API
+- ✅ **Pricing Fallback** - Graceful fallback from negotiated to retail pricing
+- ✅ **Sovereign Cloud Pricing** - Correct pricing endpoints for Government/China/Germany clouds
+
+### New Parameters
+- `-ShowPricing` enhanced with negotiated rate detection
+
+---
+
+## Version 1.6.0 (Released)
+**Theme: Cloud Shell Compatibility & UX**
+
+### Completed Features
+- ✅ **Cloud Shell Support** - Fixed-width tables, terminal width detection
+- ✅ **Table Explanations** - Added how-to-read guides for all output sections
+- ✅ **Excel Legend Sheet** - Dedicated legend sheet in XLSX exports
+- ✅ **Improved Multi-Region Matrix** - Dynamic column widths, status explanations
+
+---
+
+## Version 1.7.0 (Released)
+**Theme: Code Quality & Resilience**
+
+### Developer Guardrails
+- [x] **PSScriptAnalyzer Config** - Shared linter settings for local + CI consistency
+- [x] **EditorConfig** - Enforce consistent formatting across editors
+- [x] **VS Code Settings** - Lint-on-save for anyone cloning the repo
+- [x] **Validation Script** - `tools/Validate-Script.ps1` for pre-commit checks (syntax + lint + tests + AI comment scan)
+- [x] **PR Template** - Quality checklist for every pull request
+- [x] **Copilot Instructions** - Guardrail workflow for AI-assisted development
+
+### Resilience
+- [x] **Retry Logic** - `Invoke-WithRetry` helper with exponential backoff for 429/503/transient errors
+- [x] **`-MaxRetries` Parameter** - Configurable retry count (default 3)
+- [x] **Parallel Retry** - Inline retry loop for region scanning in `-Parallel` block
+
+### Code Cleanup
+- [x] **`#region` Blocks** - Replace `# ===` banners with collapsible PowerShell regions
+- [x] **Comment Cleanup** - Remove ~30 "what" comments, keep "why" comments
+- [x] **Dead Code Removal** - Remove unused functions (`Format-FixedWidthTable`, `Get-SkuSizeAvailability`)
+- [x] **Function Organization** - Move `Format-RegionList` to helper functions section
+- [x] **Named Constants** - Replace magic numbers with descriptive variables
+
+### Testing
+- [x] **Retry Tests** - Pester tests for `Invoke-WithRetry` behavior
+- [x] **Helper Function Tests** - Tests for `Get-SkuFamily`, `Get-RestrictionDetails`, `Format-ZoneStatus`, `Test-SkuMatchesFilter`, `Get-CapValue`
+
+### Housekeeping
+- [x] **Version Sync** - Align `$ScriptVersion`, CHANGELOG, and ROADMAP
+- [x] **Fix Empty Catch** - Add `Write-Verbose` to silent catch block in image search
+- [x] **Fix Lint Warnings** - `$matches` variable shadowing, null comparison order
 
 ---
 

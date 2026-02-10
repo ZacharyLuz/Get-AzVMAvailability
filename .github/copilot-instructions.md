@@ -87,3 +87,31 @@ When making code changes to PowerShell scripts, follow these guidelines to avoid
 ### Testing Requirements
 - Run Pester tests after changes: `Invoke-Pester .\tests\*.Tests.ps1 -Output Detailed`
 - Requires Pester v5+ (install with: `Install-Module Pester -Force -SkipPublisherCheck`)
+
+## Code Quality Guardrails
+
+### Before Every Commit
+Run the validation script to catch issues before they reach GitHub:
+```powershell
+.\tools\Validate-Script.ps1
+```
+This runs four checks: syntax validation, PSScriptAnalyzer linting, Pester tests, and an AI-comment pattern scan.
+
+### Linting
+- PSScriptAnalyzer settings are in `PSScriptAnalyzerSettings.psd1` at the repo root.
+- The same settings file is used by VS Code (on-save) and CI (GitHub Actions).
+- To run manually: `Invoke-ScriptAnalyzer -Path . -Recurse -Settings PSScriptAnalyzerSettings.psd1`
+
+### Comment Standards
+- **Keep** comments that explain *why* something non-obvious is done.
+- **Remove** comments that restate what the next line of code does.
+- **Never** leave instructional comments like "Must be after", "This ensures", "Handle potential" — these are AI artifacts.
+- Use `#region`/`#endregion` for section organization, not `# ===` ASCII banners.
+
+### Constants and Magic Numbers
+- All numeric literals with non-obvious meaning must be named constants in the `#region Constants` block.
+- Example: `$HoursPerMonth = 730` instead of bare `730`.
+
+### Error Handling
+- Every `catch` block must have at least `Write-Verbose` — no silent `catch { }`.
+- API calls should use `Invoke-WithRetry` for transient error resilience (429, 503, timeouts).
