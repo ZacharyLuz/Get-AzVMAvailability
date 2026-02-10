@@ -102,7 +102,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 - [x] **PSScriptAnalyzer Config** - Shared linter settings for local + CI consistency
 - [x] **EditorConfig** - Enforce consistent formatting across editors
 - [x] **VS Code Settings** - Lint-on-save for anyone cloning the repo
-- [x] **Validation Script** - `tools/Validate-Script.ps1` for pre-commit checks (syntax + lint + tests + AI comment scan)
+- [x] **Validation Script** - `tools/Validate-Script.ps1` for pre-commit checks (syntax + lint + tests + AI comment scan + version consistency)
 - [x] **PR Template** - Quality checklist for every pull request
 - [x] **Copilot Instructions** - Guardrail workflow for AI-assisted development
 

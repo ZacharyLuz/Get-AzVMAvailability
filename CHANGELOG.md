@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Wraps Retail Pricing API, Cost Management API, and parallel region scanning calls
   - Configurable via new `-MaxRetries` parameter (default 3, range 0-10)
 - **Developer guardrails** — automated quality checks for contributors
-  - `tools/Validate-Script.ps1` — 4-check pre-commit gate (syntax, lint, tests, AI-comment scan)
+  - `tools/Validate-Script.ps1` — 5-check pre-commit gate (syntax, lint, tests, AI-comment scan, version consistency)
   - `.editorconfig` — enforced formatting (UTF-8 BOM, CRLF, 4-space indent)
   - `PSScriptAnalyzerSettings.psd1` — shared lint settings for VS Code and CI
   - `.github/PULL_REQUEST_TEMPLATE.md` — quality checklist
