@@ -115,3 +115,95 @@ This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests
 ### Error Handling
 - Every `catch` block must have at least `Write-Verbose` — no silent `catch { }`.
 - API calls should use `Invoke-WithRetry` for transient error resilience (429, 503, timeouts).
+
+## Tool Usage Guide for AI Assistants
+
+This section is for GitHub Copilot CLI, the AzVMAvailability-Agent, or any AI system
+that invokes this tool on behalf of a user making Azure VM deployment decisions.
+
+### What This Tool Does
+
+This is a **decision support tool** for Azure VM capacity planning. It answers:
+- "What VM SKUs are available in my target regions?"
+- "Is this specific SKU available, and if not, what's the closest alternative?"
+- "How does availability, quota, pricing, and image compatibility compare across regions?"
+
+The output drives real business decisions: production deployments, disaster recovery planning,
+cost optimization, and capacity reservations. Accuracy matters.
+
+### Modes of Operation
+
+| Mode | When to use | Key parameters |
+|------|-------------|----------------|
+| **Scan** (default) | User wants to see what's available | `-Region`, `-FamilyFilter`, `-SkuFilter` |
+| **Recommend** | User has a specific SKU that may be unavailable | `-Recommend`, `-TopN`, `-ShowPricing` |
+| **JSON Output** | Agent/automation needs structured data | `-JsonOutput -NoPrompt` |
+
+### Capacity Recommender — How Scoring Works
+
+When `-Recommend` is used, the tool scores every available SKU against the target using:
+
+| Factor | Points | Logic |
+|--------|--------|-------|
+| vCPU closeness | 25 | Ratio: `1 - abs(diff) / max`. |
+| Memory closeness | 25 | Same ratio formula. |
+| Family/category match | 20 | Exact family = 20. Same category (e.g., E and M are both Memory) = 15. Same first letter = 10. |
+| VM generation | 13 | Any generation overlap = 13. No overlap = 0. |
+| CPU architecture | 12 | Exact match (x64/Arm64) = 12. Mismatch = 0. |
+| Premium IO | 5 | Both support premium = 5. Target doesn't need premium = 5. Target needs but candidate lacks = 0. |
+
+**Max score: 100.** Candidates with RESTRICTED capacity are excluded entirely.
+
+**Price is NOT a scoring factor.** Price is displayed so the user can make their own cost tradeoff.
+The tool respects the user's original intent (family, size, features) rather than optimizing for cost.
+
+### SKU Naming Convention
+
+Azure VM SKU names encode the VM's purpose. Help users understand what they're asking for:
+
+```
+Standard_E64pds_v6
+  E   = Family (Memory optimized)
+  64  = vCPU count
+  p   = ARM processor (Ampere)
+  d   = Local temp disk (NVMe)
+  s   = Premium storage capable
+  v6  = Generation 6
+```
+
+Common suffixes: `a` = AMD, `d` = temp disk, `i` = isolated, `l` = low memory,
+`m` = high memory, `p` = ARM, `s` = premium storage, `t` = constrained vCPU.
+
+Family categories: **General** (B, D, DC), **Memory** (E, EC, G, M), **Compute** (F, FX),
+**GPU** (NC, ND, NG, NP, NV), **HPC** (H, HB, HC, HX), **Storage** (L), **Basic** (A).
+
+### Natural Language → Parameter Mapping
+
+When a user describes their need in natural language, map to parameters:
+
+| User says | Parameter |
+|-----------|-----------|
+| "alternative to E64pds_v6" | `-Recommend "Standard_E64pds_v6"` |
+| "at least 64 cores" | `-MinvCPU 64` |
+| "at least 256 GB memory" | `-MinMemoryGB 256` |
+| "in US regions" | `-RegionPreset USMajor` |
+| "any region" | scan multiple presets or list all regions |
+| "show cost" / "with pricing" | `-ShowPricing` |
+| "top 10 options" | `-TopN 10` |
+| "for automation" / "as JSON" | `-JsonOutput -NoPrompt` |
+| "check eastus and westus2" | `-Region "eastus","westus2"` |
+| "GPU workload" | `-FamilyFilter "NC","ND","NV"` |
+| "memory optimized" | `-FamilyFilter "E","M"` |
+
+### Important Business Context
+
+- **Capacity status is real-time** — OK now doesn't mean OK tomorrow. Advise users to act on results promptly.
+- **LIMITED ≠ unavailable** — it means some zones or configurations are constrained. The SKU may still be deployable.
+- **Quota is per-subscription** — a SKU can have OK capacity but the user may not have enough quota to deploy it.
+- **Pricing varies by agreement** — the tool auto-detects EA/MCA/CSP negotiated rates and falls back to retail. Always note which pricing source is shown.
+- **Never recommend based on stale data** — always run a fresh scan rather than relying on cached results.
+
+### Related Tools
+
+- [Get-AzAIModelAvailability](https://github.com/ZacharyLuz/Get-AzAIModelAvailability) — Companion tool for Azure AI model availability scanning
+- [AzVMAvailability-Agent](https://github.com/ZacharyLuz/AzVMAvailability-Agent) — AI-powered conversational wrapper that uses this tool via `-JsonOutput`

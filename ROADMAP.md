@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Release: v1.7.0
+## Current Release: v1.8.0
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
@@ -129,7 +129,34 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
+## Version 1.8.0 (Released)
+**Theme: Capacity Recommender**
+
+### Completed Features
+- [x] **`-Recommend` Parameter** - Find alternatives when a target SKU is unavailable
+- [x] **Similarity Scoring** - Rank available SKUs by closeness to target (vCPU, memory, family, gen, arch)
+- [x] **`-TopN` Parameter** - Control number of alternatives returned (default 5)
+- [x] **`-JsonOutput`** - Structured JSON output for Agent/automation consumption
+- [x] **Copilot CLI Examples** - Rich `.EXAMPLE` blocks for `gh copilot suggest` discoverability
+
+### Testing
+- [x] **Scoring Tests** - 16 Pester tests for `Get-SkuSimilarityScore` function
+
+---
+
 ## Future Enhancements (Backlog)
+
+### Capacity Recommender Enhancements
+- [ ] **Fleet Planning** - Distribute vCPU requirements across regions (`-FleetSize`)
+- [ ] **Workload Profiles** - Pre-tuned scoring weights for MemoryOptimized, ComputeOptimized, GPU
+- [ ] **`-AnyRegion`** - Scan all public regions automatically
+- [ ] **`-RegionGeo`** - Filter by geography (US, Europe, AsiaPacific)
+- [ ] **Agent Integration** - `find_alternatives` tool in AzVMAvailability-Agent
+
+### PowerShell Module Refactoring
+- [ ] **Module Structure** - Refactor into `AzVMAvailability` module with Public/Private functions
+- [ ] **Backward-Compatible Wrapper** - Keep `Get-AzVMAvailability.ps1` as entry point
+- [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent
 
 ### Azure Resource Graph Integration
 - [ ] **Current VM Inventory** - Show existing VMs deployed per region/SKU family
