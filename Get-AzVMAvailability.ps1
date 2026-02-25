@@ -91,6 +91,9 @@
 .PARAMETER TopN
     Number of alternative SKUs to return in Recommend mode. Default 5, max 25.
 
+.PARAMETER MinScore
+    Minimum similarity score (0-100) for recommended alternatives. Defaults to 50.
+
 .PARAMETER MinvCPU
     Minimum vCPU count for recommended alternatives. SKUs below this are excluded.
     If smaller SKUs have better availability, a suggestion note is shown.
@@ -110,7 +113,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.8.0
+    Version:        1.8.1
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -255,6 +258,10 @@ param(
     [ValidateRange(1, 25)]
     [int]$TopN = 5,
 
+    [Parameter(Mandatory = $false, HelpMessage = "Minimum similarity score (0-100) for recommended alternatives")]
+    [ValidateRange(0, 100)]
+    [int]$MinScore,
+
     [Parameter(Mandatory = $false, HelpMessage = "Minimum vCPU count for recommended alternatives")]
     [ValidateRange(1, 416)]
     [int]$MinvCPU,
@@ -279,7 +286,7 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
 }
 
 #region Configuration
-$ScriptVersion = "1.8.0"
+$ScriptVersion = "1.8.1"
 
 #region Constants
 $HoursPerMonth = 730
@@ -315,7 +322,12 @@ $FamilyInfo = @{
 $DefaultTerminalWidth = 80
 $MinTableWidth = 70
 $ExcelDescriptionColumnWidth = 70
+$MinRecommendationScoreDefault = 50
 #endregion Constants
+
+if (-not $PSBoundParameters.ContainsKey('MinScore')) {
+    $MinScore = $MinRecommendationScoreDefault
+}
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
@@ -1959,15 +1971,42 @@ if ($Recommend) {
     }
 
     # Apply minimum spec filters and separate smaller options for callout
-    $belowMinSpec = @()
+    # Use hashtable to deduplicate SKUs that fail both filters
+    $belowMinSpecDict = @{}
     $filtered = $candidates
     if ($MinvCPU) {
-        $belowMinSpec += @($filtered | Where-Object { $_.vCPU -lt $MinvCPU -and $_.Capacity -eq 'OK' })
+        $filtered | Where-Object { $_.vCPU -lt $MinvCPU -and $_.Capacity -eq 'OK' } | ForEach-Object {
+            if (-not $belowMinSpecDict.ContainsKey($_.SKU)) { $belowMinSpecDict[$_.SKU] = $_ }
+        }
         $filtered = @($filtered | Where-Object { $_.vCPU -ge $MinvCPU })
     }
     if ($MinMemoryGB) {
-        $belowMinSpec += @($filtered | Where-Object { $_.MemGiB -lt $MinMemoryGB -and $_.Capacity -eq 'OK' })
+        $filtered | Where-Object { $_.MemGiB -lt $MinMemoryGB -and $_.Capacity -eq 'OK' } | ForEach-Object {
+            if (-not $belowMinSpecDict.ContainsKey($_.SKU)) { $belowMinSpecDict[$_.SKU] = $_ }
+        }
         $filtered = @($filtered | Where-Object { $_.MemGiB -ge $MinMemoryGB })
+    }
+    $belowMinSpec = @($belowMinSpecDict.Values)
+
+    if ($null -ne $MinScore) {
+        $filtered = @($filtered | Where-Object { $_.Score -ge $MinScore })
+    }
+
+    if (-not $filtered -or $filtered.Count -eq 0) {
+        if ($JsonOutput) {
+            $jsonResult = @{
+                target             = $targetProfile
+                targetAvailability = @($targetRegionStatus)
+                minScore           = $MinScore
+                recommendations    = @()
+            }
+            $jsonResult | ConvertTo-Json -Depth 5
+            return
+        }
+
+        Write-Host "`nNo alternatives met the minimum similarity score of $MinScore%." -ForegroundColor Yellow
+        Write-Host "Try lowering -MinScore or adding -MinvCPU / -MinMemoryGB filters." -ForegroundColor DarkYellow
+        return
     }
 
     # Rank: highest score first, break ties by capacity status and zone count
@@ -2068,11 +2107,11 @@ if ($Recommend) {
 
     Write-Host ""
     Write-Host "STATUS KEY:" -ForegroundColor DarkGray
-    Write-Host "  OK       = Ready to deploy. No restrictions." -ForegroundColor Green
-    Write-Host "  CONSTRAINED = Azure is low on hardware. Try a different zone or wait." -ForegroundColor Yellow
-    Write-Host "  LIMITED  = Your subscription can't use this. Request access via support ticket." -ForegroundColor Yellow
-    Write-Host "  PARTIAL  = Some zones work, others are blocked. No zone redundancy." -ForegroundColor Yellow
-    Write-Host "  BLOCKED  = Cannot deploy. Pick a different region or SKU." -ForegroundColor Red
+    Write-Host "  OK                    = Ready to deploy. No restrictions." -ForegroundColor Green
+    Write-Host "  CAPACITY-CONSTRAINED  = Azure is low on hardware. Try a different zone or wait." -ForegroundColor Yellow
+    Write-Host "  LIMITED               = Your subscription can't use this. Request access via support ticket." -ForegroundColor Yellow
+    Write-Host "  PARTIAL               = Some zones work, others are blocked. No zone redundancy." -ForegroundColor Yellow
+    Write-Host "  BLOCKED               = Cannot deploy. Pick a different region or SKU." -ForegroundColor Red
     Write-Host ""
     return
 }

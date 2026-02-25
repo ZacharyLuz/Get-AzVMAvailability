@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Release: v1.8.0
+## Current Release: v1.8.1
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
@@ -141,6 +141,14 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ### Testing
 - [x] **Scoring Tests** - 16 Pester tests for `Get-SkuSimilarityScore` function
+
+---
+
+## Version 1.8.1 (Released)
+**Theme: Capacity Recommender Quality**
+
+### Completed Features
+- [x] **Minimum similarity threshold** - `-MinScore` parameter (default 50) filters out low-similarity SKUs
 
 ---
 

@@ -18,7 +18,7 @@ BeforeAll {
 Describe 'Get-SkuSimilarityScore' {
     Context 'Identical profiles' {
         It 'Returns 100 for identical SKU profiles' {
-            $profile = @{
+            $skuProfile = @{
                 vCPU         = 64
                 MemoryGB     = 512
                 Family       = 'E'
@@ -26,7 +26,7 @@ Describe 'Get-SkuSimilarityScore' {
                 Architecture = 'x64'
                 PremiumIO    = $true
             }
-            Get-SkuSimilarityScore -Target $profile -Candidate $profile | Should -Be 100
+            Get-SkuSimilarityScore -Target $skuProfile -Candidate $skuProfile | Should -Be 100
         }
     }
 
