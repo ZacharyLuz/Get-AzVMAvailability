@@ -86,7 +86,9 @@
     Scans specified regions, scores all available SKUs by similarity to the target
     (vCPU, memory, family category, VM generation, CPU architecture), and returns
     the closest available alternatives ranked by score.
-    Accepts full name ('Standard_E64pds_v6') or short name ('E64pds_v6').
+    Accepts full name ('Standard_E64pds_v6') or short name ('E64pds_v5').
+    Can be used with interactive drill-down mode; if not pre-specified, user is prompted
+    to enter a SKU during interactive exploration to find alternatives.
 
 .PARAMETER TopN
     Number of alternative SKUs to return in Recommend mode. Default 5, max 25.
@@ -195,6 +197,11 @@
     (https://github.com/ZacharyLuz/AzVMAvailability-Agent) which parses this output to
     provide conversational VM recommendations. Also useful for piping into other tools
     or storing scan results programmatically.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1
+    Run interactively. After exploring regions and families, you'll be prompted to optionally
+    enter recommend mode to find alternatives for a specific SKU.
 
 .LINK
     https://github.com/zacharyluz/Get-AzVMAvailability
@@ -329,6 +336,9 @@ $MinTableWidth = 70
 $ExcelDescriptionColumnWidth = 70
 $MinRecommendationScoreDefault = 50
 #endregion Constants
+# Cache for valid Azure regions (populated by Get-ValidAzureRegions)
+$script:CachedValidRegions = $null
+
 
 if (-not $PSBoundParameters.ContainsKey('MinScore')) {
     $MinScore = $MinRecommendationScoreDefault
@@ -372,21 +382,13 @@ if ($RegionPreset) {
 $SelectedFamilyFilter = $FamilyFilter
 $SelectedSkuFilter = @{}
 
-# Validate -Recommend mode conflicts
-if ($Recommend) {
-    if ($EnableDrillDown) {
-        Write-Host "ERROR: -Recommend cannot be used with -EnableDrillDown" -ForegroundColor Red
-        return
-    }
-    if ($ImageURN) {
-        Write-Host "ERROR: -Recommend cannot be used with -ImageURN" -ForegroundColor Red
-        return
-    }
-    # Normalize SKU name — add Standard_ prefix if missing
-    if ($Recommend -notmatch '^Standard_') {
-        $Recommend = "Standard_$Recommend"
-    }
+# Normalize -Recommend SKU name — add Standard_ prefix if missing
+if ($Recommend -and $Recommend -notmatch '^Standard_') {
+    $Recommend = "Standard_$Recommend"
 }
+
+# Flag to track if Recommend mode should run (may be determined interactively)
+$script:RunRecommendMode = $false
 
 # Only override environment if explicitly specified (preserve auto-detected sovereign clouds)
 if ($Environment) {
@@ -680,6 +682,85 @@ function Get-SkuFamily {
         return $matches[1]
     }
     return 'Unknown'
+}
+
+function Get-ValidAzureRegions {
+    <#
+    .SYNOPSIS
+        Returns list of valid Azure region names that support Compute, with caching.
+    .DESCRIPTION
+        Uses REST API for speed (2-3x faster than Get-AzLocation).
+        Falls back to Get-AzLocation if REST API fails.
+        Caches result at script scope to avoid repeated calls.
+    #>
+    [OutputType([string[]])]
+    param()
+
+    # Return cached result if available
+    if ($script:CachedValidRegions) {
+        Write-Verbose "Using cached region list ($($script:CachedValidRegions.Count) regions)"
+        return $script:CachedValidRegions
+    }
+
+    Write-Verbose "Fetching valid Azure regions..."
+
+    try {
+        # Get current subscription context
+        $ctx = Get-AzContext -ErrorAction Stop
+        if (-not $ctx) {
+            throw "No Azure context available"
+        }
+
+        $subId = $ctx.Subscription.Id
+        $token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop).Token
+
+        # REST API call (faster than Get-AzLocation)
+        $uri = "https://management.azure.com/subscriptions/$subId/locations?api-version=2022-12-01"
+        $headers = @{
+            'Authorization' = "Bearer $token"
+            'Content-Type'  = 'application/json'
+        }
+
+        $response = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
+        
+        # Filter to regions with valid names (exclude logical/paired regions)
+        $validRegions = $response.value | Where-Object {
+            $_.metadata.regionCategory -ne 'Other' -and
+            $_.name -match '^[a-z]+$'
+        } | Select-Object -ExpandProperty name | ForEach-Object { $_.ToLower() }
+
+        if ($validRegions.Count -eq 0) {
+            throw "REST API returned no valid regions"
+        }
+
+        Write-Verbose "Fetched $($validRegions.Count) regions via REST API"
+        $script:CachedValidRegions = @($validRegions)
+        return $script:CachedValidRegions
+    }
+    catch {
+        Write-Verbose "REST API failed: $($_.Exception.Message). Falling back to Get-AzLocation..."
+        
+        try {
+            # Fallback to Get-AzLocation (slower but more reliable)
+            $validRegions = Get-AzLocation -ErrorAction Stop | 
+                Where-Object { $_.Providers -contains 'Microsoft.Compute' } | 
+                Select-Object -ExpandProperty Location | 
+                ForEach-Object { $_.ToLower() }
+
+            if ($validRegions.Count -eq 0) {
+                throw "Get-AzLocation returned no valid regions"
+            }
+
+            Write-Verbose "Fetched $($validRegions.Count) regions via Get-AzLocation"
+            $script:CachedValidRegions = @($validRegions)
+            return $script:CachedValidRegions
+        }
+        catch {
+            Write-Warning "Failed to retrieve valid Azure regions: $($_.Exception.Message)"
+            # Return empty array to let validation fail gracefully
+            return @()
+        }
+    }
 }
 
 function Get-RestrictionReason {
@@ -1392,6 +1473,38 @@ else {
     $Regions = @($Regions | ForEach-Object { $_.ToLower() })
 }
 
+# Validate regions against Azure's available regions
+$validRegions = Get-ValidAzureRegions
+
+$invalidRegions = @()
+$validatedRegions = @()
+
+foreach ($region in $Regions) {
+    if ($validRegions -contains $region) {
+        $validatedRegions += $region
+    }
+    else {
+        $invalidRegions += $region
+    }
+}
+
+if ($invalidRegions.Count -gt 0) {
+    Write-Host "`nWARNING: Invalid or unsupported region(s) detected:" -ForegroundColor Yellow
+    foreach ($invalid in $invalidRegions) {
+        Write-Host "  $($Icons.Error) $invalid (not found or does not support Compute)" -ForegroundColor Red
+    }
+    Write-Host "`nValid regions have been retained. To see all available regions, run:" -ForegroundColor Gray
+    Write-Host "  Get-AzLocation | Where-Object { `$_.Providers -contains 'Microsoft.Compute' } | Select-Object Location, DisplayName" -ForegroundColor DarkGray
+}
+
+if ($validatedRegions.Count -eq 0) {
+    Write-Host "`nERROR: No valid regions to scan. Please specify valid Azure region names." -ForegroundColor Red
+    Write-Host "Example valid regions: eastus, westus2, centralus, westeurope, eastasia" -ForegroundColor Gray
+    exit 1
+}
+
+$Regions = $validatedRegions
+
 # Validate region count limit
 $maxRegions = 5
 if ($Regions.Count -gt $maxRegions) {
@@ -1829,7 +1942,7 @@ foreach ($subId in $TargetSubIds) {
 #endregion Data Collection
 #region Recommend Mode
 
-if ($Recommend) {
+if ($script:RunRecommendMode -and $Recommend) {
     # Build target profile from scanned data — find the target SKU in any region
     $targetSku = $null
     $targetRegionStatus = @()
@@ -2560,6 +2673,34 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 }
 
 #endregion Drill-Down (if enabled)
+#region Interactive Recommend Mode Prompt
+
+# Allow user to enter recommend mode after discovery if not in NoPrompt mode
+if (-not $NoPrompt -and -not $Recommend -and -not $script:RunRecommendMode) {
+    Write-Host "`nFind alternative SKUs for a specific VM? (y/N): " -ForegroundColor Yellow -NoNewline
+    $recommendInput = Read-Host
+    if ($recommendInput -match '^y(es)?$') {
+        Write-Host "`nEnter VM SKU name (e.g., 'Standard_D4s_v5' or 'D4s_v5'): " -ForegroundColor Cyan -NoNewline
+        $recommendSku = Read-Host
+        if ($recommendSku -and $recommendSku.Trim()) {
+            # Normalize SKU name
+            if ($recommendSku -notmatch '^Standard_') {
+                $recommendSku = "Standard_$recommendSku"
+            }
+            $Recommend = $recommendSku
+            $script:RunRecommendMode = $true
+        } else {
+            Write-Host "Skipping recommend mode (no SKU provided)." -ForegroundColor Yellow
+        }
+    }
+}
+
+# Auto-run recommend mode if -Recommend was explicitly specified
+if ($Recommend -and -not $script:RunRecommendMode) {
+    $script:RunRecommendMode = $true
+}
+
+#endregion Interactive Recommend Mode Prompt
 #region Multi-Region Matrix
 
 Write-Host "`n" -NoNewline
