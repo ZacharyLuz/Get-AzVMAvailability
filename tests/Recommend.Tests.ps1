@@ -168,8 +168,8 @@ Describe 'Get-SkuSimilarityScore' {
         }
 
         It 'Never exceeds 100' {
-            $profile = @{ vCPU = 64; MemoryGB = 512; Family = 'E'; Generation = 'V2'; Architecture = 'x64'; PremiumIO = $true }
-            Get-SkuSimilarityScore -Target $profile -Candidate $profile | Should -BeLessOrEqual 100
+            $vmProfile = @{ vCPU = 64; MemoryGB = 512; Family = 'E'; Generation = 'V2'; Architecture = 'x64'; PremiumIO = $true }
+            Get-SkuSimilarityScore -Target $vmProfile -Candidate $vmProfile | Should -BeLessOrEqual 100
         }
     }
 }
