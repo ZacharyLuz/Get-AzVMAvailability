@@ -1,7 +1,7 @@
 BeforeAll {
     # Extract Get-SkuSimilarityScore from the main script
     $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
-    $functionPattern = '(?s)function Get-SkuSimilarityScore \{.+?\n\}'
+    $functionPattern = '(?ms)function Get-SkuSimilarityScore \{.*?^\}'
     $match = [regex]::Match($scriptContent, $functionPattern)
     if (-not $match.Success) { throw "Could not find Get-SkuSimilarityScore in main script" }
     . ([scriptblock]::Create($match.Value))
