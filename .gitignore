@@ -35,6 +35,10 @@ azureauth.json
 # Dev folder (keep for local development only)
 /dev/
 
+# Demo animations (LinkedIn assets, archived locally)
+Demo_Animation.*
+backups/linkedin-assets/
+
 # GitHub configuration files (settings FOR GitHub, not part of project)
 Protect_Main_Branch.json
 **/branch-protection*.json

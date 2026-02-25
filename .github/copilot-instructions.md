@@ -115,3 +115,4 @@ This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests
 ### Error Handling
 - Every `catch` block must have at least `Write-Verbose` — no silent `catch { }`.
 - API calls should use `Invoke-WithRetry` for transient error resilience (429, 503, timeouts).
+
