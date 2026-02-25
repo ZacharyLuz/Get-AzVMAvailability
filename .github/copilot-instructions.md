@@ -46,6 +46,12 @@
 
 - Main/master branches are protected from deletion and require PRs for changes.
 
+## Release Process
+
+- **All changes to main must go through PRs** — direct pushes are blocked by repository rules.
+- **Tag and release only after PR merge** — never tag before merging.
+- For detailed workflow, see [.github/skills/release-process-guardrails/SKILL.md](.github/skills/release-process-guardrails/SKILL.md).
+
 ## Contribution & Security
 
 - See `CONTRIBUTING.md` for guidelines.
