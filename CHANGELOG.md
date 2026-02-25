@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Minimum similarity threshold** for Capacity Recommender results
   - New `-MinScore` parameter (default 50) filters out low-similarity SKUs
+- **Documentation**: clarified `-MinScore` tuning (set to 0 to show all candidates)
 
 ## [1.8.0] - 2026-02-20
 

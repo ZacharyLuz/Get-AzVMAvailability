@@ -93,6 +93,7 @@
 
 .PARAMETER MinScore
     Minimum similarity score (0-100) for recommended alternatives. Defaults to 50.
+    Set to 0 to show all candidates.
 
 .PARAMETER MinvCPU
     Minimum vCPU count for recommended alternatives. SKUs below this are excluded.
@@ -181,6 +182,10 @@
     Find alternatives to E64pds_v6 across three regions, ranked by similarity.
 
 .EXAMPLE
+    .\Get-AzVMAvailability.ps1 -Recommend "Standard_E64pds_v6" -RegionPreset USMajor -MinScore 0
+    Show all candidates regardless of similarity score (useful when capacity is constrained).
+
+.EXAMPLE
     .\Get-AzVMAvailability.ps1 -Recommend "E64pds_v6" -RegionPreset USMajor -TopN 10
     Find top 10 alternatives across major US regions (Standard_ prefix auto-added).
 
@@ -258,7 +263,7 @@ param(
     [ValidateRange(1, 25)]
     [int]$TopN = 5,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Minimum similarity score (0-100) for recommended alternatives")]
+    [Parameter(Mandatory = $false, HelpMessage = "Minimum similarity score (0-100) for recommended alternatives; set 0 to show all")]
     [ValidateRange(0, 100)]
     [int]$MinScore,
 

@@ -169,8 +169,10 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 | `-TopN`            | Int      | Number of alternatives to return in Recommend mode (default 5, max 25)                                        |
 | `-MinvCPU`         | Int      | Minimum vCPU count filter for recommended alternatives (optional)                                             |
 | `-MinMemoryGB`     | Int      | Minimum memory (GB) filter for recommended alternatives (optional)                                            |
-| `-MinScore`        | Int      | Minimum similarity score (0-100) for recommended alternatives (default 50)                                   |
+| `-MinScore`        | Int      | Minimum similarity score (0-100) for recommended alternatives; set 0 to show all (default 50)               |
 | `-JsonOutput`      | Switch   | Emit structured JSON for the [AzVMAvailability-Agent](https://github.com/ZacharyLuz/AzVMAvailability-Agent) or automation |
+
+> **Tuning tip:** Use `-MinScore 0` to see all candidates when capacity is tight, or raise it (e.g., 70) to prioritize closer matches.
 
 ## Region Presets
 
