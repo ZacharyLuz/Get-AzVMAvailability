@@ -5,7 +5,7 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.8.1-brightgreen)
+![Version](https://img.shields.io/badge/Version-1.9.0-brightgreen)
 
 ## Disclosure & Disclaimer
 
@@ -165,7 +165,7 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 | `-NoPrompt`        | Switch   | Skip interactive prompts                                                                                      |
 | `-OutputFormat`    | String   | 'Auto', 'CSV', or 'XLSX'                                                                                      |
 | `-UseAsciiIcons`   | Switch   | Force ASCII instead of Unicode icons                                                                          |
-| `-Recommend`       | String   | Find alternatives for a target SKU (e.g., 'Standard_E64pds_v6' or just 'E64pds_v6')                          |
+| `-Recommend`       | String   | Find alternatives for a target SKU. Works interactively too — prompted after scan/drill-down if not specified |
 | `-TopN`            | Int      | Number of alternatives to return in Recommend mode (default 5, max 25)                                        |
 | `-MinvCPU`         | Int      | Minimum vCPU count filter for recommended alternatives (optional)                                             |
 | `-MinMemoryGB`     | Int      | Minimum memory (GB) filter for recommended alternatives (optional)                                            |

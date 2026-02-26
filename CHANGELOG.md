@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-02-25
+
+### Added
+- **Interactive Recommend Mode** — users can now discover VMs first, then find alternatives
+  - After scanning/drill-down, prompted: *Find alternative SKUs for a specific VM? (y/N)*
+  - Enter any discovered SKU name to run the capacity recommender on-the-fly
+  - Works with `-EnableDrillDown` and `-ImageURN` (previously blocked)
+- **Region validation** — new `Get-ValidAzureRegions` helper with REST API + `Get-AzLocation` fallback
+  - Caches results per subscription for faster repeated calls
+  - Filters invalid/unsupported regions before scanning
+
+### Changed
+- `-Recommend` parameter no longer conflicts with `-EnableDrillDown` or `-ImageURN`
+- SKU name normalization (auto-adds `Standard_` prefix) works for both pre-specified and interactive inputs
+
 ## [1.8.1] - 2026-02-24
 
 ### Fixed
