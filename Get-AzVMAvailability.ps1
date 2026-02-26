@@ -86,7 +86,7 @@
     Scans specified regions, scores all available SKUs by similarity to the target
     (vCPU, memory, family category, VM generation, CPU architecture), and returns
     the closest available alternatives ranked by score.
-    Accepts full name ('Standard_E64pds_v6') or short name ('E64pds_v5').
+    Accepts full name ('Standard_E64pds_v6') or short name ('E64pds_v6').
     Can be used with interactive drill-down mode; if not pre-specified, user is prompted
     to enter a SKU during interactive exploration to find alternatives.
 
@@ -382,9 +382,12 @@ if ($RegionPreset) {
 $SelectedFamilyFilter = $FamilyFilter
 $SelectedSkuFilter = @{}
 
-# Normalize -Recommend SKU name — add Standard_ prefix if missing
-if ($Recommend -and $Recommend -notmatch '^Standard_') {
-    $Recommend = "Standard_$Recommend"
+# Normalize -Recommend SKU name — trim whitespace and add Standard_ prefix if missing
+if ($Recommend) {
+    $Recommend = $Recommend.Trim()
+    if ($Recommend -notmatch '^Standard_') {
+        $Recommend = "Standard_$Recommend"
+    }
 }
 
 # Flag to track if Recommend mode should run (may be determined interactively)
@@ -712,21 +715,28 @@ function Get-ValidAzureRegions {
         }
 
         $subId = $ctx.Subscription.Id
-        $token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop).Token
+
+        # Use environment-aware ARM URL (supports sovereign clouds)
+        $armUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
+        $armUrl = $armUrl.TrimEnd('/')
+
+        $token = (Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop).Token
 
         # REST API call (faster than Get-AzLocation)
-        $uri = "https://management.azure.com/subscriptions/$subId/locations?api-version=2022-12-01"
+        $uri = "$armUrl/subscriptions/$subId/locations?api-version=2022-12-01"
         $headers = @{
             'Authorization' = "Bearer $token"
             'Content-Type'  = 'application/json'
         }
 
-        $response = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
+        $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName 'Region list API' -ScriptBlock {
+            Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
+        }
         
         # Filter to regions with valid names (exclude logical/paired regions)
         $validRegions = $response.value | Where-Object {
             $_.metadata.regionCategory -ne 'Other' -and
-            $_.name -match '^[a-z]+$'
+            $_.name -match '^[a-z0-9]+$'
         } | Select-Object -ExpandProperty name | ForEach-Object { $_.ToLower() }
 
         if ($validRegions.Count -eq 0) {
@@ -757,8 +767,8 @@ function Get-ValidAzureRegions {
         }
         catch {
             Write-Warning "Failed to retrieve valid Azure regions: $($_.Exception.Message)"
-            # Return empty array to let validation fail gracefully
-            return @()
+            Write-Warning "Skipping region validation — proceeding with user-provided regions."
+            return $null
         }
     }
 }
@@ -1479,12 +1489,18 @@ $validRegions = Get-ValidAzureRegions
 $invalidRegions = @()
 $validatedRegions = @()
 
-foreach ($region in $Regions) {
-    if ($validRegions -contains $region) {
-        $validatedRegions += $region
-    }
-    else {
-        $invalidRegions += $region
+# If region validation failed entirely, skip filtering and use user-provided regions
+if ($null -eq $validRegions -or $validRegions.Count -eq 0) {
+    Write-Verbose "Region validation unavailable — proceeding with all specified regions"
+    $validatedRegions = $Regions
+} else {
+    foreach ($region in $Regions) {
+        if ($validRegions -contains $region) {
+            $validatedRegions += $region
+        }
+        else {
+            $invalidRegions += $region
+        }
     }
 }
 
@@ -2688,6 +2704,7 @@ if (-not $NoPrompt -and -not $Recommend -and -not $script:RunRecommendMode) {
         Write-Host "`nEnter VM SKU name (e.g., 'Standard_D4s_v5' or 'D4s_v5'): " -ForegroundColor Cyan -NoNewline
         $recommendSku = Read-Host
         if ($recommendSku -and $recommendSku.Trim()) {
+            $recommendSku = $recommendSku.Trim()
             # Normalize SKU name
             if ($recommendSku -notmatch '^Standard_') {
                 $recommendSku = "Standard_$recommendSku"
