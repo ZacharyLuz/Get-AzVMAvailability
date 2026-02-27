@@ -31,9 +31,13 @@ azureauth.json
 /output/
 /exports/
 /reports/
+/Project Review Reports/
 
 # Dev folder (keep for local development only)
 /dev/
+
+# Contrib (local experiments, not yet part of main project)
+/contrib/
 
 # Demo animations (LinkedIn assets, archived locally)
 Demo_Animation.*

@@ -390,9 +390,6 @@ if ($Recommend) {
     }
 }
 
-# Flag to track if Recommend mode should run (may be determined interactively)
-$script:RunRecommendMode = $false
-
 # Only override environment if explicitly specified (preserve auto-detected sovereign clouds)
 if ($Environment) {
     $script:TargetEnvironment = $Environment
@@ -1036,6 +1033,295 @@ function Get-SkuSimilarityScore {
     }
 
     return [math]::Min($score, 100)
+}
+
+function Invoke-RecommendMode {
+    param(
+        [Parameter(Mandatory)]
+        [string]$TargetSkuName,
+
+        [Parameter(Mandatory)]
+        [array]$SubscriptionData
+    )
+
+    $targetSku = $null
+    $targetRegionStatus = @()
+
+    foreach ($subData in $SubscriptionData) {
+        foreach ($data in $subData.RegionData) {
+            $region = Get-SafeString $data.Region
+            if ($data.Error) { continue }
+            foreach ($sku in $data.Skus) {
+                if ($sku.Name -eq $TargetSkuName) {
+                    $restrictions = Get-RestrictionDetails $sku
+                    $targetRegionStatus += [pscustomobject]@{
+                        Region   = [string]$region
+                        Status   = $restrictions.Status
+                        ZonesOK  = $restrictions.ZonesOK.Count
+                    }
+                    if (-not $targetSku) { $targetSku = $sku }
+                }
+            }
+        }
+    }
+
+    if (-not $targetSku) {
+        Write-Host "`nSKU '$TargetSkuName' was not found in any scanned region." -ForegroundColor Red
+        Write-Host "Check the SKU name and ensure the scanned regions support this SKU family." -ForegroundColor Yellow
+        return
+    }
+
+    $targetCaps = Get-SkuCapabilities -Sku $targetSku
+    $targetProfile = @{
+        Name         = $targetSku.Name
+        vCPU         = [int](Get-CapValue $targetSku 'vCPUs')
+        MemoryGB     = [int](Get-CapValue $targetSku 'MemoryGB')
+        Family       = Get-SkuFamily $targetSku.Name
+        Generation   = $targetCaps.HyperVGenerations
+        Architecture = $targetCaps.CpuArchitecture
+        PremiumIO    = (Get-CapValue $targetSku 'PremiumIO') -eq 'True'
+    }
+
+    Write-Host "`n" -NoNewline
+    Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
+    Write-Host "CAPACITY RECOMMENDER" -ForegroundColor Green
+    Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
+    Write-Host ""
+
+    # SKU name breakdown — parse suffixes for educational display
+    $targetPurpose = if ($FamilyInfo[$targetProfile.Family]) { $FamilyInfo[$targetProfile.Family].Purpose } else { 'Unknown' }
+    $skuSuffixes = @()
+    $skuBody = ($targetProfile.Name -replace '^Standard_', '') -replace '_v\d+$', ''
+    if ($skuBody -match 'a(?![\d])') { $skuSuffixes += 'a = AMD processor' }
+    if ($skuBody -match 'p(?![\d])') { $skuSuffixes += 'p = ARM processor (Ampere)' }
+    if ($skuBody -match 'd(?![\d])') { $skuSuffixes += 'd = Local temp disk (NVMe)' }
+    if ($skuBody -match 's$') { $skuSuffixes += 's = Premium storage capable' }
+    if ($skuBody -match 'i(?![\d])') { $skuSuffixes += 'i = Isolated (dedicated host)' }
+    if ($skuBody -match 'm(?![\d])') { $skuSuffixes += 'm = High memory per vCPU' }
+    if ($skuBody -match 'l(?![\d])') { $skuSuffixes += 'l = Low memory per vCPU' }
+    if ($skuBody -match 't(?![\d])') { $skuSuffixes += 't = Constrained vCPU' }
+    $genMatch = if ($targetProfile.Name -match '_v(\d+)$') { "v$($Matches[1]) = Generation $($Matches[1])" } else { $null }
+
+    Write-Host "TARGET: $($targetProfile.Name)" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Name breakdown:" -ForegroundColor DarkGray
+    Write-Host "    $($targetProfile.Family)        $targetPurpose (family)" -ForegroundColor DarkGray
+    Write-Host "    $($targetProfile.vCPU)       vCPUs" -ForegroundColor DarkGray
+    foreach ($suffix in $skuSuffixes) {
+        Write-Host "    $suffix" -ForegroundColor DarkGray
+    }
+    if ($genMatch) {
+        Write-Host "    $genMatch" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+    Write-Host "  $($targetProfile.vCPU) vCPU / $($targetProfile.MemoryGB) GiB / $($targetProfile.Architecture) / Premium IO: $(if ($targetProfile.PremiumIO) { 'Yes' } else { 'No' })" -ForegroundColor White
+    Write-Host ""
+
+    $availableRegions = @($targetRegionStatus | Where-Object { $_.Status -eq 'OK' })
+    $unavailableRegions = @($targetRegionStatus | Where-Object { $_.Status -ne 'OK' })
+
+    if ($availableRegions.Count -gt 0) {
+        Write-Host "  $($Icons.Check) Available in: $($availableRegions.ForEach({ $_.Region }) -join ', ')" -ForegroundColor Green
+    }
+    if ($unavailableRegions.Count -gt 0) {
+        foreach ($ur in $unavailableRegions) {
+            Write-Host "  $($Icons.Error) $($ur.Region): $($ur.Status)" -ForegroundColor Red
+        }
+    }
+
+    # Score all candidate SKUs across all regions
+    $candidates = @()
+    foreach ($subData in $SubscriptionData) {
+        foreach ($data in $subData.RegionData) {
+            $region = Get-SafeString $data.Region
+            if ($data.Error) { continue }
+            foreach ($sku in $data.Skus) {
+                if ($sku.Name -eq $TargetSkuName) { continue }
+
+                $restrictions = Get-RestrictionDetails $sku
+                if ($restrictions.Status -eq 'RESTRICTED') { continue }
+
+                $caps = Get-SkuCapabilities -Sku $sku
+                $candidateProfile = @{
+                    Name         = $sku.Name
+                    vCPU         = [int](Get-CapValue $sku 'vCPUs')
+                    MemoryGB     = [int](Get-CapValue $sku 'MemoryGB')
+                    Family       = Get-SkuFamily $sku.Name
+                    Generation   = $caps.HyperVGenerations
+                    Architecture = $caps.CpuArchitecture
+                    PremiumIO    = (Get-CapValue $sku 'PremiumIO') -eq 'True'
+                }
+
+                $simScore = Get-SkuSimilarityScore -Target $targetProfile -Candidate $candidateProfile
+
+                $priceHr = $null
+                $priceMo = $null
+                if ($FetchPricing -and $script:regionPricing[[string]$region]) {
+                    $regionPriceData = $script:regionPricing[[string]$region]
+                    if ($regionPriceData -is [array]) { $regionPriceData = $regionPriceData[0] }
+                    $skuPricing = $regionPriceData[$sku.Name]
+                    if ($skuPricing) {
+                        $priceHr = $skuPricing.Hourly
+                        $priceMo = $skuPricing.Monthly
+                    }
+                }
+
+                $candidates += [pscustomobject]@{
+                    SKU      = $sku.Name
+                    Region   = [string]$region
+                    vCPU     = $candidateProfile.vCPU
+                    MemGiB   = $candidateProfile.MemoryGB
+                    Family   = $candidateProfile.Family
+                    Purpose  = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
+                    Gen      = $caps.HyperVGenerations -replace 'V', '' -replace ',', ','
+                    Arch     = $candidateProfile.Architecture
+                    Score    = $simScore
+                    Capacity = $restrictions.Status
+                    ZonesOK  = $restrictions.ZonesOK.Count
+                    PriceHr  = $priceHr
+                    PriceMo  = $priceMo
+                }
+            }
+        }
+    }
+
+    # Apply minimum spec filters and separate smaller options for callout
+    $belowMinSpecDict = @{}
+    $filtered = $candidates
+    if ($MinvCPU) {
+        $filtered | Where-Object { $_.vCPU -lt $MinvCPU -and $_.Capacity -eq 'OK' } | ForEach-Object {
+            if (-not $belowMinSpecDict.ContainsKey($_.SKU)) { $belowMinSpecDict[$_.SKU] = $_ }
+        }
+        $filtered = @($filtered | Where-Object { $_.vCPU -ge $MinvCPU })
+    }
+    if ($MinMemoryGB) {
+        $filtered | Where-Object { $_.MemGiB -lt $MinMemoryGB -and $_.Capacity -eq 'OK' } | ForEach-Object {
+            if (-not $belowMinSpecDict.ContainsKey($_.SKU)) { $belowMinSpecDict[$_.SKU] = $_ }
+        }
+        $filtered = @($filtered | Where-Object { $_.MemGiB -ge $MinMemoryGB })
+    }
+    $belowMinSpec = @($belowMinSpecDict.Values)
+
+    if ($null -ne $MinScore) {
+        $filtered = @($filtered | Where-Object { $_.Score -ge $MinScore })
+    }
+
+    if (-not $filtered -or $filtered.Count -eq 0) {
+        if ($JsonOutput) {
+            @{
+                target             = $targetProfile
+                targetAvailability = @($targetRegionStatus)
+                minScore           = $MinScore
+                recommendations    = @()
+            } | ConvertTo-Json -Depth 5
+            return
+        }
+
+        Write-Host "`nNo alternatives met the minimum similarity score of $MinScore%." -ForegroundColor Yellow
+        Write-Host "Try lowering -MinScore or adding -MinvCPU / -MinMemoryGB filters." -ForegroundColor DarkYellow
+        return
+    }
+
+    $ranked = $filtered |
+        Sort-Object @{Expression = 'Score'; Descending = $true},
+                    @{Expression = { if ($_.Capacity -eq 'OK') { 0 } elseif ($_.Capacity -eq 'LIMITED') { 1 } else { 2 } }},
+                    @{Expression = 'ZonesOK'; Descending = $true} |
+        Group-Object SKU |
+        ForEach-Object { $_.Group | Select-Object -First 1 } |
+        Select-Object -First $TopN
+
+    if ($JsonOutput) {
+        $jsonResult = @{
+            target              = $targetProfile
+            targetAvailability  = @($targetRegionStatus)
+            recommendations     = @($ranked | ForEach-Object {
+                @{
+                    rank     = 0
+                    sku      = $_.SKU
+                    region   = $_.Region
+                    vCPU     = $_.vCPU
+                    memGiB   = $_.MemGiB
+                    family   = $_.Family
+                    purpose  = $_.Purpose
+                    gen      = $_.Gen
+                    arch     = $_.Arch
+                    score    = $_.Score
+                    capacity = $_.Capacity
+                    zonesOK  = $_.ZonesOK
+                    priceHr  = $_.PriceHr
+                    priceMo  = $_.PriceMo
+                }
+            })
+        }
+        for ($i = 0; $i -lt $jsonResult.recommendations.Count; $i++) {
+            $jsonResult.recommendations[$i].rank = $i + 1
+        }
+        $jsonResult | ConvertTo-Json -Depth 5
+        return
+    }
+
+    if ($ranked.Count -eq 0) {
+        Write-Host "`nNo alternatives found in the scanned regions." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "`nRECOMMENDED ALTERNATIVES (top $($ranked.Count), sorted by similarity):" -ForegroundColor Green
+    Write-Host ""
+
+    if ($FetchPricing) {
+        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-20} {7,-12} {8,-5} {9,-8} {10,-8}"
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'Type', 'Capacity', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
+        Write-Host (" " + ("-" * 118)) -ForegroundColor DarkGray
+    }
+    else {
+        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-20} {7,-12} {8,-5}"
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'Type', 'Capacity', 'Zones') -ForegroundColor White
+        Write-Host (" " + ("-" * 102)) -ForegroundColor DarkGray
+    }
+
+    $rank = 1
+    foreach ($r in $ranked) {
+        $rowColor = switch ($r.Capacity) {
+            'OK'      { 'Green' }
+            'LIMITED' { 'Yellow' }
+            default   { 'DarkYellow' }
+        }
+        if ($FetchPricing) {
+            $hrStr = if ($null -ne $r.PriceHr) { '$' + $r.PriceHr.ToString('0.00') } else { '-' }
+            $moStr = if ($null -ne $r.PriceMo) { '$' + $r.PriceMo.ToString('0') } else { '-' }
+            $line = $headerFmt -f $rank, $r.SKU, $r.Region, $r.vCPU, $r.MemGiB, "$($r.Score)%", $r.Purpose, $r.Capacity, $r.ZonesOK, $hrStr, $moStr
+        }
+        else {
+            $line = $headerFmt -f $rank, $r.SKU, $r.Region, $r.vCPU, $r.MemGiB, "$($r.Score)%", $r.Purpose, $r.Capacity, $r.ZonesOK
+        }
+        Write-Host $line -ForegroundColor $rowColor
+        $rank++
+    }
+
+    $rankedHasOK = ($ranked | Where-Object { $_.Capacity -eq 'OK' }).Count -gt 0
+    if (-not $rankedHasOK -and $belowMinSpec.Count -gt 0) {
+        $smallerOK = $belowMinSpec |
+            Sort-Object @{Expression = 'Score'; Descending = $true} |
+            Group-Object SKU |
+            ForEach-Object { $_.Group | Select-Object -First 1 } |
+            Select-Object -First 3
+        if ($smallerOK.Count -gt 0) {
+            Write-Host ""
+            Write-Host "  $($Icons.Warning) CONSIDER SMALLER (better availability, if your workload supports it):" -ForegroundColor Yellow
+            foreach ($s in $smallerOK) {
+                Write-Host "    $($s.SKU) ($($s.vCPU) vCPU / $($s.MemGiB) GiB) — $($s.Capacity) in $($s.Region)" -ForegroundColor DarkYellow
+            }
+        }
+    }
+
+    Write-Host ""
+    Write-Host "STATUS KEY:" -ForegroundColor DarkGray
+    Write-Host "  OK                    = Ready to deploy. No restrictions." -ForegroundColor Green
+    Write-Host "  CAPACITY-CONSTRAINED  = Azure is low on hardware. Try a different zone or wait." -ForegroundColor Yellow
+    Write-Host "  LIMITED               = Your subscription can't use this. Request access via support ticket." -ForegroundColor Yellow
+    Write-Host "  PARTIAL               = Some zones work, others are blocked. No zone redundancy." -ForegroundColor Yellow
+    Write-Host "  BLOCKED               = Cannot deploy. Pick a different region or SKU." -ForegroundColor Red
+    Write-Host ""
 }
 
 #endregion Helper Functions
@@ -1958,300 +2244,8 @@ foreach ($subId in $TargetSubIds) {
 #endregion Data Collection
 #region Recommend Mode
 
-# When -Recommend was specified as a parameter, activate recommend mode now
-if ($Recommend -and -not $script:RunRecommendMode) {
-    $script:RunRecommendMode = $true
-}
-
-if ($script:RunRecommendMode -and $Recommend) {
-    $script:RecommendModeCompleted = $true
-    $targetSku = $null
-    $targetRegionStatus = @()
-
-    foreach ($subData in $allSubscriptionData) {
-        foreach ($data in $subData.RegionData) {
-            $region = Get-SafeString $data.Region
-            if ($data.Error) { continue }
-            foreach ($sku in $data.Skus) {
-                if ($sku.Name -eq $Recommend) {
-                    $restrictions = Get-RestrictionDetails $sku
-                    $targetRegionStatus += [pscustomobject]@{
-                        Region   = [string]$region
-                        Status   = $restrictions.Status
-                        ZonesOK  = $restrictions.ZonesOK.Count
-                    }
-                    if (-not $targetSku) { $targetSku = $sku }
-                }
-            }
-        }
-    }
-
-    if (-not $targetSku) {
-        Write-Host "`nSKU '$Recommend' was not found in any scanned region." -ForegroundColor Red
-        Write-Host "Check the SKU name and ensure the scanned regions support this SKU family." -ForegroundColor Yellow
-        return
-    }
-
-    # Extract target profile
-    $targetCaps = Get-SkuCapabilities -Sku $targetSku
-    $targetProfile = @{
-        Name         = $targetSku.Name
-        vCPU         = [int](Get-CapValue $targetSku 'vCPUs')
-        MemoryGB     = [int](Get-CapValue $targetSku 'MemoryGB')
-        Family       = Get-SkuFamily $targetSku.Name
-        Generation   = $targetCaps.HyperVGenerations
-        Architecture = $targetCaps.CpuArchitecture
-        PremiumIO    = (Get-CapValue $targetSku 'PremiumIO') -eq 'True'
-    }
-
-    Write-Host "`n" -NoNewline
-    Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-    Write-Host "CAPACITY RECOMMENDER" -ForegroundColor Green
-    Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-    Write-Host ""
-
-    # SKU name breakdown — parse suffixes for educational display
-    $targetPurpose = if ($FamilyInfo[$targetProfile.Family]) { $FamilyInfo[$targetProfile.Family].Purpose } else { 'Unknown' }
-    $skuSuffixes = @()
-    $skuBody = ($targetProfile.Name -replace '^Standard_', '') -replace '_v\d+$', ''
-    if ($skuBody -match 'a(?![\d])') { $skuSuffixes += 'a = AMD processor' }
-    if ($skuBody -match 'p(?![\d])') { $skuSuffixes += 'p = ARM processor (Ampere)' }
-    if ($skuBody -match 'd(?![\d])') { $skuSuffixes += 'd = Local temp disk (NVMe)' }
-    if ($skuBody -match 's$') { $skuSuffixes += 's = Premium storage capable' }
-    if ($skuBody -match 'i(?![\d])') { $skuSuffixes += 'i = Isolated (dedicated host)' }
-    if ($skuBody -match 'm(?![\d])') { $skuSuffixes += 'm = High memory per vCPU' }
-    if ($skuBody -match 'l(?![\d])') { $skuSuffixes += 'l = Low memory per vCPU' }
-    if ($skuBody -match 't(?![\d])') { $skuSuffixes += 't = Constrained vCPU' }
-    $genMatch = if ($targetProfile.Name -match '_v(\d+)$') { "v$($Matches[1]) = Generation $($Matches[1])" } else { $null }
-
-    Write-Host "TARGET: $($targetProfile.Name)" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  Name breakdown:" -ForegroundColor DarkGray
-    Write-Host "    $($targetProfile.Family)        $targetPurpose (family)" -ForegroundColor DarkGray
-    Write-Host "    $($targetProfile.vCPU)       vCPUs" -ForegroundColor DarkGray
-    foreach ($suffix in $skuSuffixes) {
-        Write-Host "    $suffix" -ForegroundColor DarkGray
-    }
-    if ($genMatch) {
-        Write-Host "    $genMatch" -ForegroundColor DarkGray
-    }
-    Write-Host ""
-    Write-Host "  $($targetProfile.vCPU) vCPU / $($targetProfile.MemoryGB) GiB / $($targetProfile.Architecture) / Premium IO: $(if ($targetProfile.PremiumIO) { 'Yes' } else { 'No' })" -ForegroundColor White
-    Write-Host ""
-
-    # Show target availability per region
-    $availableRegions = @($targetRegionStatus | Where-Object { $_.Status -eq 'OK' })
-    $unavailableRegions = @($targetRegionStatus | Where-Object { $_.Status -ne 'OK' })
-
-    if ($availableRegions.Count -gt 0) {
-        Write-Host "  $($Icons.Check) Available in: $($availableRegions.ForEach({ $_.Region }) -join ', ')" -ForegroundColor Green
-    }
-    if ($unavailableRegions.Count -gt 0) {
-        foreach ($ur in $unavailableRegions) {
-            Write-Host "  $($Icons.Error) $($ur.Region): $($ur.Status)" -ForegroundColor Red
-        }
-    }
-
-    # Score all candidate SKUs across all regions
-    $candidates = @()
-    foreach ($subData in $allSubscriptionData) {
-        foreach ($data in $subData.RegionData) {
-            $region = Get-SafeString $data.Region
-            if ($data.Error) { continue }
-            foreach ($sku in $data.Skus) {
-                if ($sku.Name -eq $Recommend) { continue }
-
-                $restrictions = Get-RestrictionDetails $sku
-                if ($restrictions.Status -eq 'RESTRICTED') { continue }
-
-                $caps = Get-SkuCapabilities -Sku $sku
-                $candidateProfile = @{
-                    Name         = $sku.Name
-                    vCPU         = [int](Get-CapValue $sku 'vCPUs')
-                    MemoryGB     = [int](Get-CapValue $sku 'MemoryGB')
-                    Family       = Get-SkuFamily $sku.Name
-                    Generation   = $caps.HyperVGenerations
-                    Architecture = $caps.CpuArchitecture
-                    PremiumIO    = (Get-CapValue $sku 'PremiumIO') -eq 'True'
-                }
-
-                $simScore = Get-SkuSimilarityScore -Target $targetProfile -Candidate $candidateProfile
-
-                # Look up pricing if available
-                $priceHr = $null
-                $priceMo = $null
-                if ($FetchPricing -and $script:regionPricing[[string]$region]) {
-                    $regionPriceData = $script:regionPricing[[string]$region]
-                    if ($regionPriceData -is [array]) { $regionPriceData = $regionPriceData[0] }
-                    $skuPricing = $regionPriceData[$sku.Name]
-                    if ($skuPricing) {
-                        $priceHr = $skuPricing.Hourly
-                        $priceMo = $skuPricing.Monthly
-                    }
-                }
-
-                $candidates += [pscustomobject]@{
-                    SKU      = $sku.Name
-                    Region   = [string]$region
-                    vCPU     = $candidateProfile.vCPU
-                    MemGiB   = $candidateProfile.MemoryGB
-                    Family   = $candidateProfile.Family
-                    Purpose  = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
-                    Gen      = $caps.HyperVGenerations -replace 'V', '' -replace ',', ','
-                    Arch     = $candidateProfile.Architecture
-                    Score    = $simScore
-                    Capacity = $restrictions.Status
-                    ZonesOK  = $restrictions.ZonesOK.Count
-                    PriceHr  = $priceHr
-                    PriceMo  = $priceMo
-                }
-            }
-        }
-    }
-
-    # Apply minimum spec filters and separate smaller options for callout
-    # Use hashtable to deduplicate SKUs that fail both filters
-    $belowMinSpecDict = @{}
-    $filtered = $candidates
-    if ($MinvCPU) {
-        $filtered | Where-Object { $_.vCPU -lt $MinvCPU -and $_.Capacity -eq 'OK' } | ForEach-Object {
-            if (-not $belowMinSpecDict.ContainsKey($_.SKU)) { $belowMinSpecDict[$_.SKU] = $_ }
-        }
-        $filtered = @($filtered | Where-Object { $_.vCPU -ge $MinvCPU })
-    }
-    if ($MinMemoryGB) {
-        $filtered | Where-Object { $_.MemGiB -lt $MinMemoryGB -and $_.Capacity -eq 'OK' } | ForEach-Object {
-            if (-not $belowMinSpecDict.ContainsKey($_.SKU)) { $belowMinSpecDict[$_.SKU] = $_ }
-        }
-        $filtered = @($filtered | Where-Object { $_.MemGiB -ge $MinMemoryGB })
-    }
-    $belowMinSpec = @($belowMinSpecDict.Values)
-
-    if ($null -ne $MinScore) {
-        $filtered = @($filtered | Where-Object { $_.Score -ge $MinScore })
-    }
-
-    if (-not $filtered -or $filtered.Count -eq 0) {
-        if ($JsonOutput) {
-            $jsonResult = @{
-                target             = $targetProfile
-                targetAvailability = @($targetRegionStatus)
-                minScore           = $MinScore
-                recommendations    = @()
-            }
-            $jsonResult | ConvertTo-Json -Depth 5
-            return
-        }
-
-        Write-Host "`nNo alternatives met the minimum similarity score of $MinScore%." -ForegroundColor Yellow
-        Write-Host "Try lowering -MinScore or adding -MinvCPU / -MinMemoryGB filters." -ForegroundColor DarkYellow
-        return
-    }
-
-    # Rank: highest score first, break ties by capacity status and zone count
-    $ranked = $filtered |
-        Sort-Object @{Expression = 'Score'; Descending = $true},
-                    @{Expression = { if ($_.Capacity -eq 'OK') { 0 } elseif ($_.Capacity -eq 'LIMITED') { 1 } else { 2 } }},
-                    @{Expression = 'ZonesOK'; Descending = $true} |
-        Group-Object SKU |
-        ForEach-Object { $_.Group | Select-Object -First 1 } |
-        Select-Object -First $TopN
-
-    if ($JsonOutput) {
-        $jsonResult = @{
-            target              = $targetProfile
-            targetAvailability  = @($targetRegionStatus)
-            recommendations     = @($ranked | ForEach-Object {
-                @{
-                    rank     = 0
-                    sku      = $_.SKU
-                    region   = $_.Region
-                    vCPU     = $_.vCPU
-                    memGiB   = $_.MemGiB
-                    family   = $_.Family
-                    purpose  = $_.Purpose
-                    gen      = $_.Gen
-                    arch     = $_.Arch
-                    score    = $_.Score
-                    capacity = $_.Capacity
-                    zonesOK  = $_.ZonesOK
-                    priceHr  = $_.PriceHr
-                    priceMo  = $_.PriceMo
-                }
-            })
-        }
-        # Number the ranks
-        for ($i = 0; $i -lt $jsonResult.recommendations.Count; $i++) {
-            $jsonResult.recommendations[$i].rank = $i + 1
-        }
-        $jsonResult | ConvertTo-Json -Depth 5
-        return
-    }
-
-    # Console output — adjust columns based on whether pricing is available
-    if ($ranked.Count -eq 0) {
-        Write-Host "`nNo alternatives found in the scanned regions." -ForegroundColor Yellow
-        return
-    }
-
-    Write-Host "`nRECOMMENDED ALTERNATIVES (top $($ranked.Count), sorted by similarity):" -ForegroundColor Green
-    Write-Host ""
-
-    if ($FetchPricing) {
-        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-20} {7,-12} {8,-5} {9,-8} {10,-8}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'Type', 'Capacity', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
-        Write-Host (" " + ("-" * 118)) -ForegroundColor DarkGray
-    }
-    else {
-        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-20} {7,-12} {8,-5}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'Type', 'Capacity', 'Zones') -ForegroundColor White
-        Write-Host (" " + ("-" * 102)) -ForegroundColor DarkGray
-    }
-
-    $rank = 1
-    foreach ($r in $ranked) {
-        $rowColor = switch ($r.Capacity) {
-            'OK'      { 'Green' }
-            'LIMITED' { 'Yellow' }
-            default   { 'DarkYellow' }
-        }
-        if ($FetchPricing) {
-            $hrStr = if ($null -ne $r.PriceHr) { '$' + $r.PriceHr.ToString('0.00') } else { '-' }
-            $moStr = if ($null -ne $r.PriceMo) { '$' + $r.PriceMo.ToString('0') } else { '-' }
-            $line = $headerFmt -f $rank, $r.SKU, $r.Region, $r.vCPU, $r.MemGiB, "$($r.Score)%", $r.Purpose, $r.Capacity, $r.ZonesOK, $hrStr, $moStr
-        }
-        else {
-            $line = $headerFmt -f $rank, $r.SKU, $r.Region, $r.vCPU, $r.MemGiB, "$($r.Score)%", $r.Purpose, $r.Capacity, $r.ZonesOK
-        }
-        Write-Host $line -ForegroundColor $rowColor
-        $rank++
-    }
-
-    # "Consider smaller" callout — only when filtered results lack OK capacity but smaller SKUs have it
-    $rankedHasOK = ($ranked | Where-Object { $_.Capacity -eq 'OK' }).Count -gt 0
-    if (-not $rankedHasOK -and $belowMinSpec.Count -gt 0) {
-        $smallerOK = $belowMinSpec |
-            Sort-Object @{Expression = 'Score'; Descending = $true} |
-            Group-Object SKU |
-            ForEach-Object { $_.Group | Select-Object -First 1 } |
-            Select-Object -First 3
-        if ($smallerOK.Count -gt 0) {
-            Write-Host ""
-            Write-Host "  $($Icons.Warning) CONSIDER SMALLER (better availability, if your workload supports it):" -ForegroundColor Yellow
-            foreach ($s in $smallerOK) {
-                Write-Host "    $($s.SKU) ($($s.vCPU) vCPU / $($s.MemGiB) GiB) — $($s.Capacity) in $($s.Region)" -ForegroundColor DarkYellow
-            }
-        }
-    }
-
-    Write-Host ""
-    Write-Host "STATUS KEY:" -ForegroundColor DarkGray
-    Write-Host "  OK                    = Ready to deploy. No restrictions." -ForegroundColor Green
-    Write-Host "  CAPACITY-CONSTRAINED  = Azure is low on hardware. Try a different zone or wait." -ForegroundColor Yellow
-    Write-Host "  LIMITED               = Your subscription can't use this. Request access via support ticket." -ForegroundColor Yellow
-    Write-Host "  PARTIAL               = Some zones work, others are blocked. No zone redundancy." -ForegroundColor Yellow
-    Write-Host "  BLOCKED               = Cannot deploy. Pick a different region or SKU." -ForegroundColor Red
-    Write-Host ""
+if ($Recommend) {
+    Invoke-RecommendMode -TargetSkuName $Recommend -SubscriptionData $allSubscriptionData
     return
 }
 
@@ -2696,8 +2690,7 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 #endregion Drill-Down (if enabled)
 #region Interactive Recommend Mode Prompt
 
-# Allow user to enter recommend mode after discovery if not in NoPrompt mode
-if (-not $NoPrompt -and -not $Recommend -and -not $script:RunRecommendMode) {
+if (-not $NoPrompt -and -not $Recommend) {
     Write-Host "`nFind alternative SKUs for a specific VM? (y/N): " -ForegroundColor Yellow -NoNewline
     $recommendInput = Read-Host
     if ($recommendInput -match '^y(es)?$') {
@@ -2705,149 +2698,13 @@ if (-not $NoPrompt -and -not $Recommend -and -not $script:RunRecommendMode) {
         $recommendSku = Read-Host
         if ($recommendSku -and $recommendSku.Trim()) {
             $recommendSku = $recommendSku.Trim()
-            # Normalize SKU name
             if ($recommendSku -notmatch '^Standard_') {
                 $recommendSku = "Standard_$recommendSku"
             }
-            $Recommend = $recommendSku
-            $script:RunRecommendMode = $true
+            Invoke-RecommendMode -TargetSkuName $recommendSku -SubscriptionData $allSubscriptionData
         } else {
             Write-Host "Skipping recommend mode (no SKU provided)." -ForegroundColor Yellow
         }
-    }
-}
-
-# Auto-run recommend mode if -Recommend was explicitly specified
-if ($Recommend -and -not $script:RunRecommendMode) {
-    $script:RunRecommendMode = $true
-}
-
-# Execute recommend mode if activated interactively (pre-specified runs earlier)
-if ($script:RunRecommendMode -and $Recommend -and -not $script:RecommendModeCompleted) {
-    $script:RecommendModeCompleted = $true
-
-    # Build target profile from scanned data
-    $targetSku = $null
-    $targetRegionStatus = @()
-
-    foreach ($subData in $allSubscriptionData) {
-        foreach ($data in $subData.RegionData) {
-            $region = Get-SafeString $data.Region
-            if ($data.Error) { continue }
-            foreach ($sku in $data.Skus) {
-                if ($sku.Name -eq $Recommend) {
-                    $restrictions = Get-RestrictionDetails $sku
-                    $targetRegionStatus += [pscustomobject]@{
-                        Region   = [string]$region
-                        Status   = $restrictions.Status
-                        ZonesOK  = $restrictions.ZonesOK.Count
-                    }
-                    if (-not $targetSku) { $targetSku = $sku }
-                }
-            }
-        }
-    }
-
-    if ($targetSku) {
-        # Reuse the recommend display logic via a flag — the Recommend Mode region handles output
-        # For interactive mode, we need to re-enter recommend processing
-        $targetCaps = Get-SkuCapabilities -Sku $targetSku
-        $targetProfile = @{
-            Name         = $targetSku.Name
-            vCPU         = [int](Get-CapValue $targetSku 'vCPUs')
-            MemoryGB     = [int](Get-CapValue $targetSku 'MemoryGB')
-            Family       = Get-SkuFamily $targetSku.Name
-            Generation   = $targetCaps.HyperVGenerations
-            Architecture = $targetCaps.CpuArchitecture
-            PremiumIO    = (Get-CapValue $targetSku 'PremiumIO') -eq 'True'
-        }
-
-        Write-Host "`n" -NoNewline
-        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-        Write-Host "CAPACITY RECOMMENDER" -ForegroundColor Green
-        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-        Write-Host ""
-
-        $targetPurpose = if ($FamilyInfo[$targetProfile.Family]) { $FamilyInfo[$targetProfile.Family].Purpose } else { 'Unknown' }
-        Write-Host "TARGET: $($targetProfile.Name)" -ForegroundColor Cyan
-        Write-Host "  $($targetProfile.vCPU) vCPU / $($targetProfile.MemoryGB) GiB / $($targetProfile.Architecture) / Premium IO: $(if ($targetProfile.PremiumIO) { 'Yes' } else { 'No' })" -ForegroundColor White
-        Write-Host ""
-
-        $availableRegions = @($targetRegionStatus | Where-Object { $_.Status -eq 'OK' })
-        $unavailableRegions = @($targetRegionStatus | Where-Object { $_.Status -ne 'OK' })
-        if ($availableRegions.Count -gt 0) {
-            Write-Host "  $($Icons.Check) Available in: $($availableRegions.ForEach({ $_.Region }) -join ', ')" -ForegroundColor Green
-        }
-        if ($unavailableRegions.Count -gt 0) {
-            foreach ($ur in $unavailableRegions) {
-                Write-Host "  $($Icons.Error) $($ur.Region): $($ur.Status)" -ForegroundColor Red
-            }
-        }
-
-        # Score candidates
-        $candidates = @()
-        foreach ($subData in $allSubscriptionData) {
-            foreach ($data in $subData.RegionData) {
-                $region = Get-SafeString $data.Region
-                if ($data.Error) { continue }
-                foreach ($sku in $data.Skus) {
-                    if ($sku.Name -eq $Recommend) { continue }
-                    $restrictions = Get-RestrictionDetails $sku
-                    if ($restrictions.Status -eq 'RESTRICTED') { continue }
-                    $caps = Get-SkuCapabilities -Sku $sku
-                    $candidateProfile = @{
-                        Name         = $sku.Name
-                        vCPU         = [int](Get-CapValue $sku 'vCPUs')
-                        MemoryGB     = [int](Get-CapValue $sku 'MemoryGB')
-                        Family       = Get-SkuFamily $sku.Name
-                        Generation   = $caps.HyperVGenerations
-                        Architecture = $caps.CpuArchitecture
-                        PremiumIO    = (Get-CapValue $sku 'PremiumIO') -eq 'True'
-                    }
-                    $simScore = Get-SkuSimilarityScore -Target $targetProfile -Candidate $candidateProfile
-                    $candidates += [pscustomobject]@{
-                        SKU      = $sku.Name
-                        Region   = [string]$region
-                        vCPU     = $candidateProfile.vCPU
-                        MemGiB   = $candidateProfile.MemoryGB
-                        Family   = $candidateProfile.Family
-                        Purpose  = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
-                        Score    = $simScore
-                        Capacity = $restrictions.Status
-                        ZonesOK  = $restrictions.ZonesOK.Count
-                    }
-                }
-            }
-        }
-
-        $filtered = @($candidates | Where-Object { $_.Score -ge $MinScore })
-        $ranked = $filtered |
-            Sort-Object @{Expression = 'Score'; Descending = $true},
-                        @{Expression = { if ($_.Capacity -eq 'OK') { 0 } elseif ($_.Capacity -eq 'LIMITED') { 1 } else { 2 } }},
-                        @{Expression = 'ZonesOK'; Descending = $true} |
-            Group-Object SKU |
-            ForEach-Object { $_.Group | Select-Object -First 1 } |
-            Select-Object -First $TopN
-
-        if ($ranked.Count -gt 0) {
-            Write-Host "`nRECOMMENDED ALTERNATIVES (top $($ranked.Count), sorted by similarity):" -ForegroundColor Green
-            Write-Host ""
-            $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-20} {7,-12} {8,-5}"
-            Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'Type', 'Capacity', 'Zones') -ForegroundColor White
-            Write-Host (" " + ("-" * 102)) -ForegroundColor DarkGray
-            $rank = 1
-            foreach ($r in $ranked) {
-                $rowColor = switch ($r.Capacity) { 'OK' { 'Green' }; 'LIMITED' { 'Yellow' }; default { 'DarkYellow' } }
-                Write-Host ($headerFmt -f $rank, $r.SKU, $r.Region, $r.vCPU, $r.MemGiB, "$($r.Score)%", $r.Purpose, $r.Capacity, $r.ZonesOK) -ForegroundColor $rowColor
-                $rank++
-            }
-        } else {
-            Write-Host "`nNo alternatives met the minimum similarity score of $MinScore%." -ForegroundColor Yellow
-        }
-        Write-Host ""
-    } else {
-        Write-Host "`nSKU '$Recommend' was not found in any scanned region." -ForegroundColor Red
-        Write-Host "Check the SKU name and ensure the scanned regions support this SKU family." -ForegroundColor Yellow
     }
 }
 
