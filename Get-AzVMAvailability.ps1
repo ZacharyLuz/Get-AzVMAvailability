@@ -111,6 +111,11 @@
     provide conversational VM recommendations via natural language. Also useful for
     piping results into other tools or storing scan results programmatically.
 
+.PARAMETER SkipRegionValidation
+    Skip validation of region names against Azure region metadata.
+    By default, non-interactive mode fails closed when region validation is unavailable
+    to prevent scans against mistyped or unsupported regions.
+
 .NOTES
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
@@ -286,7 +291,10 @@ param(
     [switch]$JsonOutput,
 
     [Parameter(Mandatory = $false, HelpMessage = "Allow mixed CPU architectures (x64/ARM64) in recommendations (default: filter to target arch)")]
-    [switch]$AllowMixedArch
+    [switch]$AllowMixedArch,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Skip validation of region names against Azure metadata")]
+    [switch]$SkipRegionValidation
 )
 
 $ErrorActionPreference = 'Continue'
@@ -1876,14 +1884,24 @@ else {
 }
 
 # Validate regions against Azure's available regions
-$validRegions = Get-ValidAzureRegions
+$validRegions = if ($SkipRegionValidation) { $null } else { Get-ValidAzureRegions }
 
 $invalidRegions = @()
 $validatedRegions = @()
 
-# If region validation failed entirely, skip filtering and use user-provided regions
-if ($null -eq $validRegions -or $validRegions.Count -eq 0) {
-    Write-Verbose "Region validation unavailable — proceeding with all specified regions"
+# If region validation is skipped or failed entirely
+if ($SkipRegionValidation) {
+    Write-Warning "Region validation explicitly skipped via -SkipRegionValidation."
+    $validatedRegions = $Regions
+}
+elseif ($null -eq $validRegions -or $validRegions.Count -eq 0) {
+    if ($NoPrompt) {
+        Write-Host "`nERROR: Region validation is unavailable in -NoPrompt mode." -ForegroundColor Red
+        Write-Host "Use valid regions when connectivity is restored, or explicitly set -SkipRegionValidation to override." -ForegroundColor Yellow
+        exit 1
+    }
+
+    Write-Warning "Region validation unavailable — proceeding with user-provided regions in interactive mode."
     $validatedRegions = $Regions
 }
 else {
