@@ -4,11 +4,11 @@
 - [x] E0.1 Pull PR #20 Copilot reviews/comments before additional remediation work
 - [x] E0.2 Evaluate each Copilot comment for agreement before remediating
 - [x] E0.3 Commit PR #20 comment remediations as an incremental checkpoint
-- [ ] E0.4 Push branch and verify PR #20 reflects remediations
+- [x] E0.4 Push branch and verify PR #20 reflects remediations
 - [x] E0.5 Implement P2.1 remove global `$ErrorActionPreference = 'Continue'`
 - [ ] E0.6 Implement P2.4/P2.5 Az context isolation + restoration tests
 - [x] E0.7 Run analyzer/tests/validation with output logged to files and summarize results
-- [ ] E0.8 Update tracker checkboxes and progress notes after each incremental commit
+- [x] E0.8 Update tracker checkboxes and progress notes after each incremental commit
 
 ### Execution Constraints
 - No deletes for remediation artifacts; use backup/archive or safe moves when cleanup is needed.
@@ -57,4 +57,4 @@
 - [x] Analyzer passes
 - [x] Tests pass
 - [x] Validation script passes
-- [ ] No accidental junk files staged
+- [x] No accidental junk files staged
