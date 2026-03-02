@@ -19,7 +19,7 @@ BeforeAll {
 
     foreach ($funcName in $functionNames) {
         if ($scriptContent -match "(?s)(function $funcName \{.+?\n\})") {
-            Invoke-Expression $matches[1]
+            . ([scriptblock]::Create($matches[1]))
         }
         else {
             Write-Warning "Could not find $funcName function in script"

@@ -13,7 +13,7 @@ BeforeAll {
 
     foreach ($funcName in $functionNames) {
         if ($scriptContent -match "(?s)(function $funcName \{.+?\n\})") {
-            Invoke-Expression $matches[1]
+            . ([scriptblock]::Create($matches[1]))
         }
         else {
             Write-Warning "Could not find $funcName function in script"
@@ -161,7 +161,7 @@ Describe "Get-ValidAzureRegions" {
             Mock Get-AzContext { [PSCustomObject]@{ Subscription = @{ Id = '00000000-0000-0000-0000-000000000000' } } }
             Mock Get-AzAccessToken { [PSCustomObject]@{ Token = 'mock-token' } }
             Mock Invoke-RestMethod {
-                param($Uri) 
+                param($Uri)
                 $Uri | Should -Match 'chinacloudapi'
                 @{ value = @(@{ name = 'chinaeast'; metadata = @{ regionCategory = 'Recommended' } }) }
             }

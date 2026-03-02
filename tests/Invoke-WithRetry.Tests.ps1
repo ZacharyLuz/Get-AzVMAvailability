@@ -6,7 +6,7 @@ BeforeAll {
     $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
 
     if ($scriptContent -match '(?s)(function Invoke-WithRetry \{.+?\n\})') {
-        Invoke-Expression $matches[1]
+        . ([scriptblock]::Create($matches[1]))
     }
     else {
         throw "Could not find Invoke-WithRetry function in script"

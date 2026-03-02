@@ -9,7 +9,7 @@ BeforeAll {
 
     # Extract Get-AzureEndpoints function using regex
     if ($scriptContent -match '(?s)(function Get-AzureEndpoints \{.+?\n\})') {
-        Invoke-Expression $matches[1]
+        . ([scriptblock]::Create($matches[1]))
     }
     else {
         throw "Could not find Get-AzureEndpoints function in script"
