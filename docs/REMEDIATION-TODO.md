@@ -3,11 +3,11 @@
 ## Active Execution Tracker (from 2026-03-01)
 - [x] E0.1 Pull PR #20 Copilot reviews/comments before additional remediation work
 - [x] E0.2 Evaluate each Copilot comment for agreement before remediating
-- [ ] E0.3 Commit PR #20 comment remediations as an incremental checkpoint
+- [x] E0.3 Commit PR #20 comment remediations as an incremental checkpoint
 - [ ] E0.4 Push branch and verify PR #20 reflects remediations
-- [ ] E0.5 Implement P2.1 remove global `$ErrorActionPreference = 'Continue'`
+- [x] E0.5 Implement P2.1 remove global `$ErrorActionPreference = 'Continue'`
 - [ ] E0.6 Implement P2.4/P2.5 Az context isolation + restoration tests
-- [ ] E0.7 Run analyzer/tests/validation with output logged to files and summarize results
+- [x] E0.7 Run analyzer/tests/validation with output logged to files and summarize results
 - [ ] E0.8 Update tracker checkboxes and progress notes after each incremental commit
 
 ### Execution Constraints
@@ -19,7 +19,7 @@
 - [x] P0.1 Fix README version badge drift to 1.10.0
 - [x] P0.2 Remove broad `PSReviewUnusedParameter` suppression and triage findings
 - [ ] P0.3 Add/adjust contract tests for recommend JSON + critical behaviors
-- [ ] P0.4 Run analyzer/tests/validation script and capture pass
+- [x] P0.4 Run analyzer/tests/validation script and capture pass
 
 ## Phase 1 — Security & Unsafe Patterns
 - [x] P1.1 Remove `Invoke-Expression` usage from repo tests
@@ -27,7 +27,7 @@
 - [x] P1.3 Verify no dynamic eval remains in this repo
 
 ## Phase 2 — Reliability & Operational Safety
-- [ ] P2.1 Remove global `$ErrorActionPreference = 'Continue'`
+- [x] P2.1 Remove global `$ErrorActionPreference = 'Continue'`
 - [x] P2.2 Implement fail-closed region validation in non-interactive mode
 - [x] P2.3 Add explicit override switch for region validation bypass
 - [ ] P2.4 Isolate/restore Az context around subscription switching
@@ -54,7 +54,7 @@
 - [ ] P5.7 Add migration notes in docs
 
 ## Global Gates (every phase)
-- [ ] Analyzer passes
-- [ ] Tests pass
-- [ ] Validation script passes
+- [x] Analyzer passes
+- [x] Tests pass
+- [x] Validation script passes
 - [ ] No accidental junk files staged

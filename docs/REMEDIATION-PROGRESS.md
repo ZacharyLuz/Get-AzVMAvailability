@@ -14,13 +14,20 @@ PR: #20
 
 ## PR #20 Copilot Comment Triage
 
-| Comment | Decision | Disposition |
-|---|---|---|
-| Warning message conflict in `Get-ValidAzureRegions` vs fail-closed caller behavior | Agree | Updated warning text to neutral wording: `Region validation metadata is unavailable.` |
-| Completed checklist items still unchecked in `docs/REMEDIATION-TODO.md` | Agree | Marked completed items checked (`P0.1`, `P0.2`, `P1.1`, `P1.3`, `P2.2`, `P2.3`, `P3.1`, `P3.2`) |
-| Changelog `[Unreleased]` ambiguity while script version remains `1.10.0` | Agree | Moved remediation entries into `[1.10.0]` changed section |
-| Minor hashtable alignment inconsistency in candidate object construction | Agree | Aligned `Arch`, `CPU`, `Disk` spacing with surrounding hashtable style |
+| Comment                                                                            | Decision | Disposition                                                                                     |
+| ---------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| Warning message conflict in `Get-ValidAzureRegions` vs fail-closed caller behavior | Agree    | Updated warning text to neutral wording: `Region validation metadata is unavailable.`           |
+| Completed checklist items still unchecked in `docs/REMEDIATION-TODO.md`            | Agree    | Marked completed items checked (`P0.1`, `P0.2`, `P1.1`, `P1.3`, `P2.2`, `P2.3`, `P3.1`, `P3.2`) |
+| Changelog `[Unreleased]` ambiguity while script version remains `1.10.0`           | Agree    | Moved remediation entries into `[1.10.0]` changed section                                       |
+| Minor hashtable alignment inconsistency in candidate object construction           | Agree    | Aligned `Arch`, `CPU`, `Disk` spacing with surrounding hashtable style                          |
 
 ## Incremental Execution Log
 - 2026-03-01: Pulled PR #20 Copilot review + inline comments and documented triage/disposition.
 - 2026-03-01: Prepared remediation updates for warning clarity, tracker accuracy, changelog consistency, and style alignment.
+- 2026-03-01: Committed PR #20 triage and tracker checkpoint (`a64413c`).
+- 2026-03-01: Re-pulled PR #20 comments before new work (no new comments).
+- 2026-03-01: Completed P2.1 by removing global `$ErrorActionPreference = 'Continue'` assignment.
+- 2026-03-01: Validation evidence captured in logs:
+	- `tools/logs/analyzer-20260301-230154.log`
+	- `tools/logs/pester-20260301-230154.log`
+	- `tools/logs/validate-20260301-230154.log` (`ALL CHECKS PASSED`)

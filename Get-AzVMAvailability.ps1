@@ -297,7 +297,6 @@ param(
     [switch]$SkipRegionValidation
 )
 
-$ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
 
 # Normalize string[] params — pwsh -File passes comma-delimited values as a single string
@@ -1224,16 +1223,16 @@ function Invoke-RecommendMode {
                 }
 
                 $candidates.Add([pscustomobject]@{
-                        SKU     = $sku.Name
-                        Region  = [string]$region
-                        vCPU    = $candidateProfile.vCPU
-                        MemGiB  = $candidateProfile.MemoryGB
-                        Family  = $candidateProfile.Family
-                        Purpose = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
-                        Gen     = $caps.HyperVGenerations -replace 'V', '' -replace ',', ','
-                        Arch    = $candidateProfile.Architecture
-                        CPU     = $candidateProcessor
-                        Disk    = $candidateDiskCode
+                        SKU      = $sku.Name
+                        Region   = [string]$region
+                        vCPU     = $candidateProfile.vCPU
+                        MemGiB   = $candidateProfile.MemoryGB
+                        Family   = $candidateProfile.Family
+                        Purpose  = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
+                        Gen      = (($caps.HyperVGenerations -replace 'V', '') -replace ',', ',')
+                        Arch     = $candidateProfile.Architecture
+                        CPU      = $candidateProcessor
+                        Disk     = $candidateDiskCode
                         TempGB   = $caps.TempDiskGB
                         AccelNet = $caps.AcceleratedNetworkingEnabled
                         Score    = $simScore
