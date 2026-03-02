@@ -8,6 +8,10 @@
 # Logs
 *.log
 
+# Local troubleshooting logs/artifacts (keep local, never commit)
+/tools/logs/*
+!/tools/logs/.gitkeep
+
 # Temp files
 *.tmp
 *~
