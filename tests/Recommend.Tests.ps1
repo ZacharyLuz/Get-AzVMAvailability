@@ -1,18 +1,7 @@
 BeforeAll {
-    # Extract Get-SkuSimilarityScore from the main script
-    $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
-    $functionPattern = '(?ms)function Get-SkuSimilarityScore \{.*?^\}'
-    $match = [regex]::Match($scriptContent, $functionPattern)
-    if (-not $match.Success) { throw "Could not find Get-SkuSimilarityScore in main script" }
-    . ([scriptblock]::Create($match.Value))
-
-    # Load FamilyInfo for category-aware tests
-    $infoPattern = '(?sm)^\$FamilyInfo = @\{.+?^\}'
-    $infoMatch = [regex]::Match($scriptContent, $infoPattern)
-    if ($infoMatch.Success) {
-        $infoCode = $infoMatch.Value -replace '^\$FamilyInfo', '$script:FamilyInfo'
-        . ([scriptblock]::Create($infoCode))
-    }
+    Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
+    . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Get-SkuSimilarityScore')))
+    . ([scriptblock]::Create((Get-MainScriptVariableAssignment -VariableName 'FamilyInfo' -ScopePrefix 'script')))
 }
 
 Describe 'Get-SkuSimilarityScore' {

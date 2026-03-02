@@ -3,27 +3,20 @@
 # Run with: Invoke-Pester .\tests\Get-ValidAzureRegions.Tests.ps1
 
 BeforeAll {
-    $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
-
-    # Extract Get-ValidAzureRegions and its dependencies
+    Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
     $functionNames = @(
         'Get-ValidAzureRegions',
         'Invoke-WithRetry'
     )
 
-    foreach ($funcName in $functionNames) {
-        if ($scriptContent -match "(?s)(function $funcName \{.+?\n\})") {
-            . ([scriptblock]::Create($matches[1]))
-        }
-        else {
-            Write-Warning "Could not find $funcName function in script"
-        }
+    foreach ($functionName in $functionNames) {
+        . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName $functionName)))
     }
 
     # Initialize script-scope variables the function depends on
     $script:CachedValidRegions = $null
     $script:AzureEndpoints = $null
-    $MaxRetries = 3
+    $script:MaxRetries = 3
 }
 
 Describe "Get-ValidAzureRegions" {

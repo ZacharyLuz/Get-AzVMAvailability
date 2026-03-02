@@ -10,11 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Fleet Safety Warnings** — detects and warns about mixed architectures, CPU vendors, temp disk configs, storage interfaces, and accelerated networking across recommended SKUs
 - **`-AllowMixedArch` parameter** — opt-in to include ARM64 candidates when targeting x64 (or vice versa); default now filters to target architecture
+- **`-SkipRegionValidation` parameter** — explicit override to bypass region validation when metadata lookup is unavailable
 - **CPU column** in Recommend output — shows Intel/AMD/ARM for each candidate
 - **Disk column** in Recommend output — shows storage config shortcode (NV+T, NVMe, SC+T, SCSI)
 - **Disk codes legend** added to Recommend output footer
-- New helper functions: `Get-ProcessorVendor`, `Get-DiskCode`
+- New helper functions: `Get-ProcessorVendor`, `Get-DiskCode`, `Use-SubscriptionContextSafely`, `Restore-OriginalSubscriptionContext`
 - JSON output now includes `cpu`, `disk`, `tempDiskGB`, `accelNet` fields and a `warnings` array
+- New test files: `tests/ContextManagement.Tests.ps1`, `tests/RecommendJsonContract.Tests.ps1`
+- New test harness module: `tests/TestHarness.psm1` for importable AST-based function loading
 - 13 new Pester tests for `Get-ProcessorVendor` and `Get-DiskCode`
 
 ### Changed
@@ -22,7 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Recommend table widened to accommodate new columns (base: 113→122, with pricing: 133→140)
 - Architecture filtering enabled by default in Recommend mode (candidates must match target arch)
 - Non-interactive runs (`-NoPrompt`) now fail closed when Azure region validation metadata is unavailable.
-- Added `-SkipRegionValidation` explicit override for emergency/manual scenarios when metadata lookup is unavailable.
+- Removed global `$ErrorActionPreference = 'Continue'` mutation; error behavior is now locally scoped.
+- Subscription scanning now isolates and restores Az context via `try/finally` to avoid caller context side effects.
+- Hot-loop `+=` accumulation replaced with `List[object]` in recommendation and image-search paths.
+- Tests migrated from regex extraction to importable harness-based loading.
 
 ## [1.9.0] - 2026-02-25
 

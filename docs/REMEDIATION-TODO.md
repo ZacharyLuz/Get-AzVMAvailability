@@ -23,7 +23,7 @@
 
 ## Phase 1 — Security & Unsafe Patterns
 - [x] P1.1 Remove `Invoke-Expression` usage from repo tests
-- [ ] P1.2 Replace regex extraction + eval test strategy with importable test harness/module approach
+- [x] P1.2 Replace regex extraction + eval test strategy with importable test harness/module approach
 - [x] P1.3 Verify no dynamic eval remains in this repo
 
 ## Phase 2 — Reliability & Operational Safety
@@ -52,6 +52,7 @@
 - [ ] P5.5 Update tests to import module
 - [ ] P5.6 Add `Test-ModuleManifest` to CI
 - [ ] P5.7 Add migration notes in docs
+- [ ] P5.8 Document how to operate the module, and how it differs from the original project and code. Additionally create full documentation on the module, along with examples.  Lastly I need a full demo script and presentation flow to present this on a meeting.  Use a crawl > Walk > Run approach and build upon the demo from a novice to advance usage tactics.
 
 ## Global Gates (every phase)
 - [x] Analyzer passes

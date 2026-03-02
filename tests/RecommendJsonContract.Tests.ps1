@@ -1,18 +1,6 @@
 BeforeAll {
-    $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
-
-    $functionNames = @(
-        'Invoke-RecommendMode'
-    )
-
-    foreach ($funcName in $functionNames) {
-        if ($scriptContent -match "(?s)(function $funcName \{.+?\n\})") {
-            . ([scriptblock]::Create($matches[1]))
-        }
-        else {
-            throw "Could not find function in script: $funcName"
-        }
-    }
+    Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
+    . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Invoke-RecommendMode')))
 
     function Get-SafeString { param($Value) [string]$Value }
 

@@ -23,12 +23,14 @@ PR: #20
 
 ## PR #20 Additional Comment Triage (2026-03-01)
 
-| Comment | Decision | Disposition |
-| --- | --- | --- |
-| `offerResults` list truthiness causes empty-result branch bug | Agree | Changed condition to `if ($publishers -or $offerResults.Count -gt 0)` |
-| `CompactOutput` still unused after suppression removal | Agree | Implemented compact behavior by applying minimum output width when `-CompactOutput` is set |
-| `.PARAMETER SkipRegionValidation` wording implies only unavailable-metadata scenario | Agree | Updated help text to explicitly describe unconditional validation bypass and safe-use guidance |
-| Code scanning: `restored` variable assigned but never used in context test | Agree | Refactored `ContextManagement.Tests.ps1` failure-path assertion to remove unused assignment pattern |
+| Comment                                                                              | Decision | Disposition                                                                                                            |
+| ------------------------------------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `offerResults` list truthiness causes empty-result branch bug                        | Agree    | Changed condition to `if ($publishers -or $offerResults.Count -gt 0)`                                                  |
+| `CompactOutput` still unused after suppression removal                               | Agree    | Implemented compact behavior by applying minimum output width when `-CompactOutput` is set                             |
+| `.PARAMETER SkipRegionValidation` wording implies only unavailable-metadata scenario | Agree    | Updated help text to explicitly describe unconditional validation bypass and safe-use guidance                         |
+| Code scanning: `restored` variable assigned but never used in context test           | Agree    | Refactored `ContextManagement.Tests.ps1` failure-path assertion to remove unused assignment pattern                    |
+| CHANGELOG: `-SkipRegionValidation` should be `Added` not `Changed`                   | Agree    | Reclassified `-SkipRegionValidation` entry under `### Added`                                                           |
+| CHANGELOG missing functional deltas from remediation slices                          | Agree    | Added entries for context helpers/restoration, global error mode removal, list-based perf updates, and new test assets |
 
 ## Incremental Execution Log
 - 2026-03-01: Pulled PR #20 Copilot review + inline comments and documented triage/disposition.
@@ -56,3 +58,8 @@ PR: #20
 	- `tools/logs/analyzer-20260301-233046.log`
 	- `tools/logs/pester-20260301-233534.log` (130 passed, 0 failed)
 	- `tools/logs/validate-20260301-233534.log` (`ALL CHECKS PASSED`)
+- 2026-03-02: Completed P1.2 migration to importable test harness/module approach via `tests/TestHarness.psm1`.
+- 2026-03-02: Migrated test loaders from regex extraction to AST-based harness imports across `tests/*.Tests.ps1`.
+- 2026-03-02: Validation evidence for harness migration checkpoint:
+	- `tools/logs/pester-20260301-235356.log` (130 passed, 0 failed)
+	- `tools/logs/validate-20260301-235356.log` (`ALL CHECKS PASSED`)

@@ -3,17 +3,8 @@
 # Run with: Invoke-Pester .\tests\Get-AzureEndpoints.Tests.ps1 -Output Detailed
 
 BeforeAll {
-    # Import only the functions from the script without executing main logic
-    # We extract and invoke just the function definitions
-    $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
-
-    # Extract Get-AzureEndpoints function using regex
-    if ($scriptContent -match '(?s)(function Get-AzureEndpoints \{.+?\n\})') {
-        . ([scriptblock]::Create($matches[1]))
-    }
-    else {
-        throw "Could not find Get-AzureEndpoints function in script"
-    }
+    Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
+    . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Get-AzureEndpoints')))
 }
 
 Describe "Get-AzureEndpoints" {

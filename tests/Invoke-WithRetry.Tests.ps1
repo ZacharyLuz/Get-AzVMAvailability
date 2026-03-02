@@ -3,14 +3,8 @@
 # Run with: Invoke-Pester .\tests\Invoke-WithRetry.Tests.ps1 -Output Detailed
 
 BeforeAll {
-    $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
-
-    if ($scriptContent -match '(?s)(function Invoke-WithRetry \{.+?\n\})') {
-        . ([scriptblock]::Create($matches[1]))
-    }
-    else {
-        throw "Could not find Invoke-WithRetry function in script"
-    }
+    Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
+    . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Invoke-WithRetry')))
 }
 
 Describe "Invoke-WithRetry" {

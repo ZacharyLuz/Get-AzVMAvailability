@@ -3,9 +3,7 @@
 # Run with: Invoke-Pester .\tests\HelperFunctions.Tests.ps1 -Output Detailed
 
 BeforeAll {
-    $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
-
-    # Extract each helper function by name
+    Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
     $functionNames = @(
         'Get-CapValue',
         'Get-SkuFamily',
@@ -17,13 +15,8 @@ BeforeAll {
         'Get-GeoGroup'
     )
 
-    foreach ($funcName in $functionNames) {
-        if ($scriptContent -match "(?s)(function $funcName \{.+?\n\})") {
-            . ([scriptblock]::Create($matches[1]))
-        }
-        else {
-            Write-Warning "Could not find $funcName function in script"
-        }
+    foreach ($functionName in $functionNames) {
+        . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName $functionName)))
     }
 }
 
