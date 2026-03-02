@@ -1179,7 +1179,7 @@ function Invoke-RecommendMode {
     }
 
     # Score all candidate SKUs across all regions
-    $candidates = @()
+    $candidates = [System.Collections.Generic.List[object]]::new()
     foreach ($subData in $SubscriptionData) {
         foreach ($data in $subData.RegionData) {
             $region = Get-SafeString $data.Region
@@ -1223,32 +1223,32 @@ function Invoke-RecommendMode {
                     }
                 }
 
-                $candidates += [pscustomobject]@{
-                    SKU      = $sku.Name
-                    Region   = [string]$region
-                    vCPU     = $candidateProfile.vCPU
-                    MemGiB   = $candidateProfile.MemoryGB
-                    Family   = $candidateProfile.Family
-                    Purpose  = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
-                    Gen      = $caps.HyperVGenerations -replace 'V', '' -replace ',', ','
-                    Arch     = $candidateProfile.Architecture
-                    CPU      = $candidateProcessor
-                    Disk     = $candidateDiskCode
-                    TempGB   = $caps.TempDiskGB
-                    AccelNet = $caps.AcceleratedNetworkingEnabled
-                    Score    = $simScore
-                    Capacity = $restrictions.Status
-                    ZonesOK  = $restrictions.ZonesOK.Count
-                    PriceHr  = $priceHr
-                    PriceMo  = $priceMo
-                }
+                $candidates.Add([pscustomobject]@{
+                        SKU     = $sku.Name
+                        Region  = [string]$region
+                        vCPU    = $candidateProfile.vCPU
+                        MemGiB  = $candidateProfile.MemoryGB
+                        Family  = $candidateProfile.Family
+                        Purpose = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
+                        Gen     = $caps.HyperVGenerations -replace 'V', '' -replace ',', ','
+                        Arch     = $candidateProfile.Architecture
+                        CPU      = $candidateProcessor
+                        Disk     = $candidateDiskCode
+                        TempGB   = $caps.TempDiskGB
+                        AccelNet = $caps.AcceleratedNetworkingEnabled
+                        Score    = $simScore
+                        Capacity = $restrictions.Status
+                        ZonesOK  = $restrictions.ZonesOK.Count
+                        PriceHr  = $priceHr
+                        PriceMo  = $priceMo
+                    }) | Out-Null
             }
         }
     }
 
     # Apply minimum spec filters and separate smaller options for callout
     $belowMinSpecDict = @{}
-    $filtered = $candidates
+    $filtered = @($candidates)
     if ($MinvCPU) {
         $filtered | Where-Object { $_.vCPU -lt $MinvCPU -and $_.Capacity -eq 'OK' } | ForEach-Object {
             if (-not $belowMinSpecDict.ContainsKey($_.SKU)) { $belowMinSpecDict[$_.SKU] = $_ }
@@ -2064,34 +2064,34 @@ if (-not $ImageURN -and -not $NoPrompt) {
                     Where-Object { $_.PublisherName -match $searchTerm }
 
                     # Also search common publishers for offers matching the term
-                    $offerResults = @()
+                    $offerResults = [System.Collections.Generic.List[object]]::new()
                     $searchPublishers = @('Canonical', 'MicrosoftWindowsServer', 'RedHat', 'microsoft-dsvm', 'MicrosoftCBLMariner', 'Debian', 'SUSE', 'Oracle', 'OpenLogic')
                     foreach ($pub in $searchPublishers) {
                         try {
                             $offers = Get-AzVMImageOffer -Location $Regions[0] -PublisherName $pub -ErrorAction SilentlyContinue |
                             Where-Object { $_.Offer -match $searchTerm }
                             foreach ($offer in $offers) {
-                                $offerResults += @{ Publisher = $pub; Offer = $offer.Offer }
+                                $offerResults.Add(@{ Publisher = $pub; Offer = $offer.Offer }) | Out-Null
                             }
                         }
                         catch { Write-Verbose "Image search failed for publisher '$pub': $_" }
                     }
 
                     if ($publishers -or $offerResults) {
-                        $allResults = @()
+                        $allResults = [System.Collections.Generic.List[object]]::new()
                         $idx = 1
 
                         # Add publisher matches
                         if ($publishers) {
                             $publishers | Select-Object -First 5 | ForEach-Object {
-                                $allResults += @{ Num = $idx; Type = "Publisher"; Name = $_.PublisherName; Publisher = $_.PublisherName; Offer = $null }
+                                $allResults.Add(@{ Num = $idx; Type = "Publisher"; Name = $_.PublisherName; Publisher = $_.PublisherName; Offer = $null }) | Out-Null
                                 $idx++
                             }
                         }
 
                         # Add offer matches
                         $offerResults | Select-Object -First 5 | ForEach-Object {
-                            $allResults += @{ Num = $idx; Type = "Offer"; Name = "$($_.Publisher) > $($_.Offer)"; Publisher = $_.Publisher; Offer = $_.Offer }
+                            $allResults.Add(@{ Num = $idx; Type = "Offer"; Name = "$($_.Publisher) > $($_.Offer)"; Publisher = $_.Publisher; Offer = $_.Offer }) | Out-Null
                             $idx++
                         }
 
