@@ -1588,10 +1588,7 @@ function Get-AzVMPricing {
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Region,
-
-        [Parameter(Mandatory = $false)]
-        [string[]]$SkuNames
+        [string]$Region
     )
 
     $script:PricingCache = if (-not $script:PricingCache) { @{} } else { $script:PricingCache }
@@ -1673,10 +1670,7 @@ function Get-AzActualPricing {
         [string]$SubscriptionId,
 
         [Parameter(Mandatory = $true)]
-        [string]$Region,
-
-        [Parameter(Mandatory = $false)]
-        [string[]]$SkuNames
+        [string]$Region
     )
 
     $script:ActualPricingCache = if (-not $script:ActualPricingCache) { @{} } else { $script:ActualPricingCache }
