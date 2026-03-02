@@ -6,7 +6,7 @@
 - [x] E0.3 Commit PR #20 comment remediations as an incremental checkpoint
 - [x] E0.4 Push branch and verify PR #20 reflects remediations
 - [x] E0.5 Implement P2.1 remove global `$ErrorActionPreference = 'Continue'`
-- [ ] E0.6 Implement P2.4/P2.5 Az context isolation + restoration tests
+- [x] E0.6 Implement P2.4/P2.5 Az context isolation + restoration tests
 - [x] E0.7 Run analyzer/tests/validation with output logged to files and summarize results
 - [x] E0.8 Update tracker checkboxes and progress notes after each incremental commit
 
@@ -30,8 +30,8 @@
 - [x] P2.1 Remove global `$ErrorActionPreference = 'Continue'`
 - [x] P2.2 Implement fail-closed region validation in non-interactive mode
 - [x] P2.3 Add explicit override switch for region validation bypass
-- [ ] P2.4 Isolate/restore Az context around subscription switching
-- [ ] P2.5 Add tests for failure paths and context restoration
+- [x] P2.4 Isolate/restore Az context around subscription switching
+- [x] P2.5 Add tests for failure paths and context restoration
 
 ## Phase 3 — Performance & Hot Loops
 - [x] P3.1 Replace recommend loop `+=` with `List[object]`

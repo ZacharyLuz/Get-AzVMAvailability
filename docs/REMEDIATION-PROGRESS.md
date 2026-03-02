@@ -33,3 +33,10 @@ PR: #20
 	- `tools/logs/validate-20260301-230154.log` (`ALL CHECKS PASSED`)
 - 2026-03-01: Committed P2.1 + tracker updates (`7297d08`) and pushed to origin.
 - 2026-03-01: Verified PR #20 head is `7297d08efbae2cb4a87ff167dc6798a242f21a3c` (latest commit reflected).
+- 2026-03-01: Re-pulled PR #20 comments before next changes; no new comments beyond prior addressed set.
+- 2026-03-01: Completed P2.4 by adding context helpers and `try/finally` restoration around per-subscription scanning.
+- 2026-03-01: Completed P2.5 by adding `tests/ContextManagement.Tests.ps1` for switch/restore and failure-path behavior.
+- 2026-03-01: Validation evidence captured in logs for context-remediation checkpoint:
+	- `tools/logs/analyzer-20260301-231157.log`
+	- `tools/logs/pester-20260301-231157.log` (126 passed, 0 failed)
+	- `tools/logs/validate-20260301-231157.log` (`ALL CHECKS PASSED`)

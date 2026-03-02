@@ -960,6 +960,41 @@ function Get-StatusIcon {
     }
 }
 
+function Use-SubscriptionContextSafely {
+    param([Parameter(Mandatory)][string]$SubscriptionId)
+
+    $ctx = Get-AzContext -ErrorAction SilentlyContinue
+    if (-not $ctx -or -not $ctx.Subscription -or $ctx.Subscription.Id -ne $SubscriptionId) {
+        Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop | Out-Null
+        return $true
+    }
+
+    return $false
+}
+
+function Restore-OriginalSubscriptionContext {
+    param([string]$OriginalSubscriptionId)
+
+    if (-not $OriginalSubscriptionId) {
+        return $false
+    }
+
+    $ctx = Get-AzContext -ErrorAction SilentlyContinue
+    if ($ctx -and $ctx.Subscription -and $ctx.Subscription.Id -eq $OriginalSubscriptionId) {
+        return $false
+    }
+
+    try {
+        Set-AzContext -SubscriptionId $OriginalSubscriptionId -ErrorAction Stop | Out-Null
+        Write-Verbose "Restored Azure context to original subscription: $OriginalSubscriptionId"
+        return $true
+    }
+    catch {
+        Write-Warning "Failed to restore Azure context to original subscription '$OriginalSubscriptionId': $($_.Exception.Message)"
+        return $false
+    }
+}
+
 function Test-ImportExcelModule {
     try {
         $module = Get-Module ImportExcel -ListAvailable -ErrorAction SilentlyContinue
@@ -2278,91 +2313,102 @@ if ($FetchPricing) {
 $allSubscriptionData = @()
 $scanStartTime = Get-Date
 
-foreach ($subId in $TargetSubIds) {
-    $ctx = Get-AzContext -ErrorAction SilentlyContinue
-    if (-not $ctx -or $ctx.Subscription.Id -ne $subId) {
-        Set-AzContext -SubscriptionId $subId | Out-Null
-    }
+$initialAzContext = Get-AzContext -ErrorAction SilentlyContinue
+$initialSubscriptionId = if ($initialAzContext -and $initialAzContext.Subscription) { [string]$initialAzContext.Subscription.Id } else { $null }
 
-    $subName = (Get-AzSubscription -SubscriptionId $subId | Select-Object -First 1).Name
-    Write-Host "[$subName] Scanning $($Regions.Count) region(s)..." -ForegroundColor Yellow
-
-    # Progress indicator for parallel scanning
-    $regionCount = $Regions.Count
-    Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $regionCount region(s) in parallel..." -PercentComplete 0
-
-    $regionData = $Regions | ForEach-Object -Parallel {
-        $region = [string]$_
-        $skuFilterCopy = $using:SkuFilter
-        $maxRetries = $using:MaxRetries
-
-        # Inline retry — parallel runspaces cannot see script-scope functions
-        $retryCall = {
-            param([scriptblock]$Action, [int]$Retries)
-            $attempt = 0
-            while ($true) {
-                try {
-                    return (& $Action)
-                }
-                catch {
-                    $attempt++
-                    $msg = $_.Exception.Message
-                    $isThrottle = $msg -match '429' -or $msg -match 'Too Many Requests' -or
-                    $msg -match '503' -or $msg -match 'ServiceUnavailable'
-                    if ($isThrottle -and $attempt -le $Retries) {
-                        $baseDelay = [math]::Pow(2, $attempt)
-                        $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
-                        Start-Sleep -Milliseconds (($baseDelay + $jitter) * 1000)
-                        continue
-                    }
-                    throw
-                }
-            }
-        }
-
+try {
+    foreach ($subId in $TargetSubIds) {
         try {
-            $allSkus = & $retryCall -Action {
-                Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
-                Where-Object { $_.ResourceType -eq 'virtualMachines' }
-            } -Retries $maxRetries
-
-            # Apply SKU filter if specified
-            if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
-                $allSkus = $allSkus | Where-Object {
-                    $skuName = $_.Name
-                    $isMatch = $false
-                    foreach ($pattern in $skuFilterCopy) {
-                        $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
-                        if ($skuName -match $regexPattern) {
-                            $isMatch = $true
-                            break
-                        }
-                    }
-                    $isMatch
-                }
-            }
-
-            $quotas = & $retryCall -Action {
-                Get-AzVMUsage -Location $region -ErrorAction Stop
-            } -Retries $maxRetries
-
-            @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
+            Use-SubscriptionContextSafely -SubscriptionId $subId | Out-Null
         }
         catch {
-            @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+            Write-Warning "Failed to switch Azure context to subscription '$subId': $($_.Exception.Message)"
+            continue
         }
-    } -ThrottleLimit $ParallelThrottleLimit
 
-    Write-Progress -Activity "Scanning Azure Regions" -Completed
+        $subName = (Get-AzSubscription -SubscriptionId $subId | Select-Object -First 1).Name
+        Write-Host "[$subName] Scanning $($Regions.Count) region(s)..." -ForegroundColor Yellow
 
-    $scanElapsed = (Get-Date) - $scanStartTime
-    Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
+        # Progress indicator for parallel scanning
+        $regionCount = $Regions.Count
+        Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $regionCount region(s) in parallel..." -PercentComplete 0
 
-    $allSubscriptionData += @{
-        SubscriptionId   = $subId
-        SubscriptionName = $subName
-        RegionData       = $regionData
+        $regionData = $Regions | ForEach-Object -Parallel {
+            $region = [string]$_
+            $skuFilterCopy = $using:SkuFilter
+            $maxRetries = $using:MaxRetries
+
+            # Inline retry — parallel runspaces cannot see script-scope functions
+            $retryCall = {
+                param([scriptblock]$Action, [int]$Retries)
+                $attempt = 0
+                while ($true) {
+                    try {
+                        return (& $Action)
+                    }
+                    catch {
+                        $attempt++
+                        $msg = $_.Exception.Message
+                        $isThrottle = $msg -match '429' -or $msg -match 'Too Many Requests' -or
+                        $msg -match '503' -or $msg -match 'ServiceUnavailable'
+                        if ($isThrottle -and $attempt -le $Retries) {
+                            $baseDelay = [math]::Pow(2, $attempt)
+                            $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
+                            Start-Sleep -Milliseconds (($baseDelay + $jitter) * 1000)
+                            continue
+                        }
+                        throw
+                    }
+                }
+            }
+
+            try {
+                $allSkus = & $retryCall -Action {
+                    Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
+                    Where-Object { $_.ResourceType -eq 'virtualMachines' }
+                } -Retries $maxRetries
+
+                # Apply SKU filter if specified
+                if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
+                    $allSkus = $allSkus | Where-Object {
+                        $skuName = $_.Name
+                        $isMatch = $false
+                        foreach ($pattern in $skuFilterCopy) {
+                            $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
+                            if ($skuName -match $regexPattern) {
+                                $isMatch = $true
+                                break
+                            }
+                        }
+                        $isMatch
+                    }
+                }
+
+                $quotas = & $retryCall -Action {
+                    Get-AzVMUsage -Location $region -ErrorAction Stop
+                } -Retries $maxRetries
+
+                @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
+            }
+            catch {
+                @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+            }
+        } -ThrottleLimit $ParallelThrottleLimit
+
+        Write-Progress -Activity "Scanning Azure Regions" -Completed
+
+        $scanElapsed = (Get-Date) - $scanStartTime
+        Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
+
+        $allSubscriptionData += @{
+            SubscriptionId   = $subId
+            SubscriptionName = $subName
+            RegionData       = $regionData
+        }
     }
+}
+finally {
+    [void](Restore-OriginalSubscriptionContext -OriginalSubscriptionId $initialSubscriptionId)
 }
 
 #endregion Data Collection
