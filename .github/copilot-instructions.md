@@ -60,6 +60,14 @@
 - Before merging, verify rendered content with:
   - `gh pr view <pr-number> --json body --jq .body`
 
+## PR Review Comment Triage Standard
+
+- Before implementing additional changes on an active PR branch, always pull the latest PR review feedback first.
+- Required commands:
+  - `gh pr view <pr-number> --json reviews,comments --jq '.reviews[] | {author: .author.login, submittedAt: .submittedAt, body: .body}'`
+  - `gh api repos/<owner>/<repo>/pulls/<pr-number>/comments --jq '.[] | {author: .user.login, path: .path, line: (.line // .original_line), body: .body, created_at: .created_at}'`
+- Resolve or explicitly disposition each comment before moving to the next remediation item.
+
 ## Contribution & Security
 
 - See `CONTRIBUTING.md` for guidelines.
