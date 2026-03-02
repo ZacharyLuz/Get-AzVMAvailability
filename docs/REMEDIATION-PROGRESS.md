@@ -21,6 +21,15 @@ PR: #20
 | Changelog `[Unreleased]` ambiguity while script version remains `1.10.0`           | Agree    | Moved remediation entries into `[1.10.0]` changed section                                       |
 | Minor hashtable alignment inconsistency in candidate object construction           | Agree    | Aligned `Arch`, `CPU`, `Disk` spacing with surrounding hashtable style                          |
 
+## PR #20 Additional Comment Triage (2026-03-01)
+
+| Comment | Decision | Disposition |
+| --- | --- | --- |
+| `offerResults` list truthiness causes empty-result branch bug | Agree | Changed condition to `if ($publishers -or $offerResults.Count -gt 0)` |
+| `CompactOutput` still unused after suppression removal | Agree | Implemented compact behavior by applying minimum output width when `-CompactOutput` is set |
+| `.PARAMETER SkipRegionValidation` wording implies only unavailable-metadata scenario | Agree | Updated help text to explicitly describe unconditional validation bypass and safe-use guidance |
+| Code scanning: `restored` variable assigned but never used in context test | Agree | Refactored `ContextManagement.Tests.ps1` failure-path assertion to remove unused assignment pattern |
+
 ## Incremental Execution Log
 - 2026-03-01: Pulled PR #20 Copilot review + inline comments and documented triage/disposition.
 - 2026-03-01: Prepared remediation updates for warning clarity, tracker accuracy, changelog consistency, and style alignment.
@@ -40,3 +49,10 @@ PR: #20
 	- `tools/logs/analyzer-20260301-231157.log`
 	- `tools/logs/pester-20260301-231157.log` (126 passed, 0 failed)
 	- `tools/logs/validate-20260301-231157.log` (`ALL CHECKS PASSED`)
+- 2026-03-01: Added `tests/RecommendJsonContract.Tests.ps1` covering recommend JSON contract and critical behaviors (architecture filtering and warnings).
+- 2026-03-01: Completed recommend parity smoke checks (`tests/Recommend.Tests.ps1` + `tests/RecommendJsonContract.Tests.ps1`):
+	- `tools/logs/smoke-recommend-20260301-233026.log` (24 passed, 0 failed)
+- 2026-03-01: Full validation evidence for this checkpoint:
+	- `tools/logs/analyzer-20260301-233046.log`
+	- `tools/logs/pester-20260301-233534.log` (130 passed, 0 failed)
+	- `tools/logs/validate-20260301-233534.log` (`ALL CHECKS PASSED`)

@@ -112,9 +112,11 @@
     piping results into other tools or storing scan results programmatically.
 
 .PARAMETER SkipRegionValidation
-    Skip validation of region names against Azure region metadata.
-    By default, non-interactive mode fails closed when region validation is unavailable
-    to prevent scans against mistyped or unsupported regions.
+    Skip all validation of region names against Azure region metadata.
+    Use this only when Azure metadata lookup is unavailable; otherwise, mistyped or
+    unsupported region names may not be detected. By default (without this switch),
+    non-interactive mode fails closed when region validation is unavailable to prevent
+    scans against invalid regions.
 
 .NOTES
     Name:           Get-AzVMAvailability
@@ -2111,7 +2113,7 @@ if (-not $ImageURN -and -not $NoPrompt) {
                         catch { Write-Verbose "Image search failed for publisher '$pub': $_" }
                     }
 
-                    if ($publishers -or $offerResults) {
+                    if ($publishers -or $offerResults.Count -gt 0) {
                         $allResults = [System.Collections.Generic.List[object]]::new()
                         $idx = 1
 
@@ -2253,6 +2255,9 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
 # Plus spacing and CPU/Disk columns = 122 base
 # With pricing: +18 (two price columns) = 140
 $script:OutputWidth = if ($FetchPricing) { $OutputWidthWithPricing } else { $OutputWidthBase }
+if ($CompactOutput) {
+    $script:OutputWidth = $OutputWidthMin
+}
 $script:OutputWidth = [Math]::Max($script:OutputWidth, $OutputWidthMin)
 $script:OutputWidth = [Math]::Min($script:OutputWidth, $OutputWidthMax)
 

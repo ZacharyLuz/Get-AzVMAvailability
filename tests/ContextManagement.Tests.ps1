@@ -103,8 +103,7 @@ Describe "Restore-OriginalSubscriptionContext" {
         }
         Mock Set-AzContext { throw 'restore failed' }
 
-        $restored = $null
-        { $restored = Restore-OriginalSubscriptionContext -OriginalSubscriptionId 'sub-a' } | Should -Not -Throw
-        $restored | Should -BeFalse
+        { Restore-OriginalSubscriptionContext -OriginalSubscriptionId 'sub-a' } | Should -Not -Throw
+        (Restore-OriginalSubscriptionContext -OriginalSubscriptionId 'sub-a') | Should -BeFalse
     }
 }

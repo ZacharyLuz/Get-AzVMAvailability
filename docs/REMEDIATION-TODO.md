@@ -18,7 +18,7 @@
 ## Phase 0 — Baseline & Safety Net
 - [x] P0.1 Fix README version badge drift to 1.10.0
 - [x] P0.2 Remove broad `PSReviewUnusedParameter` suppression and triage findings
-- [ ] P0.3 Add/adjust contract tests for recommend JSON + critical behaviors
+- [x] P0.3 Add/adjust contract tests for recommend JSON + critical behaviors
 - [x] P0.4 Run analyzer/tests/validation script and capture pass
 
 ## Phase 1 — Security & Unsafe Patterns
@@ -36,7 +36,7 @@
 ## Phase 3 — Performance & Hot Loops
 - [x] P3.1 Replace recommend loop `+=` with `List[object]`
 - [x] P3.2 Replace image search accumulation `+=` with list accumulation
-- [ ] P3.3 Verify functional parity with tests + smoke checks
+- [x] P3.3 Verify functional parity with tests + smoke checks
 
 ## Phase 4 — Maintainability & Stable Contracts
 - [ ] P4.1 Define stable output object contract for scan/recommend modes
