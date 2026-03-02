@@ -798,7 +798,7 @@ function Get-ValidAzureRegions {
         }
         catch {
             Write-Warning "Failed to retrieve valid Azure regions: $($_.Exception.Message)"
-            Write-Warning "Skipping region validation — proceeding with user-provided regions."
+            Write-Warning "Region validation metadata is unavailable."
             return $null
         }
     }
@@ -1231,9 +1231,9 @@ function Invoke-RecommendMode {
                         Family  = $candidateProfile.Family
                         Purpose = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
                         Gen     = $caps.HyperVGenerations -replace 'V', '' -replace ',', ','
-                        Arch     = $candidateProfile.Architecture
-                        CPU      = $candidateProcessor
-                        Disk     = $candidateDiskCode
+                        Arch    = $candidateProfile.Architecture
+                        CPU     = $candidateProcessor
+                        Disk    = $candidateDiskCode
                         TempGB   = $caps.TempDiskGB
                         AccelNet = $caps.AcceleratedNetworkingEnabled
                         Score    = $simScore
