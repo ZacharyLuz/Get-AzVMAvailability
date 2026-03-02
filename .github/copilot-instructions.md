@@ -52,6 +52,14 @@
 - **Tag and release only after PR merge** — never tag before merging.
 - For detailed workflow, see [.github/skills/release-process-guardrails/SKILL.md](.github/skills/release-process-guardrails/SKILL.md).
 
+## PR Body Formatting Standard
+
+- PR descriptions must be valid rendered Markdown (no literal escaped newline text like `\n`).
+- When using GitHub CLI, prefer `--body-file` over inline `--body` for multi-line content.
+- If using `--body`, build it from a PowerShell here-string to preserve real newlines.
+- Before merging, verify rendered content with:
+  - `gh pr view <pr-number> --json body --jq .body`
+
 ## Contribution & Security
 
 - See `CONTRIBUTING.md` for guidelines.
