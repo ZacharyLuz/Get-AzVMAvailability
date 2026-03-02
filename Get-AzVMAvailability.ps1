@@ -350,6 +350,20 @@ $ExcelDescriptionColumnWidth = 70
 $MinRecommendationScoreDefault = 50
 #endregion Constants
 # Cache for valid Azure regions (populated by Get-ValidAzureRegions)
+$script:RunContext = [pscustomobject]@{
+    SchemaVersion   = '1.0'
+    OutputWidth     = $null
+    ImageReqs       = $null
+    RegionPricing   = @{}
+    UsingActualPricing = $false
+    ScanOutput      = $null
+    RecommendOutput = $null
+    Caches          = [ordered]@{
+        ValidRegions = $null
+        Pricing      = @{}
+        ActualPricing = @{}
+    }
+}
 $script:CachedValidRegions = $null
 
 
@@ -732,9 +746,10 @@ function Get-ValidAzureRegions {
     param()
 
     # Return cached result if available
-    if ($script:CachedValidRegions) {
-        Write-Verbose "Using cached region list ($($script:CachedValidRegions.Count) regions)"
-        return $script:CachedValidRegions
+    $cachedRegions = if ($script:RunContext -and $script:RunContext.Caches) { $script:RunContext.Caches.ValidRegions } else { $script:CachedValidRegions }
+    if ($cachedRegions) {
+        Write-Verbose "Using cached region list ($($cachedRegions.Count) regions)"
+        return $cachedRegions
     }
 
     Write-Verbose "Fetching valid Azure regions..."
@@ -777,7 +792,10 @@ function Get-ValidAzureRegions {
 
         Write-Verbose "Fetched $($validRegions.Count) regions via REST API"
         $script:CachedValidRegions = @($validRegions)
-        return $script:CachedValidRegions
+        if ($script:RunContext -and $script:RunContext.Caches) {
+            $script:RunContext.Caches.ValidRegions = @($validRegions)
+        }
+        return @($validRegions)
     }
     catch {
         Write-Verbose "REST API failed: $($_.Exception.Message). Falling back to Get-AzLocation..."
@@ -795,7 +813,10 @@ function Get-ValidAzureRegions {
 
             Write-Verbose "Fetched $($validRegions.Count) regions via Get-AzLocation"
             $script:CachedValidRegions = @($validRegions)
-            return $script:CachedValidRegions
+            if ($script:RunContext -and $script:RunContext.Caches) {
+                $script:RunContext.Caches.ValidRegions = @($validRegions)
+            }
+            return @($validRegions)
         }
         catch {
             Write-Warning "Failed to retrieve valid Azure regions: $($_.Exception.Message)"
@@ -1105,6 +1126,257 @@ function Get-SkuSimilarityScore {
     return [math]::Min($score, 100)
 }
 
+function New-RecommendOutputContract {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][hashtable]$TargetProfile,
+        [Parameter(Mandatory)][AllowEmptyCollection()][array]$TargetAvailability,
+        [Parameter(Mandatory)][AllowEmptyCollection()][array]$RankedRecommendations,
+        [Parameter(Mandatory)][AllowEmptyCollection()][array]$Warnings,
+        [Parameter(Mandatory)][AllowEmptyCollection()][array]$BelowMinSpec,
+        [Parameter(Mandatory)][int]$MinScore,
+        [Parameter(Mandatory)][int]$TopN,
+        [Parameter(Mandatory)][bool]$FetchPricing
+    )
+
+    if (-not $PSCmdlet.ShouldProcess('recommendation output contract', 'Build')) {
+        return $null
+    }
+
+    $rankedPayload = @()
+    $rank = 1
+    foreach ($item in @($RankedRecommendations)) {
+        $rankedPayload += [pscustomobject]@{
+            rank       = $rank
+            sku        = $item.SKU
+            region     = $item.Region
+            vCPU       = $item.vCPU
+            memGiB     = $item.MemGiB
+            family     = $item.Family
+            purpose    = $item.Purpose
+            gen        = $item.Gen
+            arch       = $item.Arch
+            cpu        = $item.CPU
+            disk       = $item.Disk
+            tempDiskGB = $item.TempGB
+            accelNet   = $item.AccelNet
+            score      = $item.Score
+            capacity   = $item.Capacity
+            zonesOK    = $item.ZonesOK
+            priceHr    = $item.PriceHr
+            priceMo    = $item.PriceMo
+        }
+        $rank++
+    }
+
+    $belowMinSpecPayload = @()
+    foreach ($item in @($BelowMinSpec)) {
+        $belowMinSpecPayload += [pscustomobject]@{
+            sku      = $item.SKU
+            region   = $item.Region
+            vCPU     = $item.vCPU
+            memGiB   = $item.MemGiB
+            score    = $item.Score
+            capacity = $item.Capacity
+        }
+    }
+
+    return [pscustomobject]@{
+        schemaVersion    = '1.0'
+        mode             = 'recommend'
+        generatedAt      = (Get-Date).ToString('o')
+        minScore         = $MinScore
+        topN             = $TopN
+        pricingEnabled   = $FetchPricing
+        target           = [pscustomobject]$TargetProfile
+        targetAvailability = @($TargetAvailability)
+        recommendations  = @($rankedPayload)
+        warnings         = @($Warnings)
+        belowMinSpec     = @($belowMinSpecPayload)
+    }
+}
+
+function Write-RecommendOutputContract {
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Contract,
+        [Parameter(Mandatory)][hashtable]$Icons,
+        [Parameter(Mandatory)][bool]$FetchPricing,
+        [int]$OutputWidth = 122
+    )
+
+    $targetProfile = $Contract.target
+    $targetAvailability = @($Contract.targetAvailability)
+    $recommendations = @($Contract.recommendations)
+    $fleetWarnings = @($Contract.warnings)
+
+    Write-Host "`n" -NoNewline
+    Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
+    Write-Host "CAPACITY RECOMMENDER" -ForegroundColor Green
+    Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
+    Write-Host ""
+
+    $targetPurpose = if ($FamilyInfo[$targetProfile.Family]) { $FamilyInfo[$targetProfile.Family].Purpose } else { 'Unknown' }
+    $skuSuffixes = @()
+    $skuBody = ($targetProfile.Name -replace '^Standard_', '') -replace '_v\d+$', ''
+    if ($skuBody -match 'a(?![\d])') { $skuSuffixes += 'a = AMD processor' }
+    if ($skuBody -match 'p(?![\d])') { $skuSuffixes += 'p = ARM processor (Ampere)' }
+    if ($skuBody -notmatch '[ap](?![\d])') { $skuSuffixes += '(no a/p suffix) = Intel processor' }
+    if ($skuBody -match 'd(?![\d])') {
+        if ($targetProfile.TempDiskGB -gt 0) {
+            $skuSuffixes += "d = Local temp disk ($($targetProfile.TempDiskGB) GB)"
+        }
+        else {
+            $skuSuffixes += 'd = Local temp disk'
+        }
+    }
+    if ($skuBody -match 's$') { $skuSuffixes += 's = Premium storage capable' }
+    if ($skuBody -match 'i(?![\d])') { $skuSuffixes += 'i = Isolated (dedicated host)' }
+    if ($skuBody -match 'm(?![\d])') { $skuSuffixes += 'm = High memory per vCPU' }
+    if ($skuBody -match 'l(?![\d])') { $skuSuffixes += 'l = Low memory per vCPU' }
+    if ($skuBody -match 't(?![\d])') { $skuSuffixes += 't = Constrained vCPU' }
+    $genMatch = if ($targetProfile.Name -match '_v(\d+)$') { "v$($Matches[1]) = Generation $($Matches[1])" } else { $null }
+
+    Write-Host "TARGET: $($targetProfile.Name)" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host '  Name breakdown:' -ForegroundColor DarkGray
+    Write-Host "    $($targetProfile.Family)        $targetPurpose (family)" -ForegroundColor DarkGray
+    Write-Host "    $($targetProfile.vCPU)       vCPUs" -ForegroundColor DarkGray
+    foreach ($suffix in $skuSuffixes) {
+        Write-Host "    $suffix" -ForegroundColor DarkGray
+    }
+    if ($genMatch) {
+        Write-Host "    $genMatch" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+    Write-Host "  $($targetProfile.vCPU) vCPU / $($targetProfile.MemoryGB) GiB / $($targetProfile.Architecture) / $($targetProfile.Processor) / $($targetProfile.DiskCode) / Premium IO: $(if ($targetProfile.PremiumIO) { 'Yes' } else { 'No' })" -ForegroundColor White
+    Write-Host ""
+
+    $availableRegions = @($targetAvailability | Where-Object { $_.Status -eq 'OK' })
+    $unavailableRegions = @($targetAvailability | Where-Object { $_.Status -ne 'OK' })
+    if ($availableRegions.Count -gt 0) {
+        Write-Host "  $($Icons.Check) Available in: $($availableRegions.ForEach({ $_.Region }) -join ', ')" -ForegroundColor Green
+    }
+    foreach ($ur in $unavailableRegions) {
+        Write-Host "  $($Icons.Error) $($ur.Region): $($ur.Status)" -ForegroundColor Red
+    }
+
+    if ($recommendations.Count -eq 0) {
+        Write-Host "`nNo alternatives met the minimum similarity score of $($Contract.minScore)%." -ForegroundColor Yellow
+        Write-Host 'Try lowering -MinScore or adding -MinvCPU / -MinMemoryGB filters.' -ForegroundColor DarkYellow
+        return
+    }
+
+    Write-Host "`nRECOMMENDED ALTERNATIVES (top $($recommendations.Count), sorted by similarity):" -ForegroundColor Green
+    Write-Host ""
+
+    if ($FetchPricing) {
+        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5} {11,-8} {12,-8}"
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
+        Write-Host (' ' + ('-' * 137)) -ForegroundColor DarkGray
+    }
+    else {
+        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5}"
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Zones') -ForegroundColor White
+        Write-Host (' ' + ('-' * 119)) -ForegroundColor DarkGray
+    }
+
+    foreach ($r in $recommendations) {
+        $rowColor = switch ($r.capacity) {
+            'OK' { 'Green' }
+            'LIMITED' { 'Yellow' }
+            default { 'DarkYellow' }
+        }
+        if ($FetchPricing) {
+            $hrStr = if ($null -ne $r.priceHr) { '$' + ([double]$r.priceHr).ToString('0.00') } else { '-' }
+            $moStr = if ($null -ne $r.priceMo) { '$' + ([double]$r.priceMo).ToString('0') } else { '-' }
+            $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK, $hrStr, $moStr
+        }
+        else {
+            $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK
+        }
+        Write-Host $line -ForegroundColor $rowColor
+    }
+
+    Write-Host ''
+    Write-Host 'STATUS KEY:' -ForegroundColor DarkGray
+    Write-Host '  OK                    = Ready to deploy. No restrictions.' -ForegroundColor Green
+    Write-Host '  CAPACITY-CONSTRAINED  = Azure is low on hardware. Try a different zone or wait.' -ForegroundColor Yellow
+    Write-Host "  LIMITED               = Your subscription can't use this. Request access via support ticket." -ForegroundColor Yellow
+    Write-Host '  PARTIAL               = Some zones work, others are blocked. No zone redundancy.' -ForegroundColor Yellow
+    Write-Host '  BLOCKED               = Cannot deploy. Pick a different region or SKU.' -ForegroundColor Red
+    Write-Host ''
+    Write-Host 'DISK CODES:' -ForegroundColor DarkGray
+    Write-Host '  NV+T = NVMe + local temp disk   NVMe = NVMe only (no temp disk)' -ForegroundColor DarkGray
+    Write-Host '  SC+T = SCSI + local temp disk   SCSI = SCSI only (no temp disk)' -ForegroundColor DarkGray
+
+    if ($fleetWarnings.Count -gt 0) {
+        Write-Host ''
+        Write-Host 'FLEET NOTES:' -ForegroundColor Yellow
+        foreach ($warning in $fleetWarnings) {
+            Write-Host "  $($Icons.Warning) $warning" -ForegroundColor Yellow
+        }
+    }
+
+    Write-Host ''
+}
+
+function New-ScanOutputContract {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][array]$SubscriptionData,
+        [Parameter(Mandatory)][hashtable]$FamilyStats,
+        [Parameter(Mandatory)][array]$FamilyDetails,
+        [Parameter(Mandatory)][string[]]$Regions,
+        [Parameter(Mandatory)][string[]]$SubscriptionIds
+    )
+
+    if (-not $PSCmdlet.ShouldProcess('scan output contract', 'Build')) {
+        return $null
+    }
+
+    $families = @(
+        $FamilyStats.Keys | Sort-Object | ForEach-Object {
+            $family = $_
+            $familyData = $FamilyStats[$family]
+            [pscustomobject]@{
+                family                = $family
+                totalSkusDiscovered   = $familyData.TotalSkus
+                availableRegionCount  = $familyData.AvailableRegions.Count
+                constrainedRegionCount = $familyData.ConstrainedRegions.Count
+                largestSku            = $familyData.LargestSKU
+            }
+        }
+    )
+
+    $regionErrors = @()
+    foreach ($sub in $SubscriptionData) {
+        foreach ($regionData in $sub.RegionData) {
+            if ($regionData.Error) {
+                $regionErrors += [pscustomobject]@{
+                    subscriptionId = $sub.SubscriptionId
+                    region         = [string](Get-SafeString $regionData.Region)
+                    error          = $regionData.Error
+                }
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        schemaVersion = '1.0'
+        mode          = 'scan'
+        generatedAt   = (Get-Date).ToString('o')
+        subscriptions = @($SubscriptionIds)
+        regions       = @($Regions)
+        summary       = [pscustomobject]@{
+            familyCount      = $families.Count
+            detailRowCount   = @($FamilyDetails).Count
+            regionErrorCount = @($regionErrors).Count
+        }
+        families      = @($families)
+        regionErrors  = @($regionErrors)
+    }
+}
+
 function Invoke-RecommendMode {
     param(
         [Parameter(Mandatory)]
@@ -1159,61 +1431,6 @@ function Invoke-RecommendMode {
         AccelNet     = $targetCaps.AcceleratedNetworkingEnabled
     }
 
-    Write-Host "`n" -NoNewline
-    Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-    Write-Host "CAPACITY RECOMMENDER" -ForegroundColor Green
-    Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-    Write-Host ""
-
-    # SKU name breakdown — parse suffixes for educational display
-    $targetPurpose = if ($FamilyInfo[$targetProfile.Family]) { $FamilyInfo[$targetProfile.Family].Purpose } else { 'Unknown' }
-    $skuSuffixes = @()
-    $skuBody = ($targetProfile.Name -replace '^Standard_', '') -replace '_v\d+$', ''
-    if ($skuBody -match 'a(?![\d])') { $skuSuffixes += 'a = AMD processor' }
-    if ($skuBody -match 'p(?![\d])') { $skuSuffixes += 'p = ARM processor (Ampere)' }
-    if ($skuBody -notmatch '[ap](?![\d])') { $skuSuffixes += "(no a/p suffix) = Intel processor" }
-    if ($skuBody -match 'd(?![\d])') {
-        if ($targetProfile.TempDiskGB -gt 0) {
-            $skuSuffixes += "d = Local temp disk ($($targetProfile.TempDiskGB) GB)"
-        }
-        else {
-            $skuSuffixes += 'd = Local temp disk'
-        }
-    }
-    if ($skuBody -match 's$') { $skuSuffixes += 's = Premium storage capable' }
-    if ($skuBody -match 'i(?![\d])') { $skuSuffixes += 'i = Isolated (dedicated host)' }
-    if ($skuBody -match 'm(?![\d])') { $skuSuffixes += 'm = High memory per vCPU' }
-    if ($skuBody -match 'l(?![\d])') { $skuSuffixes += 'l = Low memory per vCPU' }
-    if ($skuBody -match 't(?![\d])') { $skuSuffixes += 't = Constrained vCPU' }
-    $genMatch = if ($targetProfile.Name -match '_v(\d+)$') { "v$($Matches[1]) = Generation $($Matches[1])" } else { $null }
-
-    Write-Host "TARGET: $($targetProfile.Name)" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  Name breakdown:" -ForegroundColor DarkGray
-    Write-Host "    $($targetProfile.Family)        $targetPurpose (family)" -ForegroundColor DarkGray
-    Write-Host "    $($targetProfile.vCPU)       vCPUs" -ForegroundColor DarkGray
-    foreach ($suffix in $skuSuffixes) {
-        Write-Host "    $suffix" -ForegroundColor DarkGray
-    }
-    if ($genMatch) {
-        Write-Host "    $genMatch" -ForegroundColor DarkGray
-    }
-    Write-Host ""
-    Write-Host "  $($targetProfile.vCPU) vCPU / $($targetProfile.MemoryGB) GiB / $($targetProfile.Architecture) / $($targetProfile.Processor) / $($targetDiskCode) / Premium IO: $(if ($targetProfile.PremiumIO) { 'Yes' } else { 'No' })" -ForegroundColor White
-    Write-Host ""
-
-    $availableRegions = @($targetRegionStatus | Where-Object { $_.Status -eq 'OK' })
-    $unavailableRegions = @($targetRegionStatus | Where-Object { $_.Status -ne 'OK' })
-
-    if ($availableRegions.Count -gt 0) {
-        Write-Host "  $($Icons.Check) Available in: $($availableRegions.ForEach({ $_.Region }) -join ', ')" -ForegroundColor Green
-    }
-    if ($unavailableRegions.Count -gt 0) {
-        foreach ($ur in $unavailableRegions) {
-            Write-Host "  $($Icons.Error) $($ur.Region): $($ur.Status)" -ForegroundColor Red
-        }
-    }
-
     # Score all candidate SKUs across all regions
     $candidates = [System.Collections.Generic.List[object]]::new()
     foreach ($subData in $SubscriptionData) {
@@ -1249,8 +1466,8 @@ function Invoke-RecommendMode {
 
                 $priceHr = $null
                 $priceMo = $null
-                if ($FetchPricing -and $script:regionPricing[[string]$region]) {
-                    $regionPriceData = $script:regionPricing[[string]$region]
+                if ($FetchPricing -and $script:RunContext.RegionPricing[[string]$region]) {
+                    $regionPriceData = $script:RunContext.RegionPricing[[string]$region]
                     if ($regionPriceData -is [array]) { $regionPriceData = $regionPriceData[0] }
                     $skuPricing = $regionPriceData[$sku.Name]
                     if ($skuPricing) {
@@ -1304,19 +1521,13 @@ function Invoke-RecommendMode {
     }
 
     if (-not $filtered -or $filtered.Count -eq 0) {
+        $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @() -Warnings @() -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing)
         if ($JsonOutput) {
-            @{
-                target             = $targetProfile
-                targetAvailability = @($targetRegionStatus)
-                minScore           = $MinScore
-                recommendations    = @()
-                warnings           = @()
-            } | ConvertTo-Json -Depth 5
+            $script:RunContext.RecommendOutput | ConvertTo-Json -Depth 6
             return
         }
 
-        Write-Host "`nNo alternatives met the minimum similarity score of $MinScore%." -ForegroundColor Yellow
-        Write-Host "Try lowering -MinScore or adding -MinvCPU / -MinMemoryGB filters." -ForegroundColor DarkYellow
+        Write-RecommendOutputContract -Contract $script:RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -OutputWidth $script:OutputWidth
         return
     }
 
@@ -1355,116 +1566,14 @@ function Invoke-RecommendMode {
         $fleetWarnings += "Mixed accelerated networking support — network performance will vary across the fleet."
     }
 
+    $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($fleetWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing)
+
     if ($JsonOutput) {
-        $jsonResult = @{
-            target             = $targetProfile
-            targetAvailability = @($targetRegionStatus)
-            recommendations    = @($ranked | ForEach-Object {
-                    @{
-                        rank       = 0
-                        sku        = $_.SKU
-                        region     = $_.Region
-                        vCPU       = $_.vCPU
-                        memGiB     = $_.MemGiB
-                        family     = $_.Family
-                        purpose    = $_.Purpose
-                        gen        = $_.Gen
-                        arch       = $_.Arch
-                        cpu        = $_.CPU
-                        disk       = $_.Disk
-                        tempDiskGB = $_.TempGB
-                        accelNet   = $_.AccelNet
-                        score      = $_.Score
-                        capacity   = $_.Capacity
-                        zonesOK    = $_.ZonesOK
-                        priceHr    = $_.PriceHr
-                        priceMo    = $_.PriceMo
-                    }
-                })
-            warnings           = @($fleetWarnings)
-        }
-        for ($i = 0; $i -lt $jsonResult.recommendations.Count; $i++) {
-            $jsonResult.recommendations[$i].rank = $i + 1
-        }
-        $jsonResult | ConvertTo-Json -Depth 5
+        $script:RunContext.RecommendOutput | ConvertTo-Json -Depth 6
         return
     }
 
-    if ($ranked.Count -eq 0) {
-        Write-Host "`nNo alternatives found in the scanned regions." -ForegroundColor Yellow
-        return
-    }
-
-    Write-Host "`nRECOMMENDED ALTERNATIVES (top $($ranked.Count), sorted by similarity):" -ForegroundColor Green
-    Write-Host ""
-
-    if ($FetchPricing) {
-        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5} {11,-8} {12,-8}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
-        Write-Host (" " + ("-" * 137)) -ForegroundColor DarkGray
-    }
-    else {
-        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Zones') -ForegroundColor White
-        Write-Host (" " + ("-" * 119)) -ForegroundColor DarkGray
-    }
-
-    $rank = 1
-    foreach ($r in $ranked) {
-        $rowColor = switch ($r.Capacity) {
-            'OK' { 'Green' }
-            'LIMITED' { 'Yellow' }
-            default { 'DarkYellow' }
-        }
-        if ($FetchPricing) {
-            $hrStr = if ($null -ne $r.PriceHr) { '$' + $r.PriceHr.ToString('0.00') } else { '-' }
-            $moStr = if ($null -ne $r.PriceMo) { '$' + $r.PriceMo.ToString('0') } else { '-' }
-            $line = $headerFmt -f $rank, $r.SKU, $r.Region, $r.vCPU, $r.MemGiB, "$($r.Score)%", $r.CPU, $r.Disk, $r.Purpose, $r.Capacity, $r.ZonesOK, $hrStr, $moStr
-        }
-        else {
-            $line = $headerFmt -f $rank, $r.SKU, $r.Region, $r.vCPU, $r.MemGiB, "$($r.Score)%", $r.CPU, $r.Disk, $r.Purpose, $r.Capacity, $r.ZonesOK
-        }
-        Write-Host $line -ForegroundColor $rowColor
-        $rank++
-    }
-
-    $rankedHasOK = ($ranked | Where-Object { $_.Capacity -eq 'OK' }).Count -gt 0
-    if (-not $rankedHasOK -and $belowMinSpec.Count -gt 0) {
-        $smallerOK = $belowMinSpec |
-        Sort-Object @{Expression = 'Score'; Descending = $true } |
-        Group-Object SKU |
-        ForEach-Object { $_.Group | Select-Object -First 1 } |
-        Select-Object -First 3
-        if ($smallerOK.Count -gt 0) {
-            Write-Host ""
-            Write-Host "  $($Icons.Warning) CONSIDER SMALLER (better availability, if your workload supports it):" -ForegroundColor Yellow
-            foreach ($s in $smallerOK) {
-                Write-Host "    $($s.SKU) ($($s.vCPU) vCPU / $($s.MemGiB) GiB) — $($s.Capacity) in $($s.Region)" -ForegroundColor DarkYellow
-            }
-        }
-    }
-
-    Write-Host ""
-    Write-Host "STATUS KEY:" -ForegroundColor DarkGray
-    Write-Host "  OK                    = Ready to deploy. No restrictions." -ForegroundColor Green
-    Write-Host "  CAPACITY-CONSTRAINED  = Azure is low on hardware. Try a different zone or wait." -ForegroundColor Yellow
-    Write-Host "  LIMITED               = Your subscription can't use this. Request access via support ticket." -ForegroundColor Yellow
-    Write-Host "  PARTIAL               = Some zones work, others are blocked. No zone redundancy." -ForegroundColor Yellow
-    Write-Host "  BLOCKED               = Cannot deploy. Pick a different region or SKU." -ForegroundColor Red
-    Write-Host ""
-    Write-Host "DISK CODES:" -ForegroundColor DarkGray
-    Write-Host "  NV+T = NVMe + local temp disk   NVMe = NVMe only (no temp disk)" -ForegroundColor DarkGray
-    Write-Host "  SC+T = SCSI + local temp disk   SCSI = SCSI only (no temp disk)" -ForegroundColor DarkGray
-
-    if ($fleetWarnings.Count -gt 0) {
-        Write-Host ""
-        Write-Host "FLEET NOTES:" -ForegroundColor Yellow
-        foreach ($w in $fleetWarnings) {
-            Write-Host "  $($Icons.Warning) $w" -ForegroundColor Yellow
-        }
-    }
-
-    Write-Host ""
+    Write-RecommendOutputContract -Contract $script:RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -OutputWidth $script:OutputWidth
 }
 
 #endregion Helper Functions
@@ -1635,7 +1744,9 @@ function Get-AzVMPricing {
         [string]$Region
     )
 
-    $script:PricingCache = if (-not $script:PricingCache) { @{} } else { $script:PricingCache }
+    if (-not $script:RunContext.Caches.Pricing) {
+        $script:RunContext.Caches.Pricing = @{}
+    }
 
     # Get environment-specific endpoints (supports sovereign clouds)
     if (-not $script:AzureEndpoints) {
@@ -1688,7 +1799,7 @@ function Get-AzVMPricing {
             $nextLink = $response.NextPageLink
         }
 
-        $script:PricingCache[$armLocation] = $allPrices
+        $script:RunContext.Caches.Pricing[$armLocation] = $allPrices
 
         return $allPrices
     }
@@ -1717,11 +1828,13 @@ function Get-AzActualPricing {
         [string]$Region
     )
 
-    $script:ActualPricingCache = if (-not $script:ActualPricingCache) { @{} } else { $script:ActualPricingCache }
+    if (-not $script:RunContext.Caches.ActualPricing) {
+        $script:RunContext.Caches.ActualPricing = @{}
+    }
     $cacheKey = "$SubscriptionId-$Region"
 
-    if ($script:ActualPricingCache.ContainsKey($cacheKey)) {
-        return $script:ActualPricingCache[$cacheKey]
+    if ($script:RunContext.Caches.ActualPricing.ContainsKey($cacheKey)) {
+        return $script:RunContext.Caches.ActualPricing[$cacheKey]
     }
 
     $armLocation = $Region.ToLower() -replace '\s', ''
@@ -1775,7 +1888,7 @@ function Get-AzActualPricing {
             }
         }
 
-        $script:ActualPricingCache[$cacheKey] = $allPrices
+        $script:RunContext.Caches.ActualPricing[$cacheKey] = $allPrices
         return $allPrices
     }
     catch {
@@ -1798,6 +1911,7 @@ function Get-AzActualPricing {
 #endregion Image Compatibility Functions
 #region Initialize Azure Endpoints
 $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
+$script:RunContext.AzureEndpoints = $script:AzureEndpoints
 
 #endregion Initialize Azure Endpoints
 #region Interactive Prompts
@@ -2233,12 +2347,12 @@ if (-not $ImageURN -and -not $NoPrompt) {
 }
 
 # Parse image requirements if an image was specified
-$script:ImageReqs = $null
+$script:RunContext.ImageReqs = $null
 if ($ImageURN) {
-    $script:ImageReqs = Get-ImageRequirements -ImageURN $ImageURN
-    if (-not $script:ImageReqs.Valid) {
-        Write-Host "Warning: Could not parse image URN - $($script:ImageReqs.Error)" -ForegroundColor DarkYellow
-        $script:ImageReqs = $null
+    $script:RunContext.ImageReqs = Get-ImageRequirements -ImageURN $ImageURN
+    if (-not $script:RunContext.ImageReqs.Valid) {
+        Write-Host "Warning: Could not parse image URN - $($script:RunContext.ImageReqs.Error)" -ForegroundColor DarkYellow
+        $script:RunContext.ImageReqs = $null
     }
 }
 
@@ -2260,6 +2374,7 @@ if ($CompactOutput) {
 }
 $script:OutputWidth = [Math]::Max($script:OutputWidth, $OutputWidthMin)
 $script:OutputWidth = [Math]::Min($script:OutputWidth, $OutputWidthMax)
+$script:RunContext.OutputWidth = $script:OutputWidth
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
@@ -2270,16 +2385,16 @@ if ($SkuFilter -and $SkuFilter.Count -gt 0) {
     Write-Host "SKU Filter: $($SkuFilter -join ', ')" -ForegroundColor Yellow
 }
 Write-Host "Icons: $(if ($supportsUnicode) { 'Unicode' } else { 'ASCII' }) | Pricing: $(if ($FetchPricing) { 'Enabled' } else { 'Disabled' })" -ForegroundColor DarkGray
-if ($script:ImageReqs) {
+if ($script:RunContext.ImageReqs) {
     Write-Host "Image: $ImageURN" -ForegroundColor Cyan
-    Write-Host "Requirements: $($script:ImageReqs.Gen) | $($script:ImageReqs.Arch)" -ForegroundColor DarkCyan
+    Write-Host "Requirements: $($script:RunContext.ImageReqs.Gen) | $($script:RunContext.ImageReqs.Arch)" -ForegroundColor DarkCyan
 }
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
 
 # Fetch pricing data if enabled
-$script:regionPricing = @{}
-$script:usingActualPricing = $false
+$script:RunContext.RegionPricing = @{}
+$script:RunContext.UsingActualPricing = $false
 
 if ($FetchPricing) {
     # Auto-detect: Try negotiated pricing first, fall back to retail
@@ -2290,7 +2405,7 @@ if ($FetchPricing) {
         $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode
         if ($actualPrices -and $actualPrices.Count -gt 0) {
             if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
-            $script:regionPricing[$regionCode] = $actualPrices
+            $script:RunContext.RegionPricing[$regionCode] = $actualPrices
         }
         else {
             $actualPricingSuccess = $false
@@ -2298,18 +2413,18 @@ if ($FetchPricing) {
         }
     }
 
-    if ($actualPricingSuccess -and $script:regionPricing.Count -gt 0) {
-        $script:usingActualPricing = $true
+    if ($actualPricingSuccess -and $script:RunContext.RegionPricing.Count -gt 0) {
+        $script:RunContext.UsingActualPricing = $true
         Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected)" -ForegroundColor Green
     }
     else {
         # Fall back to retail pricing
         Write-Host "No negotiated rates found, using retail pricing..." -ForegroundColor DarkGray
-        $script:regionPricing = @{}
+        $script:RunContext.RegionPricing = @{}
         foreach ($regionCode in $Regions) {
             $pricingResult = Get-AzVMPricing -Region $regionCode
             if ($pricingResult -is [array]) { $pricingResult = $pricingResult[0] }
-            $script:regionPricing[$regionCode] = $pricingResult
+            $script:RunContext.RegionPricing[$regionCode] = $pricingResult
         }
         Write-Host "$($Icons.Check) Using retail pricing (Linux pay-as-you-go)" -ForegroundColor DarkGray
     }
@@ -2669,6 +2784,14 @@ foreach ($subscriptionData in $allSubscriptionData) {
 }
 
 #endregion Process Results
+
+$script:RunContext.ScanOutput = New-ScanOutputContract -SubscriptionData $allSubscriptionData -FamilyStats $allFamilyStats -FamilyDetails $familyDetails -Regions $Regions -SubscriptionIds $TargetSubIds
+
+if ($JsonOutput) {
+    $script:RunContext.ScanOutput | ConvertTo-Json -Depth 8
+    return
+}
+
 #region Drill-Down (if enabled)
 
 if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {

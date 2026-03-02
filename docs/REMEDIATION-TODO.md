@@ -39,10 +39,10 @@
 - [x] P3.3 Verify functional parity with tests + smoke checks
 
 ## Phase 4 — Maintainability & Stable Contracts
-- [ ] P4.1 Define stable output object contract for scan/recommend modes
-- [ ] P4.2 Separate interactive output formatting from compute logic
-- [ ] P4.3 Introduce explicit run context/cache object
-- [ ] P4.4 Remove script-scoped mutable state where feasible
+- [x] P4.1 Define stable output object contract for scan/recommend modes
+- [x] P4.2 Separate interactive output formatting from compute logic
+- [x] P4.3 Introduce explicit run context/cache object
+- [x] P4.4 Remove script-scoped mutable state where feasible
 
 ## Phase 5 — Module Conversion
 - [ ] P5.1 Scaffold module structure (`Public/`, `Private/`, `.psm1`, `.psd1`)

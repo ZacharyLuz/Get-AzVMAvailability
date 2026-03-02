@@ -1,5 +1,6 @@
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
+    . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'New-RecommendOutputContract')))
     . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Invoke-RecommendMode')))
 
     function Get-SafeString { param($Value) [string]$Value }
@@ -89,7 +90,10 @@ Describe 'Invoke-RecommendMode JSON contract' {
         $script:MinScore = 0
         $script:TopN = 5
         $script:JsonOutput = $true
-        $script:regionPricing = @{}
+        $script:RunContext = [pscustomobject]@{
+            RegionPricing   = @{}
+            RecommendOutput = $null
+        }
     }
 
     It 'Emits JSON with required top-level and recommendation fields' {

@@ -63,3 +63,12 @@ PR: #20
 - 2026-03-02: Validation evidence for harness migration checkpoint:
 	- `tools/logs/pester-20260301-235356.log` (130 passed, 0 failed)
 	- `tools/logs/validate-20260301-235356.log` (`ALL CHECKS PASSED`)
+- 2026-03-02: Completed Phase 4 contract/context refactor in `Get-AzVMAvailability.ps1`:
+	- Added stable output contract builders: `New-RecommendOutputContract`, `New-ScanOutputContract`.
+	- Added recommend render wrapper: `Write-RecommendOutputContract` to separate compute from interactive formatting.
+	- Introduced explicit `$script:RunContext` object for runtime state and caches.
+	- Migrated key mutable script state into run context (`RegionPricing`, `UsingActualPricing`, `ImageReqs`, pricing caches, recommend/scan outputs).
+- 2026-03-02: Updated test setup for contract/context refactor in `tests/RecommendJsonContract.Tests.ps1`.
+- 2026-03-02: Validation evidence for Phase 4 checkpoint:
+	- `tools/logs/pester-20260302-183926.log` (130 passed, 0 failed)
+	- `tools/logs/validate-20260302-184201.log` (`ALL CHECKS PASSED`)

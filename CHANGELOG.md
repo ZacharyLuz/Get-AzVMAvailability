@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New test files: `tests/ContextManagement.Tests.ps1`, `tests/RecommendJsonContract.Tests.ps1`
 - New test harness module: `tests/TestHarness.psm1` for importable AST-based function loading
 - 13 new Pester tests for `Get-ProcessorVendor` and `Get-DiskCode`
+- Stable output contract helpers: `New-RecommendOutputContract`, `New-ScanOutputContract`
+- Recommend output renderer wrapper: `Write-RecommendOutputContract`
+- Explicit run context object: `$script:RunContext` for scoped runtime/cache state
 
 ### Changed
 - `Get-SkuCapabilities` now extracts `TempDiskGB`, `AcceleratedNetworkingEnabled`, and `NvmeSupport`
@@ -29,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Subscription scanning now isolates and restores Az context via `try/finally` to avoid caller context side effects.
 - Hot-loop `+=` accumulation replaced with `List[object]` in recommendation and image-search paths.
 - Tests migrated from regex extraction to importable harness-based loading.
+- Recommend mode now builds a contract first and renders via wrapper in non-JSON output mode.
+- JSON output for scan mode now emits a stable contract envelope (`schemaVersion`, `mode`, `generatedAt`, `summary`, `families`, `regionErrors`).
+- Region/pricing/image/runtime mutable state migrated to run-context-scoped properties where feasible.
 
 ## [1.9.0] - 2026-02-25
 
