@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-03-01
+
+### Added
+- **Fleet Safety Warnings** — detects and warns about mixed architectures, CPU vendors, temp disk configs, storage interfaces, and accelerated networking across recommended SKUs
+- **`-AllowMixedArch` parameter** — opt-in to include ARM64 candidates when targeting x64 (or vice versa); default now filters to target architecture
+- **CPU column** in Recommend output — shows Intel/AMD/ARM for each candidate
+- **Disk column** in Recommend output — shows storage config shortcode (NV+T, NVMe, SC+T, SCSI)
+- **Disk codes legend** added to Recommend output footer
+- New helper functions: `Get-ProcessorVendor`, `Get-DiskCode`
+- JSON output now includes `cpu`, `disk`, `tempDiskGB`, `accelNet` fields and a `warnings` array
+- 13 new Pester tests for `Get-ProcessorVendor` and `Get-DiskCode`
+
+### Changed
+- `Get-SkuCapabilities` now extracts `TempDiskGB`, `AcceleratedNetworkingEnabled`, and `NvmeSupport`
+- Recommend table widened to accommodate new columns (base: 113→122, with pricing: 133→140)
+- Architecture filtering enabled by default in Recommend mode (candidates must match target arch)
+
 ## [1.9.0] - 2026-02-25
 
 ### Added

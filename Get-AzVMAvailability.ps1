@@ -116,7 +116,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.9.0
+    Version:        1.10.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -301,7 +301,7 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
 }
 
 #region Configuration
-$ScriptVersion = "1.9.0"
+$ScriptVersion = "1.10.0"
 
 #region Constants
 $HoursPerMonth = 730
@@ -314,26 +314,26 @@ $OutputWidthMax = 150
 
 # VM family purpose descriptions and category groupings
 $FamilyInfo = @{
-    'A'  = @{ Purpose = 'Entry-level/test';       Category = 'Basic' }
-    'B'  = @{ Purpose = 'Burstable';              Category = 'General' }
-    'D'  = @{ Purpose = 'General purpose';         Category = 'General' }
-    'DC' = @{ Purpose = 'Confidential';            Category = 'General' }
-    'E'  = @{ Purpose = 'Memory optimized';        Category = 'Memory' }
-    'EC' = @{ Purpose = 'Confidential memory';     Category = 'Memory' }
-    'F'  = @{ Purpose = 'Compute optimized';       Category = 'Compute' }
-    'FX' = @{ Purpose = 'High-freq compute';       Category = 'Compute' }
-    'G'  = @{ Purpose = 'Memory+storage';          Category = 'Memory' }
-    'H'  = @{ Purpose = 'HPC';                     Category = 'HPC' }
-    'HB' = @{ Purpose = 'HPC (AMD)';               Category = 'HPC' }
-    'HC' = @{ Purpose = 'HPC (Intel)';             Category = 'HPC' }
-    'HX' = @{ Purpose = 'HPC (large memory)';      Category = 'HPC' }
-    'L'  = @{ Purpose = 'Storage optimized';       Category = 'Storage' }
+    'A'  = @{ Purpose = 'Entry-level/test'; Category = 'Basic' }
+    'B'  = @{ Purpose = 'Burstable'; Category = 'General' }
+    'D'  = @{ Purpose = 'General purpose'; Category = 'General' }
+    'DC' = @{ Purpose = 'Confidential'; Category = 'General' }
+    'E'  = @{ Purpose = 'Memory optimized'; Category = 'Memory' }
+    'EC' = @{ Purpose = 'Confidential memory'; Category = 'Memory' }
+    'F'  = @{ Purpose = 'Compute optimized'; Category = 'Compute' }
+    'FX' = @{ Purpose = 'High-freq compute'; Category = 'Compute' }
+    'G'  = @{ Purpose = 'Memory+storage'; Category = 'Memory' }
+    'H'  = @{ Purpose = 'HPC'; Category = 'HPC' }
+    'HB' = @{ Purpose = 'HPC (AMD)'; Category = 'HPC' }
+    'HC' = @{ Purpose = 'HPC (Intel)'; Category = 'HPC' }
+    'HX' = @{ Purpose = 'HPC (large memory)'; Category = 'HPC' }
+    'L'  = @{ Purpose = 'Storage optimized'; Category = 'Storage' }
     'M'  = @{ Purpose = 'Large memory (SAP/HANA)'; Category = 'Memory' }
-    'NC' = @{ Purpose = 'GPU compute';             Category = 'GPU' }
-    'ND' = @{ Purpose = 'GPU training (AI/ML)';    Category = 'GPU' }
-    'NG' = @{ Purpose = 'GPU graphics';            Category = 'GPU' }
-    'NP' = @{ Purpose = 'GPU FPGA';               Category = 'GPU' }
-    'NV' = @{ Purpose = 'GPU visualization';       Category = 'GPU' }
+    'NC' = @{ Purpose = 'GPU compute'; Category = 'GPU' }
+    'ND' = @{ Purpose = 'GPU training (AI/ML)'; Category = 'GPU' }
+    'NG' = @{ Purpose = 'GPU graphics'; Category = 'GPU' }
+    'NP' = @{ Purpose = 'GPU FPGA'; Category = 'GPU' }
+    'NV' = @{ Purpose = 'GPU visualization'; Category = 'GPU' }
 }
 $DefaultTerminalWidth = 80
 $MinTableWidth = 70
@@ -417,9 +417,9 @@ $supportsUnicode = -not $UseAsciiIcons -and (
 # Shorter labels for narrow terminal support (Cloud Shell compatibility)
 $Icons = if ($supportsUnicode) {
     @{
-        OK          = '✓ OK'
-        CAPACITY    = '⚠ CONSTRAINED'
-        LIMITED     = '⚠ LIMITED'
+        OK       = '✓ OK'
+        CAPACITY = '⚠ CONSTRAINED'
+        LIMITED  = '⚠ LIMITED'
         PARTIAL  = '⚡ PARTIAL'
         BLOCKED  = '✗ BLOCKED'
         UNKNOWN  = '? N/A'
@@ -430,9 +430,9 @@ $Icons = if ($supportsUnicode) {
 }
 else {
     @{
-        OK          = '[OK]'
-        CAPACITY    = '[CONSTRAINED]'
-        LIMITED     = '[LIMITED]'
+        OK       = '[OK]'
+        CAPACITY = '[CONSTRAINED]'
+        LIMITED  = '[LIMITED]'
         PARTIAL  = '[PARTIAL]'
         BLOCKED  = '[BLOCKED]'
         UNKNOWN  = '[N/A]'
@@ -755,7 +755,7 @@ function Get-ValidAzureRegions {
         $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName 'Region list API' -ScriptBlock {
             Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
         }
-        
+
         # Filter to regions with valid names (exclude logical/paired regions)
         $validRegions = $response.value | Where-Object {
             $_.metadata.regionCategory -ne 'Other' -and
@@ -772,13 +772,13 @@ function Get-ValidAzureRegions {
     }
     catch {
         Write-Verbose "REST API failed: $($_.Exception.Message). Falling back to Get-AzLocation..."
-        
+
         try {
             # Fallback to Get-AzLocation (slower but more reliable)
-            $validRegions = Get-AzLocation -ErrorAction Stop | 
-                Where-Object { $_.Providers -contains 'Microsoft.Compute' } | 
-                Select-Object -ExpandProperty Location | 
-                ForEach-Object { $_.ToLower() }
+            $validRegions = Get-AzLocation -ErrorAction Stop |
+            Where-Object { $_.Providers -contains 'Microsoft.Compute' } |
+            Select-Object -ExpandProperty Location |
+            ForEach-Object { $_.ToLower() }
 
             if ($validRegions.Count -eq 0) {
                 throw "Get-AzLocation returned no valid regions"
@@ -1032,7 +1032,7 @@ function Get-SkuSimilarityScore {
             $score += 15
         }
         elseif ($Target.Family.Length -gt 0 -and $Candidate.Family.Length -gt 0 -and
-                $Target.Family[0] -eq $Candidate.Family[0]) {
+            $Target.Family[0] -eq $Candidate.Family[0]) {
             $score += 10
         }
     }
@@ -1081,9 +1081,9 @@ function Invoke-RecommendMode {
                 if ($sku.Name -eq $TargetSkuName) {
                     $restrictions = Get-RestrictionDetails $sku
                     $targetRegionStatus += [pscustomobject]@{
-                        Region   = [string]$region
-                        Status   = $restrictions.Status
-                        ZonesOK  = $restrictions.ZonesOK.Count
+                        Region  = [string]$region
+                        Status  = $restrictions.Status
+                        ZonesOK = $restrictions.ZonesOK.Count
                     }
                     if (-not $targetSku) { $targetSku = $sku }
                 }
@@ -1131,7 +1131,8 @@ function Invoke-RecommendMode {
     if ($skuBody -match 'd(?![\d])') {
         if ($targetProfile.TempDiskGB -gt 0) {
             $skuSuffixes += "d = Local temp disk ($($targetProfile.TempDiskGB) GB)"
-        } else {
+        }
+        else {
             $skuSuffixes += 'd = Local temp disk'
         }
     }
@@ -1154,7 +1155,7 @@ function Invoke-RecommendMode {
         Write-Host "    $genMatch" -ForegroundColor DarkGray
     }
     Write-Host ""
-    Write-Host "  $($targetProfile.vCPU) vCPU / $($targetProfile.MemoryGB) GiB / $($targetProfile.Processor) / $($targetDiskCode) / Premium IO: $(if ($targetProfile.PremiumIO) { 'Yes' } else { 'No' })" -ForegroundColor White
+    Write-Host "  $($targetProfile.vCPU) vCPU / $($targetProfile.MemoryGB) GiB / $($targetProfile.Architecture) / $($targetProfile.Processor) / $($targetDiskCode) / Premium IO: $(if ($targetProfile.PremiumIO) { 'Yes' } else { 'No' })" -ForegroundColor White
     Write-Host ""
 
     $availableRegions = @($targetRegionStatus | Where-Object { $_.Status -eq 'OK' })
@@ -1215,22 +1216,23 @@ function Invoke-RecommendMode {
                 }
 
                 $candidates += [pscustomobject]@{
-                    SKU       = $sku.Name
-                    Region    = [string]$region
-                    vCPU      = $candidateProfile.vCPU
-                    MemGiB    = $candidateProfile.MemoryGB
-                    Family    = $candidateProfile.Family
-                    Purpose   = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
-                    Gen       = $caps.HyperVGenerations -replace 'V', '' -replace ',', ','
-                    CPU       = $candidateProcessor
-                    Disk      = $candidateDiskCode
-                    TempGB    = $caps.TempDiskGB
-                    AccelNet  = $caps.AcceleratedNetworkingEnabled
-                    Score     = $simScore
-                    Capacity  = $restrictions.Status
-                    ZonesOK   = $restrictions.ZonesOK.Count
-                    PriceHr   = $priceHr
-                    PriceMo   = $priceMo
+                    SKU      = $sku.Name
+                    Region   = [string]$region
+                    vCPU     = $candidateProfile.vCPU
+                    MemGiB   = $candidateProfile.MemoryGB
+                    Family   = $candidateProfile.Family
+                    Purpose  = if ($FamilyInfo[$candidateProfile.Family]) { $FamilyInfo[$candidateProfile.Family].Purpose } else { '' }
+                    Gen      = $caps.HyperVGenerations -replace 'V', '' -replace ',', ','
+                    Arch     = $candidateProfile.Architecture
+                    CPU      = $candidateProcessor
+                    Disk     = $candidateDiskCode
+                    TempGB   = $caps.TempDiskGB
+                    AccelNet = $caps.AcceleratedNetworkingEnabled
+                    Score    = $simScore
+                    Capacity = $restrictions.Status
+                    ZonesOK  = $restrictions.ZonesOK.Count
+                    PriceHr  = $priceHr
+                    PriceMo  = $priceMo
                 }
             }
         }
@@ -1275,21 +1277,19 @@ function Invoke-RecommendMode {
     }
 
     $ranked = $filtered |
-        Sort-Object @{Expression = 'Score'; Descending = $true},
-                    @{Expression = { if ($_.Capacity -eq 'OK') { 0 } elseif ($_.Capacity -eq 'LIMITED') { 1 } else { 2 } }},
-                    @{Expression = 'ZonesOK'; Descending = $true} |
-        Group-Object SKU |
-        ForEach-Object { $_.Group | Select-Object -First 1 } |
-        Select-Object -First $TopN
+    Sort-Object @{Expression = 'Score'; Descending = $true },
+    @{Expression = { if ($_.Capacity -eq 'OK') { 0 } elseif ($_.Capacity -eq 'LIMITED') { 1 } else { 2 } } },
+    @{Expression = 'ZonesOK'; Descending = $true } |
+    Group-Object SKU |
+    ForEach-Object { $_.Group | Select-Object -First 1 } |
+    Select-Object -First $TopN
 
     # Fleet safety warning detection (shared by JSON and console output)
     $fleetWarnings = @()
     $uniqueCPUs = @($ranked | Select-Object -ExpandProperty CPU -Unique)
     $uniqueAccelNet = @($ranked | Select-Object -ExpandProperty AccelNet -Unique)
     if ($AllowMixedArch) {
-        $uniqueArchs = @($ranked | ForEach-Object {
-            if ($_.CPU -eq 'ARM') { 'ARM64' } else { 'x64' }
-        } | Select-Object -Unique)
+        $uniqueArchs = @($ranked | Select-Object -ExpandProperty Arch -Unique)
         if ($uniqueArchs.Count -gt 1) {
             $fleetWarnings += "Mixed architectures (x64 + ARM64) — each requires a separate OS image."
         }
@@ -1313,30 +1313,31 @@ function Invoke-RecommendMode {
 
     if ($JsonOutput) {
         $jsonResult = @{
-            target              = $targetProfile
-            targetAvailability  = @($targetRegionStatus)
-            recommendations     = @($ranked | ForEach-Object {
-                @{
-                    rank      = 0
-                    sku       = $_.SKU
-                    region    = $_.Region
-                    vCPU      = $_.vCPU
-                    memGiB    = $_.MemGiB
-                    family    = $_.Family
-                    purpose   = $_.Purpose
-                    gen       = $_.Gen
-                    cpu       = $_.CPU
-                    disk      = $_.Disk
-                    tempDiskGB = $_.TempGB
-                    accelNet  = $_.AccelNet
-                    score     = $_.Score
-                    capacity  = $_.Capacity
-                    zonesOK   = $_.ZonesOK
-                    priceHr   = $_.PriceHr
-                    priceMo   = $_.PriceMo
-                }
-            })
-            warnings            = @($fleetWarnings)
+            target             = $targetProfile
+            targetAvailability = @($targetRegionStatus)
+            recommendations    = @($ranked | ForEach-Object {
+                    @{
+                        rank       = 0
+                        sku        = $_.SKU
+                        region     = $_.Region
+                        vCPU       = $_.vCPU
+                        memGiB     = $_.MemGiB
+                        family     = $_.Family
+                        purpose    = $_.Purpose
+                        gen        = $_.Gen
+                        arch       = $_.Arch
+                        cpu        = $_.CPU
+                        disk       = $_.Disk
+                        tempDiskGB = $_.TempGB
+                        accelNet   = $_.AccelNet
+                        score      = $_.Score
+                        capacity   = $_.Capacity
+                        zonesOK    = $_.ZonesOK
+                        priceHr    = $_.PriceHr
+                        priceMo    = $_.PriceMo
+                    }
+                })
+            warnings           = @($fleetWarnings)
         }
         for ($i = 0; $i -lt $jsonResult.recommendations.Count; $i++) {
             $jsonResult.recommendations[$i].rank = $i + 1
@@ -1367,9 +1368,9 @@ function Invoke-RecommendMode {
     $rank = 1
     foreach ($r in $ranked) {
         $rowColor = switch ($r.Capacity) {
-            'OK'      { 'Green' }
+            'OK' { 'Green' }
             'LIMITED' { 'Yellow' }
-            default   { 'DarkYellow' }
+            default { 'DarkYellow' }
         }
         if ($FetchPricing) {
             $hrStr = if ($null -ne $r.PriceHr) { '$' + $r.PriceHr.ToString('0.00') } else { '-' }
@@ -1386,10 +1387,10 @@ function Invoke-RecommendMode {
     $rankedHasOK = ($ranked | Where-Object { $_.Capacity -eq 'OK' }).Count -gt 0
     if (-not $rankedHasOK -and $belowMinSpec.Count -gt 0) {
         $smallerOK = $belowMinSpec |
-            Sort-Object @{Expression = 'Score'; Descending = $true} |
-            Group-Object SKU |
-            ForEach-Object { $_.Group | Select-Object -First 1 } |
-            Select-Object -First 3
+        Sort-Object @{Expression = 'Score'; Descending = $true } |
+        Group-Object SKU |
+        ForEach-Object { $_.Group | Select-Object -First 1 } |
+        Select-Object -First 3
         if ($smallerOK.Count -gt 0) {
             Write-Host ""
             Write-Host "  $($Icons.Warning) CONSIDER SMALLER (better availability, if your workload supports it):" -ForegroundColor Yellow
@@ -1491,19 +1492,19 @@ function Get-SkuCapabilities {
     )
 
     $capabilities = @{
-        HyperVGenerations          = 'V1'
-        CpuArchitecture            = 'x64'
-        TempDiskGB                 = 0
+        HyperVGenerations            = 'V1'
+        CpuArchitecture              = 'x64'
+        TempDiskGB                   = 0
         AcceleratedNetworkingEnabled = $false
-        NvmeSupport                = $false
+        NvmeSupport                  = $false
     }
 
     if ($Sku.Capabilities) {
         foreach ($cap in $Sku.Capabilities) {
             switch ($cap.Name) {
-                'HyperVGenerations'            { $capabilities.HyperVGenerations = $cap.Value }
-                'CpuArchitectureType'          { $capabilities.CpuArchitecture = $cap.Value }
-                'MaxResourceVolumeMB'          {
+                'HyperVGenerations' { $capabilities.HyperVGenerations = $cap.Value }
+                'CpuArchitectureType' { $capabilities.CpuArchitecture = $cap.Value }
+                'MaxResourceVolumeMB' {
                     $mb = 0
                     if ([int]::TryParse($cap.Value, [ref]$mb) -and $mb -gt 0) {
                         $capabilities.TempDiskGB = [math]::Round($mb / $MBPerGB, 0)
@@ -1512,7 +1513,7 @@ function Get-SkuCapabilities {
                 'AcceleratedNetworkingEnabled' {
                     $capabilities.AcceleratedNetworkingEnabled = $cap.Value -eq 'True'
                 }
-                'NvmeDiskSizeInMiB'            { $capabilities.NvmeSupport = $true }
+                'NvmeDiskSizeInMiB' { $capabilities.NvmeSupport = $true }
             }
         }
     }
@@ -1890,7 +1891,8 @@ $validatedRegions = @()
 if ($null -eq $validRegions -or $validRegions.Count -eq 0) {
     Write-Verbose "Region validation unavailable — proceeding with all specified regions"
     $validatedRegions = $Regions
-} else {
+}
+else {
     foreach ($region in $Regions) {
         if ($validRegions -contains $region) {
             $validatedRegions += $region
@@ -2202,8 +2204,8 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
 
 # Calculate consistent output width based on table columns
 # Base columns: Family(12) + SKUs(6) + OK(5) + Largest(18) + Zones(28) + Status(22) + Quota(10) = 101
-# Plus spacing (2 chars between each of 7 columns = 12) = 113 base
-# With pricing: +20 (two 10-char columns) = 133
+# Plus spacing and CPU/Disk columns = 122 base
+# With pricing: +18 (two price columns) = 140
 $script:OutputWidth = if ($FetchPricing) { $OutputWidthWithPricing } else { $OutputWidthBase }
 $script:OutputWidth = [Math]::Max($script:OutputWidth, $OutputWidthMin)
 $script:OutputWidth = [Math]::Min($script:OutputWidth, $OutputWidthMax)
@@ -2813,7 +2815,8 @@ if (-not $NoPrompt -and -not $Recommend) {
                 $recommendSku = "Standard_$recommendSku"
             }
             Invoke-RecommendMode -TargetSkuName $recommendSku -SubscriptionData $allSubscriptionData
-        } else {
+        }
+        else {
             Write-Host "Skipping recommend mode (no SKU provided)." -ForegroundColor Yellow
         }
     }
