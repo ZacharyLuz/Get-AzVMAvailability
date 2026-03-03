@@ -22,6 +22,7 @@
 - [ ] **Syntax valid** — `[scriptblock]::Create((Get-Content 'Get-AzVMAvailability.ps1' -Raw)) | Out-Null` succeeds
 - [ ] **CHANGELOG.md updated** (if functional change)
 - [ ] **New functions have Pester test coverage** (if adding functions to `Get-AzVMAvailability.ps1`)
+- [ ] **Release/tag plan prepared for this version bump** (required when `$ScriptVersion` changes)
 
 ## Validation
 
