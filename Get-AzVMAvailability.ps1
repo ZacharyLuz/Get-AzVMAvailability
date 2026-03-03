@@ -2944,6 +2944,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     QuotaCurrent = if ($null -ne $quotaInfo.Current) { $quotaInfo.Current } else { $null }
                     ImgCompat    = $imgCompat
                     ImgReason    = $imgReason
+                    Alloc        = '-'
                 }
 
                 if ($FetchPricing) {
@@ -3004,6 +3005,22 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 }
                 Write-Host ($rowParts -join '  ') -ForegroundColor $color
             }
+        }
+    }
+}
+
+# Optional placement enrichment for filtered scan mode (SKU-level tables only)
+if ($ShowPlacement -and $SkuFilter -and $SkuFilter.Count -gt 0) {
+    $filteredSkuNames = @($familyDetails | Select-Object -ExpandProperty SKU -Unique)
+    if ($filteredSkuNames.Count -gt 5) {
+        Write-Warning "Placement score lookup skipped in scan mode: filtered set contains $($filteredSkuNames.Count) SKUs (limit is 5). Refine -SkuFilter to 5 or fewer SKUs."
+    }
+    elseif ($filteredSkuNames.Count -gt 0) {
+        $scanPlacementScores = Get-PlacementScores -SkuNames $filteredSkuNames -Regions $Regions -DesiredCount $DesiredCount
+        foreach ($detail in $familyDetails) {
+            $allocKey = "{0}|{1}" -f $detail.SKU, $detail.Region.ToLower()
+            $allocValue = if ($scanPlacementScores.ContainsKey($allocKey)) { [string]$scanPlacementScores[$allocKey].Score } else { 'N/A' }
+            $detail.Alloc = $allocValue
         }
     }
 }
@@ -3167,6 +3184,9 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
 
                     # Fixed-width drill-down table (no Region column since it's in header)
                     $dColWidths = [ordered]@{ SKU = 26; vCPU = 5; MemGiB = 6; Gen = 5; Arch = 5; ZoneStatus = 22; Capacity = 12; Avail = 8 }
+                    if ($ShowPlacement -and $SkuFilter -and $SkuFilter.Count -gt 0) {
+                        $dColWidths['Alloc'] = 8
+                    }
                     if ($FetchPricing) {
                         $dColWidths['$/Hr'] = 8
                         $dColWidths['$/Mo'] = 8
