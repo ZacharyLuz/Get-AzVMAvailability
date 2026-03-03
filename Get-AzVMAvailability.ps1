@@ -1521,8 +1521,8 @@ function Invoke-RecommendMode {
                 $priceMo = $null
                 if ($FetchPricing -and $script:RunContext.RegionPricing[[string]$region]) {
                     $regionPriceData = $script:RunContext.RegionPricing[[string]$region]
-                    if ($regionPriceData -is [array]) { $regionPriceData = $regionPriceData[0] }
-                    $skuPricing = $regionPriceData[$sku.Name]
+                    $regularPriceMap = Get-RegularPricingMap -PricingContainer $regionPriceData
+                    $skuPricing = $regularPriceMap[$sku.Name]
                     if ($skuPricing) {
                         $priceHr = $skuPricing.Hourly
                         $priceMo = $skuPricing.Monthly
@@ -1867,7 +1867,8 @@ function Get-AzVMPricing {
     # Build filter for the API - get Linux consumption pricing
     $filter = "armRegionName eq '$armLocation' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'"
 
-    $allPrices = @{}
+    $regularPrices = @{}
+    $spotPrices = @{}
     $apiUrl = "$($script:AzureEndpoints.PricingApiUrl)?`$filter=$([uri]::EscapeDataString($filter))"
 
     try {
@@ -1894,9 +1895,11 @@ function Get-AzVMPricing {
                 $vmSize = $item.armSkuName
                 if (-not $vmSize) { continue }
 
-                # Prefer regular (non-spot) pricing
-                if (-not $allPrices[$vmSize] -or $item.skuName -notmatch 'Spot') {
-                    $allPrices[$vmSize] = @{
+                $isSpot = ($item.skuName -match 'Spot' -or $item.meterName -match 'Spot')
+                $targetMap = if ($isSpot) { $spotPrices } else { $regularPrices }
+
+                if (-not $targetMap[$vmSize]) {
+                    $targetMap[$vmSize] = @{
                         Hourly   = [math]::Round($item.retailPrice, 4)
                         Monthly  = [math]::Round($item.retailPrice * $HoursPerMonth, 2)
                         Currency = $item.currencyCode
@@ -1908,14 +1911,43 @@ function Get-AzVMPricing {
             $nextLink = $response.NextPageLink
         }
 
-        $script:RunContext.Caches.Pricing[$armLocation] = $allPrices
+        $result = [ordered]@{
+            Regular = $regularPrices
+            Spot    = $spotPrices
+        }
 
-        return $allPrices
+        $script:RunContext.Caches.Pricing[$armLocation] = $result
+
+        return $result
     }
     catch {
         Write-Verbose "Failed to fetch pricing for region $Region`: $_"
+        return [ordered]@{
+            Regular = @{}
+            Spot    = @{}
+        }
+    }
+}
+
+function Get-RegularPricingMap {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$PricingContainer
+    )
+
+    if ($null -eq $PricingContainer) {
         return @{}
     }
+
+    if ($PricingContainer -is [array]) {
+        $PricingContainer = $PricingContainer[0]
+    }
+
+    if ($PricingContainer -is [hashtable] -and $PricingContainer.ContainsKey('Regular')) {
+        return $PricingContainer.Regular
+    }
+
+    return $PricingContainer
 }
 
 function Get-PlacementScores {
@@ -2853,15 +2885,15 @@ foreach ($subscriptionData in $allSubscriptionData) {
             $priceMoStr = '-'
             # Get pricing data - handle potential array wrapping
             $regionPricingData = $script:RunContext.RegionPricing[$region]
-            if ($regionPricingData -is [array]) { $regionPricingData = $regionPricingData[0] }
-            if ($FetchPricing -and $regionPricingData -and $regionPricingData.Count -gt 1) {
+            $regularPriceMap = Get-RegularPricingMap -PricingContainer $regionPricingData
+            if ($FetchPricing -and $regularPriceMap -and $regularPriceMap.Count -gt 0) {
                 $sortedSkus = $skus | ForEach-Object {
                     @{ Sku = $_; vCPU = [int](Get-CapValue $_ 'vCPUs') }
                 } | Sort-Object vCPU
 
                 foreach ($skuInfo in $sortedSkus) {
                     $skuName = $skuInfo.Sku.Name
-                    $pricing = $regionPricingData[$skuName]
+                    $pricing = $regularPriceMap[$skuName]
                     if ($pricing) {
                         $priceHrStr = '$' + $pricing.Hourly.ToString('0.00')
                         $priceMoStr = '$' + $pricing.Monthly.ToString('0')
@@ -2900,8 +2932,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 # Get individual SKU pricing
                 $skuPriceHr = '-'
                 $skuPriceMo = '-'
-                if ($FetchPricing -and $regionPricingData) {
-                    $skuPricing = $regionPricingData[$sku.Name]
+                if ($FetchPricing -and $regularPriceMap) {
+                    $skuPricing = $regularPriceMap[$sku.Name]
                     if ($skuPricing) {
                         $skuPriceHr = '$' + $skuPricing.Hourly.ToString('0.00')
                         $skuPriceMo = '$' + $skuPricing.Monthly.ToString('0')
