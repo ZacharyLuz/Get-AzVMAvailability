@@ -349,18 +349,18 @@ $MinTableWidth = 70
 $ExcelDescriptionColumnWidth = 70
 $MinRecommendationScoreDefault = 50
 #endregion Constants
-# Cache for valid Azure regions (populated by Get-ValidAzureRegions)
+# Runtime context for per-run state, outputs, and reusable caches
 $script:RunContext = [pscustomobject]@{
-    SchemaVersion   = '1.0'
-    OutputWidth     = $null
-    ImageReqs       = $null
-    RegionPricing   = @{}
+    SchemaVersion      = '1.0'
+    OutputWidth        = $null
+    ImageReqs          = $null
+    RegionPricing      = @{}
     UsingActualPricing = $false
-    ScanOutput      = $null
-    RecommendOutput = $null
-    Caches          = [ordered]@{
-        ValidRegions = $null
-        Pricing      = @{}
+    ScanOutput         = $null
+    RecommendOutput    = $null
+    Caches             = [ordered]@{
+        ValidRegions  = $null
+        Pricing       = @{}
         ActualPricing = @{}
     }
 }
@@ -1127,7 +1127,7 @@ function Get-SkuSimilarityScore {
 }
 
 function New-RecommendOutputContract {
-    [CmdletBinding(SupportsShouldProcess)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     param(
         [Parameter(Mandatory)][hashtable]$TargetProfile,
         [Parameter(Mandatory)][AllowEmptyCollection()][array]$TargetAvailability,
@@ -1138,10 +1138,6 @@ function New-RecommendOutputContract {
         [Parameter(Mandatory)][int]$TopN,
         [Parameter(Mandatory)][bool]$FetchPricing
     )
-
-    if (-not $PSCmdlet.ShouldProcess('recommendation output contract', 'Build')) {
-        return $null
-    }
 
     $rankedPayload = @()
     $rank = 1
@@ -1182,17 +1178,17 @@ function New-RecommendOutputContract {
     }
 
     return [pscustomobject]@{
-        schemaVersion    = '1.0'
-        mode             = 'recommend'
-        generatedAt      = (Get-Date).ToString('o')
-        minScore         = $MinScore
-        topN             = $TopN
-        pricingEnabled   = $FetchPricing
-        target           = [pscustomobject]$TargetProfile
+        schemaVersion      = '1.0'
+        mode               = 'recommend'
+        generatedAt        = (Get-Date).ToString('o')
+        minScore           = $MinScore
+        topN               = $TopN
+        pricingEnabled     = $FetchPricing
+        target             = [pscustomobject]$TargetProfile
         targetAvailability = @($TargetAvailability)
-        recommendations  = @($rankedPayload)
-        warnings         = @($Warnings)
-        belowMinSpec     = @($belowMinSpecPayload)
+        recommendations    = @($rankedPayload)
+        warnings           = @($Warnings)
+        belowMinSpec       = @($belowMinSpecPayload)
     }
 }
 
@@ -1297,6 +1293,23 @@ function Write-RecommendOutputContract {
         Write-Host $line -ForegroundColor $rowColor
     }
 
+    $hasOkCapacity = (@($recommendations | Where-Object { $_.capacity -eq 'OK' }).Count -gt 0)
+    if (-not $hasOkCapacity -and @($Contract.belowMinSpec).Count -gt 0) {
+        $smallerOK = $Contract.belowMinSpec |
+        Sort-Object @{Expression = 'score'; Descending = $true } |
+        Group-Object sku |
+        ForEach-Object { $_.Group | Select-Object -First 1 } |
+        Select-Object -First 3
+
+        if ($smallerOK.Count -gt 0) {
+            Write-Host ""
+            Write-Host "  $($Icons.Warning) CONSIDER SMALLER (better availability, if your workload supports it):" -ForegroundColor Yellow
+            foreach ($s in $smallerOK) {
+                Write-Host "    $($s.sku) ($($s.vCPU) vCPU / $($s.memGiB) GiB) — $($s.capacity) in $($s.region)" -ForegroundColor DarkYellow
+            }
+        }
+    }
+
     Write-Host ''
     Write-Host 'STATUS KEY:' -ForegroundColor DarkGray
     Write-Host '  OK                    = Ready to deploy. No restrictions.' -ForegroundColor Green
@@ -1321,7 +1334,7 @@ function Write-RecommendOutputContract {
 }
 
 function New-ScanOutputContract {
-    [CmdletBinding(SupportsShouldProcess)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     param(
         [Parameter(Mandatory)][array]$SubscriptionData,
         [Parameter(Mandatory)][hashtable]$FamilyStats,
@@ -1330,20 +1343,16 @@ function New-ScanOutputContract {
         [Parameter(Mandatory)][string[]]$SubscriptionIds
     )
 
-    if (-not $PSCmdlet.ShouldProcess('scan output contract', 'Build')) {
-        return $null
-    }
-
     $families = @(
         $FamilyStats.Keys | Sort-Object | ForEach-Object {
             $family = $_
             $familyData = $FamilyStats[$family]
             [pscustomobject]@{
-                family                = $family
-                totalSkusDiscovered   = $familyData.TotalSkus
-                availableRegionCount  = $familyData.AvailableRegions.Count
+                family                 = $family
+                totalSkusDiscovered    = $familyData.TotalSkus
+                availableRegionCount   = $familyData.AvailableRegions.Count
                 constrainedRegionCount = $familyData.ConstrainedRegions.Count
-                largestSku            = $familyData.LargestSKU
+                largestSku             = $familyData.LargestSKU
             }
         }
     )
@@ -2691,8 +2700,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 # Check image compatibility if image was specified
                 $imgCompat = '–'
                 $imgReason = ''
-                if ($script:ImageReqs) {
-                    $compatResult = Test-ImageSkuCompatibility -ImageReqs $script:ImageReqs -SkuCapabilities $skuCaps
+                if ($script:RunContext.ImageReqs) {
+                    $compatResult = Test-ImageSkuCompatibility -ImageReqs $script:RunContext.ImageReqs -SkuCapabilities $skuCaps
                     if ($compatResult.Compatible) {
                         $imgCompat = if ($supportsUnicode) { '✓' } else { '[+]' }
                     }
@@ -2903,8 +2912,8 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
             Write-Host "`nFamily: $fam (shared quota per region)" -ForegroundColor Cyan
 
             # Show image requirements if checking compatibility
-            if ($script:ImageReqs) {
-                Write-Host "Image: $ImageURN (Requires: $($script:ImageReqs.Gen) | $($script:ImageReqs.Arch))" -ForegroundColor DarkCyan
+            if ($script:RunContext.ImageReqs) {
+                Write-Host "Image: $ImageURN (Requires: $($script:RunContext.ImageReqs.Gen) | $($script:RunContext.ImageReqs.Arch))" -ForegroundColor DarkCyan
             }
 
             $skuFilter = $null
@@ -2946,7 +2955,7 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
                         $dColWidths['$/Hr'] = 8
                         $dColWidths['$/Mo'] = 8
                     }
-                    if ($script:ImageReqs) {
+                    if ($script:RunContext.ImageReqs) {
                         $dColWidths['Img'] = 4
                     }
                     $dColWidths['Reason'] = 24

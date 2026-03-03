@@ -351,7 +351,7 @@ SKUs that are available but **incompatible** with your image are shown in dark y
 ### Console Output (with Pricing)
 ```
 ====================================================================================
-GET-AZVMAVAILABILITY v1.4.0
+GET-AZVMAVAILABILITY v1.10.0
 ====================================================================================
 SKU Filter: Standard_D2s_v5 | Pricing: Enabled
 
