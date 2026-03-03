@@ -246,6 +246,13 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Show hourly pricing (auto-detects negotiated rates, falls back to retail)")]
     [switch]$ShowPricing,
 
+    [Parameter(Mandatory = $false, HelpMessage = "Show allocation likelihood scores (High/Medium/Low) from Azure placement API")]
+    [switch]$ShowPlacement,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Desired VM count for placement score API")]
+    [ValidateRange(1, 1000)]
+    [int]$DesiredCount = 1,
+
     [Parameter(Mandatory = $false, HelpMessage = "VM image URN to check compatibility (format: Publisher:Offer:Sku:Version)")]
     [string]$ImageURN,
 
@@ -383,6 +390,8 @@ if (-not $PSBoundParameters.ContainsKey('MinScore')) {
 $TargetSubIds = $SubscriptionId
 $Regions = $Region
 $EnableDrill = $EnableDrillDown.IsPresent
+$script:RunContext.ShowPlacement = $ShowPlacement.IsPresent
+$script:RunContext.DesiredCount = $DesiredCount
 
 # Region Presets - expand preset name to actual region array
 # Note: All presets limited to 5 regions max for performance
@@ -1825,6 +1834,93 @@ function Get-AzVMPricing {
         Write-Verbose "Failed to fetch pricing for region $Region`: $_"
         return @{}
     }
+}
+
+function Get-PlacementScores {
+    <#
+    .SYNOPSIS
+        Retrieves Azure VM placement likelihood scores for SKU and region combinations.
+    .DESCRIPTION
+        Calls Invoke-AzSpotPlacementScore (API name includes "Spot", but returned placement
+        signal is broadly useful for VM allocation planning). Returns a hashtable keyed by
+        "sku|region" with score metadata.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string[]]$SkuNames,
+
+        [Parameter(Mandatory)]
+        [string[]]$Regions,
+
+        [ValidateRange(1, 1000)]
+        [int]$DesiredCount = 1,
+
+        [switch]$IncludeAvailabilityZone
+    )
+
+    $scores = @{}
+    $normalizedSkus = @($SkuNames | Where-Object { $_ } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First 5)
+    $normalizedRegions = @($Regions | Where-Object { $_ } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First 8)
+
+    if ($normalizedSkus.Count -eq 0 -or $normalizedRegions.Count -eq 0) {
+        return $scores
+    }
+
+    if (-not (Get-Command -Name 'Invoke-AzSpotPlacementScore' -ErrorAction SilentlyContinue)) {
+        Write-Verbose 'Invoke-AzSpotPlacementScore is not available in the current Az.Compute module.'
+        return $scores
+    }
+
+    try {
+        $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName 'Spot Placement Score API' -ScriptBlock {
+            Invoke-AzSpotPlacementScore -Location $normalizedRegions -Sku $normalizedSkus -DesiredCount $DesiredCount -IsZonePlacement:$IncludeAvailabilityZone.IsPresent -ErrorAction Stop
+        }
+    }
+    catch {
+        $errorText = $_.Exception.Message
+        $isForbidden = $errorText -match '403|forbidden|authorization|not authorized|insufficient privileges'
+        if ($isForbidden) {
+            if (-not $script:RunContext.Caches.PlacementWarned403) {
+                Write-Warning 'Placement score lookup skipped: missing permissions (Compute Recommendations Role).'
+                $script:RunContext.Caches.PlacementWarned403 = $true
+            }
+            return $scores
+        }
+
+        Write-Verbose "Failed to retrieve placement scores: $errorText"
+        return $scores
+    }
+
+    $rows = @()
+    if ($null -eq $response) {
+        return $scores
+    }
+
+    if ($response -is [System.Collections.IEnumerable] -and $response -isnot [string]) {
+        $rows = @($response)
+    }
+    else {
+        $rows = @($response)
+    }
+
+    foreach ($row in $rows) {
+        if ($null -eq $row) { continue }
+
+        $sku = @($row.Sku, $row.SkuName, $row.VmSize, $row.ArmSkuName) | Where-Object { $_ } | Select-Object -First 1
+        $region = @($row.Region, $row.Location, $row.ArmRegionName) | Where-Object { $_ } | Select-Object -First 1
+        $score = @($row.Score, $row.PlacementScore, $row.AvailabilityScore) | Where-Object { $_ } | Select-Object -First 1
+
+        if (-not $sku -or -not $region) { continue }
+
+        $key = "$sku|$($region.ToString().ToLower())"
+        $scores[$key] = [pscustomobject]@{
+            Score        = if ($score) { $score.ToString() } else { 'N/A' }
+            IsAvailable  = if ($null -ne $row.IsAvailable) { [bool]$row.IsAvailable } else { $null }
+            IsRestricted = if ($null -ne $row.IsRestricted) { [bool]$row.IsRestricted } else { $null }
+        }
+    }
+
+    return $scores
 }
 
 function Get-AzActualPricing {

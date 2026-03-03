@@ -181,6 +181,27 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 ---
 
 ## Version 2.0.0 (Future)
+**Theme: Module Implementation**
+
+- [ ] **Module Structure** - Refactor into `AzVMAvailability` module with Public/Private functions
+- [ ] **Backward-Compatible Wrapper** - Keep `Get-AzVMAvailability.ps1` as entry point
+- [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent
+- [ ] **Module Manifest + Validation** - Add and validate `.psd1` manifest in CI
+- [ ] **Migration Guidance** - Document script-to-module migration path and examples
+
+---
+
+## Version 1.12.0 (Future)
+**Theme: Fleet Planning**
+
+- [ ] **Fleet Planning** - Distribute vCPU requirements across regions (`-FleetSize`)
+- [ ] **Workload Profiles** - Pre-tuned scoring weights for MemoryOptimized, ComputeOptimized, GPU
+- [ ] **VMSS Script Generation** - Generate deployment scripts for regional fleet allocation
+- [ ] **Fleet Strategy Modes** - Balanced/HighAvailability/CostOptimized/MaxSavings
+
+---
+
+## Version 2.1.0 (Future)
 **Theme: Proactive Monitoring**
 
 - [ ] **Watch Mode** - Continuous monitoring with alerts
