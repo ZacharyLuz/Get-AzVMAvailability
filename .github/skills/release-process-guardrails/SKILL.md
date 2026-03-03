@@ -1,7 +1,6 @@
 ---
 name: release-process-guardrails
 description: Guardrails for protected-branch release flow (PR-only, merge-then-tag, CI gates). Use this skill for any release/tag/publish/merge workflow in this repo.
-applyTo: "**/*"
 ---
 
 # Release Process Guardrails
@@ -16,6 +15,9 @@ applyTo: "**/*"
 - Merge PR first, then create tag and GitHub release
 - Verify CI and code scanning are green before merge
 - If local `main` diverges from `origin/main`, prefer reset to `origin/main` over creating a merge commit
+- Use required closeout checklist artifacts before declaring release complete:
+	- `docs/VERIFY-RELEASE.md`
+	- `.github/skills/release-verification-checklist/SKILL.md`
 
 ## Checklist
 1) Ensure PR exists for release changes
@@ -24,6 +26,7 @@ applyTo: "**/*"
 4) Sync local `main` to `origin/main`
 5) Tag release on the merge commit
 6) Create/verify GitHub release notes
+7) Verify published release metadata with `gh release list`
 
 ## Common pitfalls
 - Tagging or publishing before PR merge (tags point to local-only commits)
@@ -36,3 +39,4 @@ applyTo: "**/*"
 - Tag release: `git tag vX.Y.Z; git push --tags`
 - Release notes: `gh release create vX.Y.Z -t "vX.Y.Z" -n "..."`
 - Align local main: `git fetch origin; git reset --hard origin/main`
+- Verify release publication: `gh release list --limit 10`

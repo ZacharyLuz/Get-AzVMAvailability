@@ -21,6 +21,7 @@
 - [ ] **Pester tests pass** — `Invoke-Pester ./tests -Output Detailed`
 - [ ] **Syntax valid** — `[scriptblock]::Create((Get-Content 'Get-AzVMAvailability.ps1' -Raw)) | Out-Null` succeeds
 - [ ] **CHANGELOG.md updated** (if functional change)
+- [ ] **Release/tag plan prepared for this version bump** (required when `$ScriptVersion` changes)
 
 ## Validation
 
