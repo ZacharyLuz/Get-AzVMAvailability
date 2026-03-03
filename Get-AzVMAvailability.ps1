@@ -1153,7 +1153,8 @@ function New-RecommendOutputContract {
         [Parameter(Mandatory)][AllowEmptyCollection()][array]$BelowMinSpec,
         [Parameter(Mandatory)][int]$MinScore,
         [Parameter(Mandatory)][int]$TopN,
-        [Parameter(Mandatory)][bool]$FetchPricing
+        [Parameter(Mandatory)][bool]$FetchPricing,
+        [Parameter(Mandatory)][bool]$ShowPlacement
     )
 
     $rankedPayload = [System.Collections.Generic.List[object]]::new()
@@ -1175,6 +1176,7 @@ function New-RecommendOutputContract {
             accelNet   = $item.AccelNet
             score      = $item.Score
             capacity   = $item.Capacity
+            allocScore = $item.AllocScore
             zonesOK    = $item.ZonesOK
             priceHr    = $item.PriceHr
             priceMo    = $item.PriceMo
@@ -1201,6 +1203,7 @@ function New-RecommendOutputContract {
         minScore           = $MinScore
         topN               = $TopN
         pricingEnabled     = $FetchPricing
+        placementEnabled   = $ShowPlacement
         target             = [pscustomobject]$TargetProfile
         targetAvailability = @($TargetAvailability)
         recommendations    = @($rankedPayload)
@@ -1220,6 +1223,7 @@ function Write-RecommendOutputContract {
     $targetProfile = $Contract.target
     $targetAvailability = @($Contract.targetAvailability)
     $recommendations = @($Contract.recommendations)
+    $placementEnabled = [bool]$Contract.placementEnabled
     $fleetWarnings = @($Contract.warnings)
 
     Write-Host "`n" -NoNewline
@@ -1283,10 +1287,20 @@ function Write-RecommendOutputContract {
     Write-Host "`nRECOMMENDED ALTERNATIVES (top $($recommendations.Count), sorted by similarity):" -ForegroundColor Green
     Write-Host ""
 
-    if ($FetchPricing) {
+    if ($FetchPricing -and $placementEnabled) {
+        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-8} {11,-5} {12,-8} {13,-8}"
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Alloc', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
+        Write-Host (' ' + ('-' * 147)) -ForegroundColor DarkGray
+    }
+    elseif ($FetchPricing) {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5} {11,-8} {12,-8}"
         Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
         Write-Host (' ' + ('-' * 137)) -ForegroundColor DarkGray
+    }
+    elseif ($placementEnabled) {
+        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-8} {11,-5}"
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Alloc', 'Zones') -ForegroundColor White
+        Write-Host (' ' + ('-' * 129)) -ForegroundColor DarkGray
     }
     else {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5}"
@@ -1303,10 +1317,22 @@ function Write-RecommendOutputContract {
         if ($FetchPricing) {
             $hrStr = if ($null -ne $r.priceHr) { '$' + ([double]$r.priceHr).ToString('0.00') } else { '-' }
             $moStr = if ($null -ne $r.priceMo) { '$' + ([double]$r.priceMo).ToString('0') } else { '-' }
-            $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK, $hrStr, $moStr
+            if ($placementEnabled) {
+                $allocStr = if ($r.allocScore) { [string]$r.allocScore } else { '-' }
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $allocStr, $r.zonesOK, $hrStr, $moStr
+            }
+            else {
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK, $hrStr, $moStr
+            }
         }
         else {
-            $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK
+            if ($placementEnabled) {
+                $allocStr = if ($r.allocScore) { [string]$r.allocScore } else { '-' }
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $allocStr, $r.zonesOK
+            }
+            else {
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK
+            }
         }
         Write-Host $line -ForegroundColor $rowColor
     }
@@ -1548,7 +1574,8 @@ function Invoke-RecommendMode {
     }
 
     if (-not $filtered -or $filtered.Count -eq 0) {
-        $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @() -Warnings @() -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing)
+        $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @() -Warnings @() -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement
+        )
         if ($JsonOutput) {
             $script:RunContext.RecommendOutput | ConvertTo-Json -Depth 6
             return
@@ -1565,6 +1592,60 @@ function Invoke-RecommendMode {
     Group-Object SKU |
     ForEach-Object { $_.Group | Select-Object -First 1 } |
     Select-Object -First $TopN
+
+    if ($ShowPlacement) {
+        $placementScores = Get-PlacementScores -SkuNames @($ranked | Select-Object -ExpandProperty SKU) -Regions @($ranked | Select-Object -ExpandProperty Region) -DesiredCount $DesiredCount
+        $ranked = @($ranked | ForEach-Object {
+                $item = $_
+                $key = "{0}|{1}" -f $item.SKU, $item.Region.ToLower()
+                $allocScore = if ($placementScores.ContainsKey($key)) { $placementScores[$key].Score } else { 'N/A' }
+                [pscustomobject]@{
+                    SKU       = $item.SKU
+                    Region    = $item.Region
+                    vCPU      = $item.vCPU
+                    MemGiB    = $item.MemGiB
+                    Family    = $item.Family
+                    Purpose   = $item.Purpose
+                    Gen       = $item.Gen
+                    Arch      = $item.Arch
+                    CPU       = $item.CPU
+                    Disk      = $item.Disk
+                    TempGB    = $item.TempGB
+                    AccelNet  = $item.AccelNet
+                    Score     = $item.Score
+                    Capacity  = $item.Capacity
+                    AllocScore = $allocScore
+                    ZonesOK   = $item.ZonesOK
+                    PriceHr   = $item.PriceHr
+                    PriceMo   = $item.PriceMo
+                }
+            })
+    }
+    else {
+        $ranked = @($ranked | ForEach-Object {
+                $item = $_
+                [pscustomobject]@{
+                    SKU       = $item.SKU
+                    Region    = $item.Region
+                    vCPU      = $item.vCPU
+                    MemGiB    = $item.MemGiB
+                    Family    = $item.Family
+                    Purpose   = $item.Purpose
+                    Gen       = $item.Gen
+                    Arch      = $item.Arch
+                    CPU       = $item.CPU
+                    Disk      = $item.Disk
+                    TempGB    = $item.TempGB
+                    AccelNet  = $item.AccelNet
+                    Score     = $item.Score
+                    Capacity  = $item.Capacity
+                    AllocScore = $null
+                    ZonesOK   = $item.ZonesOK
+                    PriceHr   = $item.PriceHr
+                    PriceMo   = $item.PriceMo
+                }
+            })
+    }
 
     # Fleet safety warning detection (shared by JSON and console output)
     $fleetWarnings = @()
@@ -1593,7 +1674,8 @@ function Invoke-RecommendMode {
         $fleetWarnings += "Mixed accelerated networking support — network performance will vary across the fleet."
     }
 
-    $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($fleetWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing)
+    $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($fleetWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement
+    )
 
     if ($JsonOutput) {
         $script:RunContext.RecommendOutput | ConvertTo-Json -Depth 6

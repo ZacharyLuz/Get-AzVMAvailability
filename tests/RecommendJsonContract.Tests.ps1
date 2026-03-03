@@ -67,6 +67,17 @@ BeforeAll {
         return [Math]::Max(0, $score)
     }
 
+    function Get-PlacementScores {
+        param([string[]]$SkuNames, [string[]]$Regions, [int]$DesiredCount)
+        $scores = @{}
+        foreach ($sku in $SkuNames) {
+            foreach ($region in $Regions) {
+                $scores["$sku|$($region.ToLower())"] = [pscustomobject]@{ Score = 'High' }
+            }
+        }
+        return $scores
+    }
+
     $script:FamilyInfo = @{
         D = @{ Purpose = 'General purpose'; Category = 'General' }
         E = @{ Purpose = 'Memory optimized'; Category = 'Memory' }
@@ -90,6 +101,8 @@ Describe 'Invoke-RecommendMode JSON contract' {
         $script:MinScore = 0
         $script:TopN = 5
         $script:JsonOutput = $true
+        $script:ShowPlacement = $false
+        $script:DesiredCount = 1
         $script:RunContext = [pscustomobject]@{
             RegionPricing   = @{}
             RecommendOutput = $null
@@ -117,6 +130,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
         $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData) | ConvertFrom-Json
 
         $result.target | Should -Not -BeNullOrEmpty
+        $result.placementEnabled | Should -BeFalse
         $result.targetAvailability | Should -Not -BeNullOrEmpty
         $result.recommendations.Count | Should -BeGreaterThan 0
         $result.PSObject.Properties.Name | Should -Contain 'warnings'
@@ -206,5 +220,32 @@ Describe 'Invoke-RecommendMode JSON contract' {
         @($result.recommendations.sku) | Should -Contain 'Standard_D8s_v5'
         @($result.recommendations.sku) | Should -Contain 'Standard_D8ps_v6'
         @($result.warnings) -join ' ' | Should -Match 'Mixed architectures'
+    }
+
+    It 'Adds allocation score when ShowPlacement is enabled' {
+        $script:ShowPlacement = $true
+
+        $subscriptionData = @(
+            [pscustomobject]@{
+                SubscriptionId = 'sub-1'
+                RegionData     = @(
+                    [pscustomobject]@{
+                        Region = 'eastus'
+                        Error  = $null
+                        Skus   = @(
+                            [pscustomobject]@{ Name = 'Standard_D4s_v5' }
+                            [pscustomobject]@{ Name = 'Standard_D8s_v5' }
+                        )
+                    }
+                )
+            }
+        )
+
+        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData) | ConvertFrom-Json
+
+        $result.placementEnabled | Should -BeTrue
+        $result.recommendations.Count | Should -BeGreaterThan 0
+        $result.recommendations[0].PSObject.Properties.Name | Should -Contain 'allocScore'
+        $result.recommendations[0].allocScore | Should -Be 'High'
     }
 }
