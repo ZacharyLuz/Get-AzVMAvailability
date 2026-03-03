@@ -83,6 +83,23 @@ Before submitting a PR, test with:
 - CSV and XLSX exports
 - Unicode and ASCII terminal modes
 
+## Release Process Standard (Required)
+
+For any change that updates `$ScriptVersion`, use this order every time:
+
+1. Merge PR into `main`
+2. Sync local `main` to `origin/main`
+3. Create tag `vX.Y.Z` on the merge commit
+4. Create GitHub Release from `CHANGELOG.md` section `## [X.Y.Z]`
+5. Verify release metadata with `gh release list`
+
+### Required closeout artifacts
+
+- `docs/VERIFY-RELEASE.md`
+- `.github/skills/release-verification-checklist/SKILL.md`
+
+These are the required checklist references before release closeout.
+
 ## Questions?
 
 Feel free to [open an issue](https://github.com/ZacharyLuz/Get-AzVMAvailability/issues) on GitHub.

@@ -1,0 +1,80 @@
+name: "Release Metadata Guard"
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  guard:
+    name: Release Metadata Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version/changelog parity
+        id: version_check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if (-not (Test-Path "./docs/VERIFY-RELEASE.md")) {
+            throw "Required closeout checklist missing: docs/VERIFY-RELEASE.md"
+          }
+          if (-not (Test-Path "./.github/skills/release-verification-checklist/SKILL.md")) {
+            throw "Required closeout checklist skill missing: .github/skills/release-verification-checklist/SKILL.md"
+          }
+
+          git fetch origin "${{ github.base_ref }}" --depth=1
+
+          $headScript = Get-Content "./Get-AzVMAvailability.ps1" -Raw
+          $headMatch = [regex]::Match($headScript, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
+          if (-not $headMatch.Success) {
+            throw "Could not read ScriptVersion from PR head script."
+          }
+          $headVersion = $headMatch.Groups[1].Value
+
+          $baseScript = git show "origin/${{ github.base_ref }}:Get-AzVMAvailability.ps1"
+          $baseMatch = [regex]::Match($baseScript, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
+          if (-not $baseMatch.Success) {
+            throw "Could not read ScriptVersion from base branch script."
+          }
+          $baseVersion = $baseMatch.Groups[1].Value
+
+          Write-Host "Base version: $baseVersion"
+          Write-Host "Head version: $headVersion"
+
+          $versionChanged = $headVersion -ne $baseVersion
+          "version_changed=$versionChanged" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "head_version=$headVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "base_version=$baseVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          if ($versionChanged) {
+            Write-Host "ScriptVersion changed in this PR. Verifying CHANGELOG entry for $headVersion..."
+            $changelog = Get-Content "./CHANGELOG.md" -Raw
+            if ($changelog -notmatch [regex]::Escape("## [$headVersion]")) {
+              throw "ScriptVersion changed ($baseVersion -> $headVersion) but CHANGELOG.md is missing heading: ## [$headVersion]"
+            }
+          }
+
+          Write-Host "Release metadata guard passed."
+
+      - name: Validate PR release plan checkbox for version bumps
+        if: steps.version_check.outputs.version_changed == 'True'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request?.body || '';
+            const required = /- \[[xX]\]\s+Release\/tag plan prepared for this version bump/;
+            if (!required.test(body)) {
+              core.setFailed('ScriptVersion changed, but PR checklist item is not checked: "Release/tag plan prepared for this version bump".');
+            } else {
+              core.info('PR release plan checkbox validated.');
+            }
