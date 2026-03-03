@@ -52,6 +52,22 @@
 - **Tag and release only after PR merge** — never tag before merging.
 - For detailed workflow, see [.github/skills/release-process-guardrails/SKILL.md](.github/skills/release-process-guardrails/SKILL.md).
 
+## PR Body Formatting Standard
+
+- PR descriptions must be valid rendered Markdown (no literal escaped newline text like `\n`).
+- When using GitHub CLI, prefer `--body-file` over inline `--body` for multi-line content.
+- If using `--body`, build it from a PowerShell here-string to preserve real newlines.
+- Before merging, verify rendered content with:
+  - `gh pr view <pr-number> --json body --jq .body`
+
+## PR Review Comment Triage Standard
+
+- Before implementing additional changes on an active PR branch, always pull the latest PR review feedback first.
+- Required commands:
+  - `gh pr view <pr-number> --json reviews,comments --jq '.reviews[] | {author: .author.login, submittedAt: .submittedAt, body: .body}'`
+  - `gh api repos/<owner>/<repo>/pulls/<pr-number>/comments --jq '.[] | {author: .user.login, path: .path, line: (.line // .original_line), body: .body, created_at: .created_at}'`
+- Resolve or explicitly disposition each comment before moving to the next remediation item.
+
 ## Contribution & Security
 
 - See `CONTRIBUTING.md` for guidelines.

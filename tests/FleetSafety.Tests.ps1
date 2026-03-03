@@ -1,17 +1,13 @@
 BeforeAll {
-    $scriptContent = Get-Content "$PSScriptRoot\..\Get-AzVMAvailability.ps1" -Raw
+    Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
+    $functionNames = @(
+        'Get-ProcessorVendor',
+        'Get-DiskCode'
+    )
 
-    # Extract Get-ProcessorVendor
-    $pvPattern = '(?ms)function Get-ProcessorVendor \{.*?^\}'
-    $pvMatch = [regex]::Match($scriptContent, $pvPattern)
-    if (-not $pvMatch.Success) { throw "Could not find Get-ProcessorVendor in main script" }
-    . ([scriptblock]::Create($pvMatch.Value))
-
-    # Extract Get-DiskCode
-    $dcPattern = '(?ms)function Get-DiskCode \{.*?^\}'
-    $dcMatch = [regex]::Match($scriptContent, $dcPattern)
-    if (-not $dcMatch.Success) { throw "Could not find Get-DiskCode in main script" }
-    . ([scriptblock]::Create($dcMatch.Value))
+    foreach ($functionName in $functionNames) {
+        . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName $functionName)))
+    }
 }
 
 Describe 'Get-ProcessorVendor' {

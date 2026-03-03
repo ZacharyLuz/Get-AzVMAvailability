@@ -31,6 +31,30 @@ Thank you for your interest in contributing! This document provides guidelines f
 6. Push to your branch (git push origin feature/amazing-feature)
 7. Open a Pull Request
 
+### PR Description Formatting (Required)
+
+- PR descriptions must render as valid Markdown in GitHub.
+- Do not submit PR bodies with literal escaped newline sequences like `\n`.
+- Use one of these safe patterns when creating/editing PRs from CLI:
+
+```powershell
+# Preferred: body file
+gh pr create --title "..." --body-file pr-body.md
+
+# Or: here-string variable (real newlines)
+$body = @'
+## Summary
+...
+'@
+gh pr edit <pr-number> --body $body
+```
+
+- Verify formatting before merge:
+
+```powershell
+gh pr view <pr-number> --json body --jq .body
+```
+
 ## Development Setup
 
     # Clone your fork

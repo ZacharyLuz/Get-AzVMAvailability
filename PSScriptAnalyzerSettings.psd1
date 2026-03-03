@@ -14,10 +14,6 @@
         # Function names like Get-AzureEndpoints, Get-RestrictionDetails return
         # collections — plural nouns are intentional and match Azure cmdlet conventions
         'PSUseSingularNouns'
-
-        # CompactOutput and SkuNames parameters are declared for future features
-        # and internal function signatures — suppressing until implemented
-        'PSReviewUnusedParameter'
     )
 
     Rules        = @{

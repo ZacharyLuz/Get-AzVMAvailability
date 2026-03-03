@@ -12,6 +12,7 @@
 
 ## Quality Checklist
 
+- [ ] **PR markdown renders correctly** — no literal escaped `\n` sequences in title/body
 - [ ] **No AI instructional comments** — no "Must be after", "This ensures", "Handle potential" comments
 - [ ] **No empty catch blocks** — every catch has at least `Write-Verbose`
 - [ ] **No magic numbers** — numeric literals are named constants

@@ -8,6 +8,13 @@
 # Logs
 *.log
 
+# Local troubleshooting logs/artifacts (keep local, never commit)
+/tools/logs/*
+!/tools/logs/.gitkeep
+
+# Session handoff docs (ephemeral AI session artifacts)
+docs/SESSION-HANDOFF-*.md
+
 # Temp files
 *.tmp
 *~

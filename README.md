@@ -5,7 +5,7 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.9.0-brightgreen)
+![Version](https://img.shields.io/badge/Version-1.10.0-brightgreen)
 
 ## Disclosure & Disclaimer
 
@@ -148,29 +148,30 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ## Parameters
 
-| Parameter          | Type     | Description                                                                                                   |
-| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `-SubscriptionId`  | String[] | Azure subscription ID(s) to scan                                                                              |
-| `-Region`          | String[] | Azure region code(s) (e.g., 'eastus', 'westus2')                                                              |
-| `-RegionPreset`    | String   | Predefined region set (see table below). Auto-sets environment for sovereign clouds.                          |
-| `-Environment`     | String   | Azure cloud (default: auto-detect). Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud |
-| `-ExportPath`      | String   | Directory for export files                                                                                    |
-| `-AutoExport`      | Switch   | Export without prompting                                                                                      |
-| `-EnableDrillDown` | Switch   | Interactive family/SKU exploration                                                                            |
-| `-FamilyFilter`    | String[] | Filter to specific VM families                                                                                |
-| `-SkuFilter`       | String[] | Filter to specific SKUs (supports wildcards)                                                                  |
-| `-ShowPricing`     | Switch   | Show pricing (auto-detects negotiated EA/MCA/CSP rates, falls back to retail)                                 |
-| `-ImageURN`        | String   | Check SKU compatibility with image (format: Publisher:Offer:Sku:Version)                                      |
-| `-CompactOutput`   | Switch   | Use compact output for narrow terminals                                                                       |
-| `-NoPrompt`        | Switch   | Skip interactive prompts                                                                                      |
-| `-OutputFormat`    | String   | 'Auto', 'CSV', or 'XLSX'                                                                                      |
-| `-UseAsciiIcons`   | Switch   | Force ASCII instead of Unicode icons                                                                          |
-| `-Recommend`       | String   | Find alternatives for a target SKU. Works interactively too — prompted after scan/drill-down if not specified |
-| `-TopN`            | Int      | Number of alternatives to return in Recommend mode (default 5, max 25)                                        |
-| `-MinvCPU`         | Int      | Minimum vCPU count filter for recommended alternatives (optional)                                             |
-| `-MinMemoryGB`     | Int      | Minimum memory (GB) filter for recommended alternatives (optional)                                            |
-| `-MinScore`        | Int      | Minimum similarity score (0-100) for recommended alternatives; set 0 to show all (default 50)               |
-| `-JsonOutput`      | Switch   | Emit structured JSON for the [AzVMAvailability-Agent](https://github.com/ZacharyLuz/AzVMAvailability-Agent) or automation |
+| Parameter               | Type     | Description                                                                                                               |
+| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `-SubscriptionId`       | String[] | Azure subscription ID(s) to scan                                                                                          |
+| `-Region`               | String[] | Azure region code(s) (e.g., 'eastus', 'westus2')                                                                          |
+| `-RegionPreset`         | String   | Predefined region set (see table below). Auto-sets environment for sovereign clouds.                                      |
+| `-Environment`          | String   | Azure cloud (default: auto-detect). Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud             |
+| `-ExportPath`           | String   | Directory for export files                                                                                                |
+| `-AutoExport`           | Switch   | Export without prompting                                                                                                  |
+| `-EnableDrillDown`      | Switch   | Interactive family/SKU exploration                                                                                        |
+| `-FamilyFilter`         | String[] | Filter to specific VM families                                                                                            |
+| `-SkuFilter`            | String[] | Filter to specific SKUs (supports wildcards)                                                                              |
+| `-ShowPricing`          | Switch   | Show pricing (auto-detects negotiated EA/MCA/CSP rates, falls back to retail)                                             |
+| `-ImageURN`             | String   | Check SKU compatibility with image (format: Publisher:Offer:Sku:Version)                                                  |
+| `-CompactOutput`        | Switch   | Use compact output for narrow terminals                                                                                   |
+| `-NoPrompt`             | Switch   | Skip interactive prompts                                                                                                  |
+| `-OutputFormat`         | String   | 'Auto', 'CSV', or 'XLSX'                                                                                                  |
+| `-UseAsciiIcons`        | Switch   | Force ASCII instead of Unicode icons                                                                                      |
+| `-Recommend`            | String   | Find alternatives for a target SKU. Works interactively too — prompted after scan/drill-down if not specified             |
+| `-TopN`                 | Int      | Number of alternatives to return in Recommend mode (default 5, max 25)                                                    |
+| `-MinvCPU`              | Int      | Minimum vCPU count filter for recommended alternatives (optional)                                                         |
+| `-MinMemoryGB`          | Int      | Minimum memory (GB) filter for recommended alternatives (optional)                                                        |
+| `-MinScore`             | Int      | Minimum similarity score (0-100) for recommended alternatives; set 0 to show all (default 50)                             |
+| `-JsonOutput`           | Switch   | Emit structured JSON for the [AzVMAvailability-Agent](https://github.com/ZacharyLuz/AzVMAvailability-Agent) or automation |
+| `-SkipRegionValidation` | Switch   | Skip Azure region metadata validation (use only when Azure metadata lookup is unavailable)                                |
 
 > **Tuning tip:** Use `-MinScore 0` to see all candidates when capacity is tight, or raise it (e.g., 70) to prioritize closer matches.
 
@@ -350,7 +351,7 @@ SKUs that are available but **incompatible** with your image are shown in dark y
 ### Console Output (with Pricing)
 ```
 ====================================================================================
-GET-AZVMAVAILABILITY v1.4.0
+GET-AZVMAVAILABILITY v1.10.0
 ====================================================================================
 SKU Filter: Standard_D2s_v5 | Pricing: Enabled
 
