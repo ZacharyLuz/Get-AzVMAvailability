@@ -12,6 +12,9 @@
 /tools/logs/*
 !/tools/logs/.gitkeep
 
+# Session handoff docs (ephemeral AI session artifacts)
+docs/SESSION-HANDOFF-*.md
+
 # Temp files
 *.tmp
 *~
