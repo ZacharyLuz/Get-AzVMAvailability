@@ -9,11 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Prevent startup failure when assigning `$script:RunContext.AzureEndpoints` by ensuring the property exists before assignment.
-- Region scan now falls back to sequential mode when `ForEach-Object -Parallel` is unavailable or fails due to host compatibility.
 - `New-ScanOutputContract` now accepts empty scan collections so upstream scan errors do not cascade into contract-construction failures.
 
 ### Changed
-- Updated runtime/docs guidance: PowerShell 7+ is recommended for parallel speed; Windows PowerShell 5.1 is supported with sequential fallback.
+- PowerShell 7+ is now explicitly required; script emits a clear warning and exits when run in Windows PowerShell 5.1.
 - Added README troubleshooting for execution-policy warnings (`Unblock-File`) and stale single-file download detection.
 
 ## [1.10.1] - 2026-03-02

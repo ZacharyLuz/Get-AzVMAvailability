@@ -2,7 +2,7 @@
 
 A PowerShell tool for checking Azure VM SKU availability across regions - find where your VMs can deploy.
 
-![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B%20(7%2B%20recommended)-blue)
+![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Version](https://img.shields.io/badge/Version-1.10.2-brightgreen)
@@ -53,8 +53,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 
 ## Requirements
 
-- **PowerShell 7.0+** (recommended; enables parallel region scanning)
-- **Windows PowerShell 5.1** (supported; automatically falls back to sequential scan)
+- **PowerShell 7.0+** (required)
 - **Azure PowerShell Modules**: `Az.Compute`, `Az.Resources`
 - **Optional**: `ImportExcel` module for styled XLSX export
 
@@ -456,7 +455,13 @@ Select-String -Path .\Get-AzVMAvailability.ps1 -Pattern 'AzureEndpoints\s*=\s*\$
 
 No match indicates the file is stale. Download the latest `Get-AzVMAvailability.ps1` from the repository and re-run.
 
-### `ForEach-Object -Parallel` parameter set error
+### Running in Windows PowerShell 5.1
 
-This typically occurs on Windows PowerShell 5.1. The latest script now falls back to sequential scanning automatically. For best performance, use PowerShell 7+ (`pwsh`).
+PowerShell 5.1 is not supported. The script now warns and exits early if launched in 5.1.
+
+Use PowerShell 7+ (`pwsh`):
+
+```powershell
+pwsh -File .\Get-AzVMAvailability.ps1
+```
 

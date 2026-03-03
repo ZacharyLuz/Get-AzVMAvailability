@@ -128,8 +128,7 @@
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
     Requirements:   Az.Compute, Az.Resources modules
-                    PowerShell 7+ recommended (parallel scan)
-                    Windows PowerShell 5.1 supported via sequential scan fallback
+                    PowerShell 7+ (required)
 
 .EXAMPLE
     .\Get-AzVMAvailability.ps1
@@ -301,6 +300,13 @@ param(
 )
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
+
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Warning "PowerShell 7+ is required to run Get-AzVMAvailability.ps1."
+    Write-Host "Current host: $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)" -ForegroundColor Yellow
+    Write-Host "Install PowerShell 7 and rerun with: pwsh -File .\Get-AzVMAvailability.ps1" -ForegroundColor Cyan
+    exit 1
+}
 
 # Normalize string[] params — pwsh -File passes comma-delimited values as a single string
 foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter')) {
