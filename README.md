@@ -2,10 +2,10 @@
 
 A PowerShell tool for checking Azure VM SKU availability across regions - find where your VMs can deploy.
 
-![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
+![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B%20(7%2B%20recommended)-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.10.1-brightgreen)
+![Version](https://img.shields.io/badge/Version-1.10.2-brightgreen)
 
 ## Disclosure & Disclaimer
 
@@ -53,7 +53,8 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 
 ## Requirements
 
-- **PowerShell 7.0+** (required for parallel execution)
+- **PowerShell 7.0+** (recommended; enables parallel region scanning)
+- **Windows PowerShell 5.1** (supported; automatically falls back to sequential scan)
 - **Azure PowerShell Modules**: `Az.Compute`, `Az.Resources`
 - **Optional**: `ImportExcel` module for styled XLSX export
 
@@ -351,7 +352,7 @@ SKUs that are available but **incompatible** with your image are shown in dark y
 ### Console Output (with Pricing)
 ```
 ====================================================================================
-GET-AZVMAVAILABILITY v1.10.1
+GET-AZVMAVAILABILITY v1.10.2
 ====================================================================================
 SKU Filter: Standard_D2s_v5 | Pricing: Enabled
 
@@ -434,4 +435,28 @@ This tool queries only **public Azure APIs** (SKU availability, quota, retail pr
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
+
+## Troubleshooting
+
+### Security warning when running downloaded script
+
+If Windows warns that the script came from the internet, unblock it once:
+
+```powershell
+Unblock-File .\Get-AzVMAvailability.ps1
+```
+
+### `AzureEndpoints` property error at startup
+
+If you see an error like `The property 'AzureEndpoints' cannot be found on this object`, you are likely running an older script copy.
+
+```powershell
+Select-String -Path .\Get-AzVMAvailability.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null'
+```
+
+No match indicates the file is stale. Download the latest `Get-AzVMAvailability.ps1` from the repository and re-run.
+
+### `ForEach-Object -Parallel` parameter set error
+
+This typically occurs on Windows PowerShell 5.1. The latest script now falls back to sequential scanning automatically. For best performance, use PowerShell 7+ (`pwsh`).
 

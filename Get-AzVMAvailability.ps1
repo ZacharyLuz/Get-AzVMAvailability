@@ -123,12 +123,13 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.10.1
+    Version:        1.10.2
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
     Requirements:   Az.Compute, Az.Resources modules
-                    PowerShell 7+ (for parallel execution)
+                    PowerShell 7+ recommended (parallel scan)
+                    Windows PowerShell 5.1 supported via sequential scan fallback
 
 .EXAMPLE
     .\Get-AzVMAvailability.ps1
@@ -310,7 +311,7 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
 }
 
 #region Configuration
-$ScriptVersion = "1.10.0"
+$ScriptVersion = "1.10.2"
 
 #region Constants
 $HoursPerMonth = 730
@@ -353,6 +354,7 @@ $MinRecommendationScoreDefault = 50
 $script:RunContext = [pscustomobject]@{
     SchemaVersion      = '1.0'
     OutputWidth        = $null
+    AzureEndpoints     = $null
     ImageReqs          = $null
     RegionPricing      = @{}
     UsingActualPricing = $false
@@ -1336,9 +1338,9 @@ function Write-RecommendOutputContract {
 function New-ScanOutputContract {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     param(
-        [Parameter(Mandatory)][array]$SubscriptionData,
+        [Parameter(Mandatory)][AllowEmptyCollection()][array]$SubscriptionData,
         [Parameter(Mandatory)][hashtable]$FamilyStats,
-        [Parameter(Mandatory)][array]$FamilyDetails,
+        [Parameter(Mandatory)][AllowEmptyCollection()][array]$FamilyDetails,
         [Parameter(Mandatory)][string[]]$Regions,
         [Parameter(Mandatory)][string[]]$SubscriptionIds
     )
@@ -1920,6 +1922,12 @@ function Get-AzActualPricing {
 #endregion Image Compatibility Functions
 #region Initialize Azure Endpoints
 $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
+if (-not $script:RunContext) {
+    $script:RunContext = [pscustomobject]@{}
+}
+if (-not ($script:RunContext.PSObject.Properties.Name -contains 'AzureEndpoints')) {
+    Add-Member -InputObject $script:RunContext -MemberType NoteProperty -Name AzureEndpoints -Value $null
+}
 $script:RunContext.AzureEndpoints = $script:AzureEndpoints
 
 #endregion Initialize Azure Endpoints
@@ -2462,10 +2470,8 @@ try {
         $regionCount = $Regions.Count
         Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $regionCount region(s) in parallel..." -PercentComplete 0
 
-        $regionData = $Regions | ForEach-Object -Parallel {
-            $region = [string]$_
-            $skuFilterCopy = $using:SkuFilter
-            $maxRetries = $using:MaxRetries
+        $scanRegionScript = {
+            param($region, $skuFilterCopy, $maxRetries)
 
             # Inline retry — parallel runspaces cannot see script-scope functions
             $retryCall = {
@@ -2522,7 +2528,27 @@ try {
             catch {
                 @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
             }
-        } -ThrottleLimit $ParallelThrottleLimit
+        }
+
+        $canUseParallel = $PSVersionTable.PSVersion.Major -ge 7
+        if ($canUseParallel) {
+            try {
+                $regionData = $Regions | ForEach-Object -Parallel {
+                    & $using:scanRegionScript -region ([string]$_) -skuFilterCopy $using:SkuFilter -maxRetries $using:MaxRetries
+                } -ThrottleLimit $ParallelThrottleLimit
+            }
+            catch {
+                Write-Warning "Parallel region scan failed: $($_.Exception.Message)"
+                Write-Warning "Falling back to sequential scan mode for compatibility."
+                $canUseParallel = $false
+            }
+        }
+
+        if (-not $canUseParallel) {
+            $regionData = foreach ($region in $Regions) {
+                & $scanRegionScript -region ([string]$region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries
+            }
+        }
 
         Write-Progress -Activity "Scanning Azure Regions" -Completed
 
