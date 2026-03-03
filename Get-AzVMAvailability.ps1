@@ -123,7 +123,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.10.0
+    Version:        1.10.1
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 

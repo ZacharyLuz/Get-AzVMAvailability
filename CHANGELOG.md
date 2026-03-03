@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] - 2026-03-02
+
+### Added
+- **"Consider Smaller" fallback** — when no recommended SKUs have OK capacity but smaller options exist, interactive output now suggests top 3 smaller alternatives
+- New helper functions: `Use-SubscriptionContextSafely`, `Restore-OriginalSubscriptionContext`
+- New test files: `tests/ContextManagement.Tests.ps1`, `tests/RecommendJsonContract.Tests.ps1`
+- New test harness module: `tests/TestHarness.psm1` for importable AST-based function loading
+- Stable output contract helpers: `New-RecommendOutputContract`, `New-ScanOutputContract`
+- Recommend output renderer wrapper: `Write-RecommendOutputContract`
+- Explicit run context object: `$script:RunContext` for scoped runtime/cache state
+
+### Changed
+- Non-interactive runs (`-NoPrompt`) now fail closed when Azure region validation metadata is unavailable
+- Removed global `$ErrorActionPreference = 'Continue'` mutation; error behavior is now locally scoped
+- Subscription scanning now isolates and restores Az context via `try/finally` to avoid caller context side effects
+- Hot-loop `+=` accumulation replaced with `List[object]` in recommendation and image-search paths
+- Tests migrated from regex extraction to importable AST-based harness loading
+- Recommend mode now builds a contract first and renders via wrapper in non-JSON output mode
+- JSON output for scan mode now emits a stable contract envelope (`schemaVersion`, `mode`, `generatedAt`, `summary`, `families`, `regionErrors`)
+- Region/pricing/image/runtime mutable state migrated to `$script:RunContext` scoped properties
+- Removed `ShouldProcess` boilerplate from contract builder functions (pure in-memory, no side effects)
+- Completed `$script:ImageReqs` → `$script:RunContext.ImageReqs` migration
+- Session handoff docs excluded from git tracking via `.gitignore`
+
+### Fixed
+- `$script:ImageReqs` references were stale after Phase 4 contract refactor, silently disabling image compatibility checks
+- Empty `List[object]` truthiness bug in offer search results (always evaluated `$true` unlike empty `@()`)
+- `CompactOutput` parameter was declared but never referenced after suppression removal
+- Code scanning alert: unused `$restored` variable in context management tests
+
 ## [1.10.0] - 2026-03-01
 
 ### Added
@@ -14,27 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CPU column** in Recommend output — shows Intel/AMD/ARM for each candidate
 - **Disk column** in Recommend output — shows storage config shortcode (NV+T, NVMe, SC+T, SCSI)
 - **Disk codes legend** added to Recommend output footer
-- New helper functions: `Get-ProcessorVendor`, `Get-DiskCode`, `Use-SubscriptionContextSafely`, `Restore-OriginalSubscriptionContext`
+- New helper functions: `Get-ProcessorVendor`, `Get-DiskCode`
 - JSON output now includes `cpu`, `disk`, `tempDiskGB`, `accelNet` fields and a `warnings` array
-- New test files: `tests/ContextManagement.Tests.ps1`, `tests/RecommendJsonContract.Tests.ps1`
-- New test harness module: `tests/TestHarness.psm1` for importable AST-based function loading
 - 13 new Pester tests for `Get-ProcessorVendor` and `Get-DiskCode`
-- Stable output contract helpers: `New-RecommendOutputContract`, `New-ScanOutputContract`
-- Recommend output renderer wrapper: `Write-RecommendOutputContract`
-- Explicit run context object: `$script:RunContext` for scoped runtime/cache state
 
 ### Changed
 - `Get-SkuCapabilities` now extracts `TempDiskGB`, `AcceleratedNetworkingEnabled`, and `NvmeSupport`
 - Recommend table widened to accommodate new columns (base: 113→122, with pricing: 133→140)
 - Architecture filtering enabled by default in Recommend mode (candidates must match target arch)
-- Non-interactive runs (`-NoPrompt`) now fail closed when Azure region validation metadata is unavailable.
-- Removed global `$ErrorActionPreference = 'Continue'` mutation; error behavior is now locally scoped.
-- Subscription scanning now isolates and restores Az context via `try/finally` to avoid caller context side effects.
-- Hot-loop `+=` accumulation replaced with `List[object]` in recommendation and image-search paths.
-- Tests migrated from regex extraction to importable harness-based loading.
-- Recommend mode now builds a contract first and renders via wrapper in non-JSON output mode.
-- JSON output for scan mode now emits a stable contract envelope (`schemaVersion`, `mode`, `generatedAt`, `summary`, `families`, `regionErrors`).
-- Region/pricing/image/runtime mutable state migrated to run-context-scoped properties where feasible.
 
 ## [1.9.0] - 2026-02-25
 
