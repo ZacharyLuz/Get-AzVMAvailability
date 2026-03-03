@@ -3,6 +3,7 @@ BeforeAll {
 
     . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Get-AzVMPricing')))
     . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Get-RegularPricingMap')))
+    . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Get-SpotPricingMap')))
 }
 
 Describe 'Get-AzVMPricing spot/regular data model' {
@@ -86,5 +87,25 @@ Describe 'Get-RegularPricingMap' {
 
         $map = Get-RegularPricingMap -PricingContainer $legacy
         $map['Standard_D4s_v5'].Hourly | Should -Be 0.2
+    }
+}
+
+Describe 'Get-SpotPricingMap' {
+
+    It 'Returns Spot map when pricing container has Regular and Spot keys' {
+        $container = @{
+            Regular = @{ 'Standard_D4s_v5' = @{ Hourly = 0.2 } }
+            Spot    = @{ 'Standard_D4s_v5' = @{ Hourly = 0.06 } }
+        }
+
+        $map = Get-SpotPricingMap -PricingContainer $container
+        $map['Standard_D4s_v5'].Hourly | Should -Be 0.06
+    }
+
+    It 'Returns empty map for legacy pricing containers' {
+        $legacy = @{ 'Standard_D4s_v5' = @{ Hourly = 0.2 } }
+
+        $map = Get-SpotPricingMap -PricingContainer $legacy
+        $map.Count | Should -Be 0
     }
 }

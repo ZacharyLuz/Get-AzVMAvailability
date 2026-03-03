@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `-ShowSpot` parameter to include Spot VM pricing in pricing-enabled outputs
+- Spot pricing fields in Recommend JSON contract: `spotPricingEnabled`, `spotPriceHr`, `spotPriceMo`
+- New helper `Get-SpotPricingMap` to safely read Spot pricing from region pricing containers
+- Spot pricing tests in `tests/SpotPricing.Tests.ps1` and contract coverage in `tests/RecommendJsonContract.Tests.ps1`
+
+### Changed
+- Recommend console rendering now supports pricing/placement/spot combinations without breaking existing output modes
+
 ## [1.10.4] - 2026-03-04
 
 ### Fixed

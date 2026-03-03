@@ -50,6 +50,9 @@
     Falls back to retail pricing if negotiated rates unavailable.
     Adds ~5-10 seconds to execution time.
 
+.PARAMETER ShowSpot
+    Include Spot VM pricing in pricing-enabled outputs.
+
 .PARAMETER ImageURN
     Check SKU compatibility with a specific VM image.
     Format: Publisher:Offer:Sku:Version (e.g., 'Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest')
@@ -245,6 +248,9 @@ param(
 
     [Parameter(Mandatory = $false, HelpMessage = "Show hourly pricing (auto-detects negotiated rates, falls back to retail)")]
     [switch]$ShowPricing,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Include Spot VM pricing in outputs when pricing is enabled")]
+    [switch]$ShowSpot,
 
     [Parameter(Mandatory = $false, HelpMessage = "Show allocation likelihood scores (High/Medium/Low) from Azure placement API")]
     [switch]$ShowPlacement,
@@ -1154,7 +1160,8 @@ function New-RecommendOutputContract {
         [Parameter(Mandatory)][int]$MinScore,
         [Parameter(Mandatory)][int]$TopN,
         [Parameter(Mandatory)][bool]$FetchPricing,
-        [Parameter(Mandatory)][bool]$ShowPlacement
+        [Parameter(Mandatory)][bool]$ShowPlacement,
+        [Parameter(Mandatory)][bool]$ShowSpot
     )
 
     $rankedPayload = [System.Collections.Generic.List[object]]::new()
@@ -1180,6 +1187,8 @@ function New-RecommendOutputContract {
             zonesOK    = $item.ZonesOK
             priceHr    = $item.PriceHr
             priceMo    = $item.PriceMo
+            spotPriceHr = $item.SpotPriceHr
+            spotPriceMo = $item.SpotPriceMo
         })
         $rank++
     }
@@ -1204,6 +1213,7 @@ function New-RecommendOutputContract {
         topN               = $TopN
         pricingEnabled     = $FetchPricing
         placementEnabled   = $ShowPlacement
+        spotPricingEnabled = $ShowSpot
         target             = [pscustomobject]$TargetProfile
         targetAvailability = @($TargetAvailability)
         recommendations    = @($rankedPayload)
@@ -1224,6 +1234,7 @@ function Write-RecommendOutputContract {
     $targetAvailability = @($Contract.targetAvailability)
     $recommendations = @($Contract.recommendations)
     $placementEnabled = [bool]$Contract.placementEnabled
+    $spotPricingEnabled = [bool]$Contract.spotPricingEnabled
     $fleetWarnings = @($Contract.warnings)
 
     Write-Host "`n" -NoNewline
@@ -1287,10 +1298,20 @@ function Write-RecommendOutputContract {
     Write-Host "`nRECOMMENDED ALTERNATIVES (top $($recommendations.Count), sorted by similarity):" -ForegroundColor Green
     Write-Host ""
 
-    if ($FetchPricing -and $placementEnabled) {
+    if ($FetchPricing -and $placementEnabled -and $spotPricingEnabled) {
+        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-8} {11,-5} {12,-8} {13,-8} {14,-10} {15,-10}"
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Alloc', 'Zones', '$/Hr', '$/Mo', 'Spot$/Hr', 'Spot$/Mo') -ForegroundColor White
+        Write-Host (' ' + ('-' * 169)) -ForegroundColor DarkGray
+    }
+    elseif ($FetchPricing -and $placementEnabled) {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-8} {11,-5} {12,-8} {13,-8}"
         Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Alloc', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
         Write-Host (' ' + ('-' * 147)) -ForegroundColor DarkGray
+    }
+    elseif ($FetchPricing -and $spotPricingEnabled) {
+        $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5} {11,-8} {12,-8} {13,-10} {14,-10}"
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Zones', '$/Hr', '$/Mo', 'Spot$/Hr', 'Spot$/Mo') -ForegroundColor White
+        Write-Host (' ' + ('-' * 159)) -ForegroundColor DarkGray
     }
     elseif ($FetchPricing) {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5} {11,-8} {12,-8}"
@@ -1317,9 +1338,18 @@ function Write-RecommendOutputContract {
         if ($FetchPricing) {
             $hrStr = if ($null -ne $r.priceHr) { '$' + ([double]$r.priceHr).ToString('0.00') } else { '-' }
             $moStr = if ($null -ne $r.priceMo) { '$' + ([double]$r.priceMo).ToString('0') } else { '-' }
-            if ($placementEnabled) {
+            $spotHrStr = if ($null -ne $r.spotPriceHr) { '$' + ([double]$r.spotPriceHr).ToString('0.00') } else { '-' }
+            $spotMoStr = if ($null -ne $r.spotPriceMo) { '$' + ([double]$r.spotPriceMo).ToString('0') } else { '-' }
+            if ($placementEnabled -and $spotPricingEnabled) {
+                $allocStr = if ($r.allocScore) { [string]$r.allocScore } else { '-' }
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $allocStr, $r.zonesOK, $hrStr, $moStr, $spotHrStr, $spotMoStr
+            }
+            elseif ($placementEnabled) {
                 $allocStr = if ($r.allocScore) { [string]$r.allocScore } else { '-' }
                 $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $allocStr, $r.zonesOK, $hrStr, $moStr
+            }
+            elseif ($spotPricingEnabled) {
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK, $hrStr, $moStr, $spotHrStr, $spotMoStr
             }
             else {
                 $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK, $hrStr, $moStr
@@ -1519,13 +1549,23 @@ function Invoke-RecommendMode {
 
                 $priceHr = $null
                 $priceMo = $null
+                $spotPriceHr = $null
+                $spotPriceMo = $null
                 if ($FetchPricing -and $script:RunContext.RegionPricing[[string]$region]) {
                     $regionPriceData = $script:RunContext.RegionPricing[[string]$region]
                     $regularPriceMap = Get-RegularPricingMap -PricingContainer $regionPriceData
+                    $spotPriceMap = Get-SpotPricingMap -PricingContainer $regionPriceData
                     $skuPricing = $regularPriceMap[$sku.Name]
                     if ($skuPricing) {
                         $priceHr = $skuPricing.Hourly
                         $priceMo = $skuPricing.Monthly
+                    }
+                    if ($ShowSpot) {
+                        $spotPricing = $spotPriceMap[$sku.Name]
+                        if ($spotPricing) {
+                            $spotPriceHr = $spotPricing.Hourly
+                            $spotPriceMo = $spotPricing.Monthly
+                        }
                     }
                 }
 
@@ -1547,6 +1587,8 @@ function Invoke-RecommendMode {
                         ZonesOK  = $restrictions.ZonesOK.Count
                         PriceHr  = $priceHr
                         PriceMo  = $priceMo
+                        SpotPriceHr = $spotPriceHr
+                        SpotPriceMo = $spotPriceMo
                     }) | Out-Null
             }
         }
@@ -1574,7 +1616,7 @@ function Invoke-RecommendMode {
     }
 
     if (-not $filtered -or $filtered.Count -eq 0) {
-        $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @() -Warnings @() -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement
+        $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @() -Warnings @() -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
         )
         if ($JsonOutput) {
             $script:RunContext.RecommendOutput | ConvertTo-Json -Depth 6
@@ -1618,6 +1660,8 @@ function Invoke-RecommendMode {
                     ZonesOK   = $item.ZonesOK
                     PriceHr   = $item.PriceHr
                     PriceMo   = $item.PriceMo
+                    SpotPriceHr = $item.SpotPriceHr
+                    SpotPriceMo = $item.SpotPriceMo
                 }
             })
     }
@@ -1643,6 +1687,8 @@ function Invoke-RecommendMode {
                     ZonesOK   = $item.ZonesOK
                     PriceHr   = $item.PriceHr
                     PriceMo   = $item.PriceMo
+                    SpotPriceHr = $item.SpotPriceHr
+                    SpotPriceMo = $item.SpotPriceMo
                 }
             })
     }
@@ -1674,7 +1720,7 @@ function Invoke-RecommendMode {
         $fleetWarnings += "Mixed accelerated networking support — network performance will vary across the fleet."
     }
 
-    $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($fleetWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement
+    $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($fleetWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
     )
 
     if ($JsonOutput) {
@@ -1948,6 +1994,27 @@ function Get-RegularPricingMap {
     }
 
     return $PricingContainer
+}
+
+function Get-SpotPricingMap {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$PricingContainer
+    )
+
+    if ($null -eq $PricingContainer) {
+        return @{}
+    }
+
+    if ($PricingContainer -is [array]) {
+        $PricingContainer = $PricingContainer[0]
+    }
+
+    if ($PricingContainer -is [hashtable] -and $PricingContainer.ContainsKey('Spot')) {
+        return $PricingContainer.Spot
+    }
+
+    return @{}
 }
 
 function Get-PlacementScores {

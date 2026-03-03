@@ -1,6 +1,8 @@
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
     . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'New-RecommendOutputContract')))
+    . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Get-RegularPricingMap')))
+    . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Get-SpotPricingMap')))
     . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Invoke-RecommendMode')))
 
     function Get-SafeString { param($Value) [string]$Value }
@@ -102,6 +104,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
         $script:TopN = 5
         $script:JsonOutput = $true
         $script:ShowPlacement = $false
+        $script:ShowSpot = $false
         $script:DesiredCount = 1
         $script:RunContext = [pscustomobject]@{
             RegionPricing   = @{}
@@ -131,6 +134,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
 
         $result.target | Should -Not -BeNullOrEmpty
         $result.placementEnabled | Should -BeFalse
+        $result.spotPricingEnabled | Should -BeFalse
         $result.targetAvailability | Should -Not -BeNullOrEmpty
         $result.recommendations.Count | Should -BeGreaterThan 0
         $result.PSObject.Properties.Name | Should -Contain 'warnings'
@@ -143,6 +147,8 @@ Describe 'Invoke-RecommendMode JSON contract' {
         $first.tempDiskGB | Should -Not -BeNull
         $first.accelNet | Should -Not -BeNull
         $first.score | Should -Not -BeNull
+        $first.PSObject.Properties.Name | Should -Contain 'spotPriceHr'
+        $first.PSObject.Properties.Name | Should -Contain 'spotPriceMo'
     }
 
     It 'Returns empty recommendations contract when no candidates meet MinScore' {
@@ -247,5 +253,44 @@ Describe 'Invoke-RecommendMode JSON contract' {
         $result.recommendations.Count | Should -BeGreaterThan 0
         $result.recommendations[0].PSObject.Properties.Name | Should -Contain 'allocScore'
         $result.recommendations[0].allocScore | Should -Be 'High'
+    }
+
+    It 'Sets spot pricing fields when ShowSpot and FetchPricing are enabled' {
+        $script:ShowSpot = $true
+        $script:FetchPricing = $true
+        $script:RunContext.RegionPricing = @{
+            eastus = @{
+                Regular = @{
+                    'Standard_D4s_v5' = @{ Hourly = 0.2; Monthly = 146 }
+                    'Standard_D8s_v5' = @{ Hourly = 0.4; Monthly = 292 }
+                }
+                Spot = @{
+                    'Standard_D8s_v5' = @{ Hourly = 0.1; Monthly = 73 }
+                }
+            }
+        }
+
+        $subscriptionData = @(
+            [pscustomobject]@{
+                SubscriptionId = 'sub-1'
+                RegionData     = @(
+                    [pscustomobject]@{
+                        Region = 'eastus'
+                        Error  = $null
+                        Skus   = @(
+                            [pscustomobject]@{ Name = 'Standard_D4s_v5' }
+                            [pscustomobject]@{ Name = 'Standard_D8s_v5' }
+                        )
+                    }
+                )
+            }
+        )
+
+        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData) | ConvertFrom-Json
+        $recommendation = @($result.recommendations | Where-Object { $_.sku -eq 'Standard_D8s_v5' })[0]
+
+        $result.spotPricingEnabled | Should -BeTrue
+        $recommendation.spotPriceHr | Should -Be 0.1
+        $recommendation.spotPriceMo | Should -Be 73
     }
 }
