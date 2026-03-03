@@ -1,0 +1,157 @@
+name: "Release Drift Check and Publish"
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      auto_publish:
+        description: "Auto-create tag/release when version drift is detected"
+        required: false
+        default: true
+        type: boolean
+      draft_release:
+        description: "Create release as draft"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  release_control:
+    name: Release Drift Check and Publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect version/tag drift
+        id: drift
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $scriptText = Get-Content "./Get-AzVMAvailability.ps1" -Raw
+          $match = [regex]::Match($scriptText, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
+          if (-not $match.Success) {
+            throw "Could not parse ScriptVersion from Get-AzVMAvailability.ps1"
+          }
+
+          $version = $match.Groups[1].Value
+          $tag = "v$version"
+          $tagExists = [bool](git tag --list "$tag")
+          $latestTag = (git tag --list 'v*' --sort=-v:refname | Select-Object -First 1)
+
+          Write-Host "ScriptVersion: $version"
+          Write-Host "Expected tag: $tag"
+          Write-Host "Latest existing tag: $latestTag"
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag_exists=$tagExists" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Extract CHANGELOG section for version
+        id: notes
+        if: steps.drift.outputs.tag_exists == 'False'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $version = "${{ steps.drift.outputs.version }}"
+          $changelog = Get-Content "./CHANGELOG.md" -Raw
+          $pattern = "(?ms)^## \[$([regex]::Escape($version))\].*?(?=^## \[|\z)"
+          $section = [regex]::Match($changelog, $pattern)
+
+          if (-not $section.Success) {
+            throw "Version drift detected for v$version, but CHANGELOG section ## [$version] was not found."
+          }
+
+          $notesFile = Join-Path $env:RUNNER_TEMP "release-notes-v$version.md"
+          Set-Content -Path $notesFile -Value $section.Value.Trim() -Encoding utf8
+          "notes_file=$notesFile" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Open issue when drift detected and auto-publish disabled
+        if: steps.drift.outputs.tag_exists == 'False' && (github.event_name != 'workflow_dispatch' || inputs.auto_publish == false)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $tag = "${{ steps.drift.outputs.tag }}"
+          $version = "${{ steps.drift.outputs.version }}"
+          $title = "Release metadata drift detected: $tag"
+          $body = @(
+            "Script version is \\$ScriptVersion = $version on \\`main\\`, but tag/release $tag does not exist."
+            ""
+            "Required action:"
+            "1. Create tag $tag on the merge commit."
+            "2. Create a GitHub release for $tag from CHANGELOG section \\`## [$version]\\`."
+            "3. Verify with \\`gh release list\\`."
+          ) -join "`n"
+
+          $existing = gh issue list --repo "${{ github.repository }}" --state open --search "$title" --json number --jq '.[0].number'
+          if ([string]::IsNullOrWhiteSpace($existing)) {
+            gh issue create --repo "${{ github.repository }}" --title "$title" --body "$body" | Out-Null
+            Write-Host "Opened release drift issue for $tag"
+          }
+          else {
+            Write-Host "Release drift issue already open: #$existing"
+          }
+
+          throw "Release metadata drift detected for $tag and auto-publish is disabled."
+
+      - name: Auto-publish draft release when drift detected
+        if: steps.drift.outputs.tag_exists == 'False' && (github.event_name == 'push' || inputs.auto_publish == true)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $tag = "${{ steps.drift.outputs.tag }}"
+          $version = "${{ steps.drift.outputs.version }}"
+          $notesFile = "${{ steps.notes.outputs.notes_file }}"
+          $repo = "${{ github.repository }}"
+          $sha = "${{ github.sha }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag "$tag" "$sha"
+          git push origin "$tag"
+
+          $draft = $true
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $draft = "${{ inputs.draft_release }}" -eq "true"
+          }
+
+          if ($draft) {
+            gh release create "$tag" --repo "$repo" --target "$sha" --title "$tag" --notes-file "$notesFile" --draft
+          }
+          else {
+            gh release create "$tag" --repo "$repo" --target "$sha" --title "$tag" --notes-file "$notesFile"
+          }
+
+      - name: Verify release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $tag = "${{ steps.drift.outputs.tag }}"
+          $repo = "${{ github.repository }}"
+
+          try {
+            gh release view "$tag" --repo "$repo" | Out-Null
+            Write-Host "Verified release exists for $tag"
+          }
+          catch {
+            throw "Post-merge release control failed: release not found for $tag"
+          }
