@@ -20,10 +20,11 @@ applyTo: "**/*"
 ## Checklist
 1) Ensure PR exists for release changes
 2) Wait for CI (PSScriptAnalyzer, Pester) to finish successfully
-3) Merge via squash (unless policy says otherwise)
-4) Sync local `main` to `origin/main`
-5) Tag release on the merge commit
-6) Create/verify GitHub release notes
+3) Pull and triage GitHub Copilot PR review comments before merge
+4) Merge via squash (unless policy says otherwise)
+5) Sync local `main` to `origin/main`
+6) Tag release on the merge commit
+7) Create/verify GitHub release notes
 
 ## Common pitfalls
 - Tagging or publishing before PR merge (tags point to local-only commits)

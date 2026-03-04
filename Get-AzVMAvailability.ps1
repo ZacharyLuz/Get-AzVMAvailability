@@ -123,7 +123,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.10.3
+    Version:        1.10.4
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -317,7 +317,7 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
 }
 
 #region Configuration
-$ScriptVersion = "1.10.3"
+$ScriptVersion = "1.10.4"
 
 #region Constants
 $HoursPerMonth = 730
@@ -2699,7 +2699,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 Largest = "{0}vCPU/{1}GB" -f $largestSku.vCPU, $largestSku.Memory
                 Zones   = $zoneStatus
                 Status  = $capacity
-                Quota   = if ($quotaInfo.Available) { $quotaInfo.Available } else { '?' }
+                Quota   = if ($null -ne $quotaInfo.Available) { $quotaInfo.Available } else { '?' }
             }
 
             if ($FetchPricing) {
