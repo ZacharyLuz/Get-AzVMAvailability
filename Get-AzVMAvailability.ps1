@@ -123,7 +123,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.10.2
+    Version:        1.10.3
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -317,7 +317,7 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
 }
 
 #region Configuration
-$ScriptVersion = "1.10.2"
+$ScriptVersion = "1.10.3"
 
 #region Constants
 $HoursPerMonth = 730
@@ -967,8 +967,8 @@ function Format-RegionList {
 }
 
 function Get-QuotaAvailable {
-    param([object[]]$Quotas, [string]$FamilyName, [int]$RequiredvCPUs = 0)
-    $quota = $Quotas | Where-Object { $_.Name.LocalizedValue -match $FamilyName } | Select-Object -First 1
+    param([hashtable]$QuotaLookup, [string]$SkuFamily, [int]$RequiredvCPUs = 0)
+    $quota = $QuotaLookup[$SkuFamily]
     if (-not $quota) { return @{ Available = $null; OK = $null; Limit = $null; Current = $null } }
     $available = $quota.Limit - $quota.CurrentValue
     return @{
@@ -2614,6 +2614,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
         }
 
         $familyGroups = @{}
+        $quotaLookup = @{}
+        foreach ($q in $data.Quotas) { $quotaLookup[$q.Name.Value] = $q }
         foreach ($sku in $data.Skus) {
             $family = Get-SkuFamily $sku.Name
             if (-not $familyGroups[$family]) { $familyGroups[$family] = @() }
@@ -2666,7 +2668,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
             $restrictions = Get-RestrictionDetails $largestSku.Sku
             $capacity = $restrictions.Status
             $zoneStatus = Format-ZoneStatus $restrictions.ZonesOK $restrictions.ZonesLimited $restrictions.ZonesRestricted
-            $quotaInfo = Get-QuotaAvailable -Quotas $data.Quotas -FamilyName "Standard $family*"
+            $quotaInfo = Get-QuotaAvailable -QuotaLookup $quotaLookup -SkuFamily $largestSku.Sku.Family
 
             # Get pricing - find smallest SKU with pricing available
             $priceHrStr = '-'
@@ -2713,6 +2715,9 @@ foreach ($subscriptionData in $allSubscriptionData) {
             foreach ($sku in $skus) {
                 $familySkuIndex[$family][$sku.Name] = $true
                 $skuRestrictions = Get-RestrictionDetails $sku
+
+                # Per-SKU quota: use SKU's exact .Family property for specific quota bucket
+                $quotaInfo = Get-QuotaAvailable -QuotaLookup $quotaLookup -SkuFamily $sku.Family
 
                 # Get individual SKU pricing
                 $skuPriceHr = '-'
