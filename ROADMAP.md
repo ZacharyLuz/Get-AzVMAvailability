@@ -191,6 +191,31 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
+---
+
+## Future: AVD Capacity Planning Mode
+**Theme: Azure Virtual Desktop Host Pool Sizing**
+
+AVD deployments depend on VM SKU availability and quota (already covered), but a dedicated AVD mode would close the remaining gap between raw capacity data and host pool readiness.
+
+### Proposed Features
+- [ ] **`-AvdMode` Parameter** - Switch to AVD-focused output with host pool context
+- [ ] **Session Model Input** - Accept user count + session type (Personal vs Pooled) to compute required VM count
+- [ ] **VM Count Calculator** - Derive required VMs from concurrent user target and users-per-VM ratio
+- [ ] **Host Pool Quota Check** - Validate that subscription quota covers the full host pool VM count
+- [ ] **SKU Guidance** - Flag AVD-recommended families (DSv5, Dasv5, NVv4 for GPU) and warn on unsupported SKUs
+- [ ] **Spot Integration** - Flag pooled hosts as Spot-eligible when eviction tolerance is low (links to placement score feature)
+- [ ] **Capacity + Quota Pass/Fail Summary** - Single green/red readiness signal per region
+
+### Notes
+- Builds on existing SKU availability + quota scan — no new Azure API dependency
+- Pooled host sizing math: `ceil(ConcurrentUsers / UsersPerVM)` with optional buffer percentage
+- Personal host sizing math: `1 VM per assigned user`
+- Spot placement scores (feature/placement-score-phase1) are directly relevant for cost-optimized pooled AVD
+- Plan session needed before implementation
+
+---
+
 ## Contributing
 
 Have ideas for new features? Open an issue or submit a PR!
