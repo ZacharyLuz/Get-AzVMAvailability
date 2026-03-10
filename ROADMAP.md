@@ -191,8 +191,6 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
----
-
 ## Future: AVD Capacity Planning Mode
 **Theme: Azure Virtual Desktop Host Pool Sizing**
 
@@ -212,7 +210,7 @@ AVD deployments depend on VM SKU availability and quota (already covered), but a
 - Pooled host sizing math: `ceil(ConcurrentUsers / UsersPerVM)` with optional buffer percentage
 - Personal host sizing math: `1 VM per assigned user`
 - Spot placement scores (feature/placement-score-phase1) are directly relevant for cost-optimized pooled AVD
-- Plan session needed before implementation
+- AVD session planning decisions needed before implementation
 
 ---
 
