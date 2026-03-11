@@ -48,3 +48,30 @@ jobs:
                   if ($results.FailedCount -gt 0) {
                     throw "$($results.FailedCount) test(s) failed"
                   }
+
+    audit:
+        name: Repo Self-Audit
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install PSScriptAnalyzer
+              shell: pwsh
+              run: Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck
+
+            - name: Run repo self-audit gate
+              shell: pwsh
+              run: |
+                  ./tools/Invoke-RepoSelfAudit.ps1 `
+                    -RepoRoot . `
+                    -PrimaryScript Get-AzVMAvailability.ps1 `
+                    -FailOnCritical `
+                    -MaxAllowedCritical 0
+
+            - name: Upload audit report
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: audit-report
+                  path: artifacts/audit/
