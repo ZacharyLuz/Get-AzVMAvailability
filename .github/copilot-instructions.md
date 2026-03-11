@@ -204,24 +204,116 @@ Both must reach full feature parity.
 
 ## Architecture Details
 
-- **`$script:RunContext`** — centralized runtime state object. All functions access
-  state through this object only — never via implicit parent scope reads. Contains
-  caches, pricing maps, image requirements, and output contracts.
+- **Script metrics (current):** 3,725 lines, 29 functions, 308 `Write-Host` calls,
+  0 `Write-Output` calls, 9 `exit` calls, 0 pipeline-emitted objects.
+- **`$script:RunContext`** — centralized runtime state object. All functions should
+  access state through this object — however, several functions still read parent-scope
+  variables implicitly (see Known Technical Debt below). Contains caches, pricing
+  maps, image requirements, and output contracts.
 - **`Invoke-WithRetry`** — exponential backoff wrapper for all Azure API calls.
-  Handles 429 (throttle) and 503 (transient) automatically. Always use this for
-  any new Azure API call.
+  Handles 429 (with Retry-After header), 503, WebException, HttpRequestException.
+  Does NOT yet handle HTTP 500 (transient ARM error). Always wrap new Azure API calls.
 - **JSON contracts** — `New-RecommendOutputContract` / `New-ScanOutputContract`
-  include `schemaVersion`. Never change field names in existing contracts without
-  a version bump — downstream consumers depend on them.
-- **TestHarness.psm1** — AST-based function extraction module used by all Pester
-  tests to isolate functions without running the full script. Replaced a fragile
-  regex approach. Do not use dot-sourcing for test isolation.
+  include `schemaVersion`. Never change field names without a version bump.
+- **TestHarness.psm1** — AST-based function extraction for Pester test isolation.
+  Do not use dot-sourcing for test isolation.
 - **Parallel scanning** — `ForEach-Object -Parallel` with explicit `$using:`
-  references for all variables. Never rely on automatic variable capture in
-  parallel blocks.
-- **Test suite** — 142 Pester tests across 10 files in `tests/`. Always redirect
-  Pester output to a log file before parsing results (prevents VS Code terminal
-  freeze): `Invoke-Pester ... *> artifacts/test-run.log`
+  references. The parallel block duplicates retry logic inline (necessary — parallel
+  runspaces cannot see script-scope functions).
+- **Test suite** — 142 Pester tests across 10 files. Always redirect Pester output
+  to log file: `Invoke-Pester ... *> artifacts/test-run.log`
+
+## Known Technical Debt
+
+These are confirmed issues from code review. The agent should know them without
+having to rediscover them by reading 3,725 lines.
+
+### Performance Hotspots (exact locations)
+| Line | Issue | Fix |
+|------|-------|-----|
+| **2776** | `$familyDetails += $detailObj` inside per-SKU loop (5 regions × 600 SKUs = 3,000 reallocations) | `[System.Collections.Generic.List[PSCustomObject]]::new()` + `.Add()` |
+| **2710** | `$rows += $row` inside per-family loop per region | Same List[T] pattern |
+| **880–896** | `$zonesOK/Limited/Restricted += $zone` inside `Get-RestrictionDetails` (called thousands of times) | List[string] |
+| **2565** | `$allSubscriptionData += @{...}` per-subscription | Low impact (1–3 iterations typically) |
+| **707–712** | `Get-CapValue` uses `Where-Object` pipeline (~18,000 calls per scan) | Pre-index SKU capabilities as hashtable at scan time |
+| **2423–2454** | Pricing fallback is all-or-nothing: one failure abandons all regions to retail | Per-region fallback |
+
+### Parent-Scope Implicit Dependencies (blocks module extraction)
+These functions read variables from the parent scope without receiving them as
+parameters. Every one is a hidden wire that must be cut before module conversion.
+
+| Function | Hidden variable | Fix for v2.0.0 |
+|----------|----------------|----------------|
+| `Get-StatusIcon` | `$Icons` | Add `-Icons` parameter |
+| `Get-SkuCapabilities` | `$MBPerGB` | Inline constant (1024) or add parameter |
+| `Get-SkuSimilarityScore` | `$script:FamilyInfo` | Add `-FamilyInfo` parameter |
+| `Write-RecommendOutputContract` | `$FamilyInfo`, `$Icons` | Add both as parameters |
+| `Invoke-RecommendMode` | 10+ parent-scope vars | Convert to `Get-AzVMRecommendation` cmdlet with all as explicit params |
+| `Get-AzVMPricing` | `$script:RunContext.Caches`, `$HoursPerMonth`, `$MaxRetries` | Pass `$Cache` hashtable as parameter |
+| `Get-AzActualPricing` | Same as above | Same fix |
+
+### `exit` vs `throw` (9 exit calls — risky if dot-sourced)
+Lines 1953, 2033, 2039, 2075, 2104, 2135, 2887, 2932 all use `exit 1` inside
+interactive validation flow. If someone dot-sources the script or calls it from
+another script, these kill the caller's session. Replace with `throw` for error
+cases and `return` for user-initiated cancellation.
+
+### Pipeline Composability (zero pipeline output)
+The script emits nothing to the pipeline — all data rendered via `Write-Host`.
+`$familyDetails` (built at L2601) and the output contracts contain properly
+structured `[PSCustomObject]` arrays but are never emitted. The minimal fix is
+adding `$familyDetails` output after L2835 for non-JSON mode.
+
+### Module Conversion — Function Extraction Order (v2.0.0)
+Extract in this order to minimize risk:
+
+**Phase 1 — Zero risk (no dependencies):** `Get-SafeString`, `Get-GeoGroup`,
+`Get-SkuFamily`, `Get-ProcessorVendor`, `Get-DiskCode`, `Get-RestrictionReason`,
+`Format-ZoneStatus`, `Format-RegionList`, `Get-QuotaAvailable`,
+`Test-SkuMatchesFilter`, `Get-ImageRequirements`, `Test-ImageSkuCompatibility`
+
+**Phase 2 — Minor coupling (fix hidden deps):** `Get-StatusIcon`, `Get-SkuCapabilities`,
+`Get-SkuSimilarityScore`, `Get-RestrictionDetails`
+
+**Phase 3 — Azure API functions:** `Invoke-WithRetry`, `Get-AzureEndpoints`,
+`Get-ValidAzureRegions`, `Get-AzVMPricing`, `Get-AzActualPricing`
+
+**Phase 4 — Recommend engine:** `Invoke-RecommendMode` → `Get-AzVMRecommendation`
+
+**Phase 5 — Export:** XLSX/CSV block (L3334–3725, 391 lines) → `Export-AzVMAvailabilityReport`
+
+**Phase 6 — Interactive shell:** Prompts (L1941–2388, 447 lines) → optional
+`Invoke-AzVMAvailabilityWizard` wrapper
+
+### Target Module Structure (v2.0.0)
+```
+AzVMAvailability/
+├── AzVMAvailability.psd1
+├── AzVMAvailability.psm1
+├── Public/
+│   ├── Get-AzVMAvailability.ps1        # scan (emits objects)
+│   ├── Get-AzVMRecommendation.ps1      # current Invoke-RecommendMode
+│   └── Export-AzVMAvailabilityReport.ps1
+├── Private/
+│   ├── Azure/   (endpoints, regions, pricing, retry)
+│   ├── SKU/     (family, capabilities, similarity, restrictions, filter)
+│   ├── Image/   (requirements, compatibility)
+│   ├── Format/  (icons, zone status, recommend output)
+│   └── Utility/ (SafeString, GeoGroup, SubscriptionContext)
+└── Get-AzVMAvailability.ps1            # thin backward-compat wrapper
+```
+
+### Cmdlet Naming Convention
+Az module convention uses `AzVM` (capital VM), not `AzVm`. Always follow:
+`Get-AzVMAvailability`, `Get-AzVMRecommendation`, `Export-AzVMAvailabilityReport`
+**Not:** `Get-AzVmAvailability`, `Get-AzVmRecommendation` (Copilot gets this wrong).
+
+### Internal Process Artifacts
+`docs/REMEDIATION-PROGRAM.md` and `docs/REMEDIATION-TODO.md` are internal
+execution trackers that should not be in a public repo. They signal "this project
+had problems that needed a formal remediation program." Options: remove via PR,
+move to gitignored directory, or reframe as architecture decision records (ADRs)
+with a forward-looking tone. Do not commit new files of this type.
 
 ---
 
@@ -251,5 +343,7 @@ Both must reach full feature parity.
 - **Pricing fallback chain** — negotiated (EA/MCA/CSP via Cost Management API)
   → retail. Only call retail if negotiated fails; avoid redundant API calls.
 - **Self-audit tool** — `tools/Invoke-RepoSelfAudit.ps1` generates
-  `artifacts/audit/` reports (Markdown + JSON + CSV). Run at session start for
-  baseline and again after completing work to measure quality delta.
+  `artifacts/audit/` reports (Markdown + JSON + CSV). Outputs: Top 5 Changes,
+  Already Strong, Files to Remove, function-index.csv, hotspots.csv, analyzer.csv.
+  Run: `pwsh ./tools/Invoke-RepoSelfAudit.ps1 -RepoRoot . -FailOnCritical`
+  The `artifacts/` directory is gitignored — outputs are local only.
