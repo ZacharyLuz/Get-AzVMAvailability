@@ -15,6 +15,9 @@
 # Session handoff docs (ephemeral AI session artifacts)
 docs/SESSION-HANDOFF-*.md
 
+# Personal AI workflow files (local tooling, not project documentation)
+copilot-standing-rules.md
+
 # Temp files
 *.tmp
 *~
