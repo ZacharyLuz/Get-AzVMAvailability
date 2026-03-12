@@ -2443,6 +2443,21 @@ if (-not $ShowPricing -and -not $NoPrompt) {
     if ($pricingInput -match '^y(es)?$') { $FetchPricing = $true }
 }
 
+# Placement score prompt — fires independently (useful without pricing)
+if (-not $ShowPlacement -and -not $NoPrompt) {
+    Write-Host "`nShow allocation likelihood scores? (High/Medium/Low per SKU) (y/N): " -ForegroundColor Yellow -NoNewline
+    $placementInput = Read-Host
+    if ($placementInput -match '^y(es)?$') { $ShowPlacement = [switch]::new($true) }
+}
+$script:RunContext.ShowPlacement = $ShowPlacement.IsPresent
+
+# Spot pricing prompt — only useful if pricing is enabled
+if (-not $ShowSpot -and -not $NoPrompt -and $FetchPricing) {
+    Write-Host "`nInclude Spot VM pricing alongside regular pricing? (y/N): " -ForegroundColor Yellow -NoNewline
+    $spotInput = Read-Host
+    if ($spotInput -match '^y(es)?$') { $ShowSpot = [switch]::new($true) }
+}
+
 # Image compatibility prompt
 if (-not $ImageURN -and -not $NoPrompt) {
     Write-Host "`nCheck SKU compatibility with a specific VM image? (y/N): " -ForegroundColor Yellow -NoNewline
