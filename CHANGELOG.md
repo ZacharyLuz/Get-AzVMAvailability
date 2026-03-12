@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-03-12
+
 ### Added
 - `-ShowPlacement` parameter to display allocation likelihood scores (High/Medium/Low) for each SKU
 - `-ShowSpot` parameter to include Spot VM pricing in pricing-enabled outputs
