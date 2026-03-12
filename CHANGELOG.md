@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Startup version check gate (issue #41): `release-metadata-guard.yml` now requires at least one entry under `## [Unreleased]` for PRs that do not bump `$ScriptVersion`, closing the loophole where maintenance PRs bypassed all CHANGELOG enforcement
+- Version regression guard: `release-on-main.yml` drift check now fails if `$ScriptVersion` is lower than the latest existing git tag — prevents a manually-tagged higher version from masking a forgotten version bump indefinitely
 
 ### Fixed
 - `$ScriptVersion` corrected to `1.11.2` — the constant was never bumped past `1.11.0` despite v1.11.1 and three subsequent maintenance PRs shipping to `main`

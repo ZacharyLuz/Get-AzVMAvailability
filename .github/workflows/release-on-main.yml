@@ -51,6 +51,18 @@ jobs:
           Write-Host "Expected tag: $tag"
           Write-Host "Latest existing tag: $latestTag"
 
+          # Guard: detect version regression — ScriptVersion lower than latest tag
+          if (-not [string]::IsNullOrWhiteSpace($latestTag)) {
+            $latestVersion = $latestTag -replace '^v', ''
+            try {
+              if ([version]$version -lt [version]$latestVersion) {
+                throw "ScriptVersion ($version) is LOWER than the latest git tag ($latestTag). A version bump is required before merging to main."
+              }
+            } catch [System.Management.Automation.MethodInvocationException] {
+              Write-Warning "Could not compare versions as [version] objects ($version vs $latestVersion) — skipping regression check."
+            }
+          }
+
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "tag_exists=$tagExists" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
