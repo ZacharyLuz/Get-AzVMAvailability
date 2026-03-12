@@ -32,7 +32,7 @@ jobs:
             throw "Required closeout checklist skill missing: .github/skills/release-verification-checklist/SKILL.md"
           }
 
-          git fetch origin "${{ github.base_ref }}" --depth=1
+          git fetch origin "${{ github.base_ref || 'main' }}" --depth=1
 
           $headScript = Get-Content "./Get-AzVMAvailability.ps1" -Raw
           $headMatch = [regex]::Match($headScript, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
@@ -41,7 +41,7 @@ jobs:
           }
           $headVersion = $headMatch.Groups[1].Value
 
-          $baseScript = (git show "origin/${{ github.base_ref }}:Get-AzVMAvailability.ps1") -join "`n"
+          $baseScript = (git show "origin/${{ github.base_ref || 'main' }}:Get-AzVMAvailability.ps1") -join "`n"
           $baseMatch = [regex]::Match($baseScript, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
           if (-not $baseMatch.Success) {
             throw "Could not read ScriptVersion from base branch script."

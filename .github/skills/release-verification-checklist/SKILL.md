@@ -32,9 +32,10 @@ description: Verify local script release readiness against upstream main (versio
 - Guard check: `Select-String -Path .\Get-AzVMAvailability.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null|Add-Member.+AzureEndpoints|RunContext\.AzureEndpoints'`
 - Upstream hash compare:
   - `$u = "https://raw.githubusercontent.com/ZacharyLuz/Get-AzVMAvailability/main/Get-AzVMAvailability.ps1"`
-  - `Invoke-WebRequest -Uri $u -OutFile "$env:TEMP\Get-AzVMAvailability.main.ps1"`
+  - `$tmp = [System.IO.Path]::GetTempPath(); $remote = Join-Path -Path $tmp -ChildPath 'Get-AzVMAvailability.main.ps1'`
+  - `Invoke-WebRequest -Uri $u -OutFile $remote`
   - `(Get-FileHash .\Get-AzVMAvailability.ps1).Hash`
-  - `(Get-FileHash "$env:TEMP\Get-AzVMAvailability.main.ps1").Hash`
+  - `(Get-FileHash $remote).Hash`
 - Smoke run: `pwsh -File .\Get-AzVMAvailability.ps1 -NoPrompt -Region eastus -FamilyFilter D -TopN 3`
 
 ## Notes

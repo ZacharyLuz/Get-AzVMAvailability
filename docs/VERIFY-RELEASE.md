@@ -44,10 +44,12 @@ Expected: at least one hit for the run-context property initialization and assig
 ## 5) Detect Stale Local Copy (Hash Compare with Upstream main)
 
 ```powershell
-$u = "https://raw.githubusercontent.com/ZacharyLuz/Get-AzVMAvailability/main/Get-AzVMAvailability.ps1"
-Invoke-WebRequest -Uri $u -OutFile "$env:TEMP\Get-AzVMAvailability.main.ps1"
+$u       = "https://raw.githubusercontent.com/ZacharyLuz/Get-AzVMAvailability/main/Get-AzVMAvailability.ps1"
+$tempDir = [System.IO.Path]::GetTempPath()
+$outFile = Join-Path -Path $tempDir -ChildPath "Get-AzVMAvailability.main.ps1"
+Invoke-WebRequest -Uri $u -OutFile $outFile
 (Get-FileHash .\Get-AzVMAvailability.ps1).Hash
-(Get-FileHash "$env:TEMP\Get-AzVMAvailability.main.ps1").Hash
+(Get-FileHash $outFile).Hash
 ```
 
 Expected: hashes are identical.

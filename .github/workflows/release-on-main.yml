@@ -92,7 +92,7 @@ jobs:
           $version = "${{ steps.drift.outputs.version }}"
           $title = "Release metadata drift detected: $tag"
           $body = @(
-            "Script version is \\$ScriptVersion = $version on \\`main\\`, but tag/release $tag does not exist."
+            "Script version is \`$ScriptVersion = $version on \\`main\\`, but tag/release $tag does not exist."
             ""
             "Required action:"
             "1. Create tag $tag on the merge commit."
