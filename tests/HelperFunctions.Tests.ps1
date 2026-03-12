@@ -12,12 +12,17 @@ BeforeAll {
         'Format-ZoneStatus',
         'Test-SkuMatchesFilter',
         'Get-SafeString',
-        'Get-GeoGroup'
+        'Get-GeoGroup',
+        'Get-QuotaAvailable',
+        'Get-SkuCapabilities'
     )
 
     foreach ($functionName in $functionNames) {
         . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName $functionName)))
     }
+
+    # Get-SkuCapabilities reads $MBPerGB from parent scope (known tech debt)
+    $script:MBPerGB = 1024
 }
 
 Describe "Get-SafeString" {
@@ -300,5 +305,167 @@ Describe "Get-GeoGroup" {
 
     It "Maps canadacentral to Americas-Canada" {
         Get-GeoGroup -LocationCode 'canadacentral' | Should -Be 'Americas-Canada'
+    }
+}
+
+Describe "Get-RestrictionReason" {
+
+    It "Returns null for SKU with no restrictions" {
+        $sku = [PSCustomObject]@{ Restrictions = @() }
+        Get-RestrictionReason -Sku $sku | Should -BeNullOrEmpty
+    }
+
+    It "Returns ReasonCode from a single restriction" {
+        $sku = [PSCustomObject]@{
+            Restrictions = @(
+                [PSCustomObject]@{ ReasonCode = 'Quota' }
+            )
+        }
+        Get-RestrictionReason -Sku $sku | Should -Be 'Quota'
+    }
+
+    It "Returns first ReasonCode when multiple restrictions exist" {
+        $sku = [PSCustomObject]@{
+            Restrictions = @(
+                [PSCustomObject]@{ ReasonCode = 'NotAvailableForSubscription' }
+                [PSCustomObject]@{ ReasonCode = 'Quota' }
+            )
+        }
+        Get-RestrictionReason -Sku $sku | Should -Be 'NotAvailableForSubscription'
+    }
+
+    It "Returns null for null Sku" {
+        Get-RestrictionReason -Sku $null | Should -BeNullOrEmpty
+    }
+}
+
+Describe "Get-QuotaAvailable" {
+
+    Context "Family not in quota lookup" {
+        It "Returns all nulls when family is missing" {
+            $result = Get-QuotaAvailable -QuotaLookup @{} -SkuFamily 'D'
+            $result.Available | Should -BeNullOrEmpty
+            $result.OK | Should -BeNullOrEmpty
+            $result.Limit | Should -BeNullOrEmpty
+            $result.Current | Should -BeNullOrEmpty
+        }
+    }
+
+    Context "Family found in quota lookup" {
+
+        BeforeAll {
+            $script:TestQuota = @{ 'D' = @{ Limit = 100; CurrentValue = 60 } }
+        }
+
+        It "Returns correct Available count (Limit - CurrentValue)" {
+            $result = Get-QuotaAvailable -QuotaLookup $script:TestQuota -SkuFamily 'D'
+            $result.Available | Should -Be 40
+            $result.Limit | Should -Be 100
+            $result.Current | Should -Be 60
+        }
+
+        It "OK is true when no RequiredvCPUs and available > 0" {
+            $result = Get-QuotaAvailable -QuotaLookup $script:TestQuota -SkuFamily 'D'
+            $result.OK | Should -BeTrue
+        }
+
+        It "OK is true when available meets RequiredvCPUs" {
+            $result = Get-QuotaAvailable -QuotaLookup $script:TestQuota -SkuFamily 'D' -RequiredvCPUs 32
+            $result.OK | Should -BeTrue
+        }
+
+        It "OK is false when available is below RequiredvCPUs" {
+            $result = Get-QuotaAvailable -QuotaLookup $script:TestQuota -SkuFamily 'D' -RequiredvCPUs 50
+            $result.OK | Should -BeFalse
+        }
+
+        It "OK is false when quota is fully exhausted" {
+            $fullQuota = @{ 'D' = @{ Limit = 100; CurrentValue = 100 } }
+            $result = Get-QuotaAvailable -QuotaLookup $fullQuota -SkuFamily 'D'
+            $result.OK | Should -BeFalse
+        }
+    }
+}
+
+Describe "Get-SkuCapabilities" {
+
+    Context "Defaults when no capabilities present" {
+        It "Returns HyperVGenerations V1 by default" {
+            $sku = [PSCustomObject]@{ Capabilities = @() }
+            (Get-SkuCapabilities -Sku $sku).HyperVGenerations | Should -Be 'V1'
+        }
+
+        It "Returns CpuArchitecture x64 by default" {
+            $sku = [PSCustomObject]@{ Capabilities = @() }
+            (Get-SkuCapabilities -Sku $sku).CpuArchitecture | Should -Be 'x64'
+        }
+
+        It "Returns TempDiskGB 0 by default" {
+            $sku = [PSCustomObject]@{ Capabilities = @() }
+            (Get-SkuCapabilities -Sku $sku).TempDiskGB | Should -Be 0
+        }
+
+        It "Returns NvmeSupport false by default" {
+            $sku = [PSCustomObject]@{ Capabilities = @() }
+            (Get-SkuCapabilities -Sku $sku).NvmeSupport | Should -BeFalse
+        }
+
+        It "Returns AcceleratedNetworkingEnabled false by default" {
+            $sku = [PSCustomObject]@{ Capabilities = @() }
+            (Get-SkuCapabilities -Sku $sku).AcceleratedNetworkingEnabled | Should -BeFalse
+        }
+    }
+
+    Context "Capability parsing" {
+        It "Parses HyperVGenerations V1,V2" {
+            $sku = [PSCustomObject]@{
+                Capabilities = @([PSCustomObject]@{ Name = 'HyperVGenerations'; Value = 'V1,V2' })
+            }
+            (Get-SkuCapabilities -Sku $sku).HyperVGenerations | Should -Be 'V1,V2'
+        }
+
+        It "Parses CpuArchitectureType = Arm64" {
+            $sku = [PSCustomObject]@{
+                Capabilities = @([PSCustomObject]@{ Name = 'CpuArchitectureType'; Value = 'Arm64' })
+            }
+            (Get-SkuCapabilities -Sku $sku).CpuArchitecture | Should -Be 'Arm64'
+        }
+
+        It "Converts MaxResourceVolumeMB to TempDiskGB (204800 MB = 200 GB)" {
+            $sku = [PSCustomObject]@{
+                Capabilities = @([PSCustomObject]@{ Name = 'MaxResourceVolumeMB'; Value = '204800' })
+            }
+            (Get-SkuCapabilities -Sku $sku).TempDiskGB | Should -Be 200
+        }
+
+        It "Sets AcceleratedNetworkingEnabled true from 'True' string" {
+            $sku = [PSCustomObject]@{
+                Capabilities = @([PSCustomObject]@{ Name = 'AcceleratedNetworkingEnabled'; Value = 'True' })
+            }
+            (Get-SkuCapabilities -Sku $sku).AcceleratedNetworkingEnabled | Should -BeTrue
+        }
+
+        It "Leaves AcceleratedNetworkingEnabled false from 'False' string" {
+            $sku = [PSCustomObject]@{
+                Capabilities = @([PSCustomObject]@{ Name = 'AcceleratedNetworkingEnabled'; Value = 'False' })
+            }
+            (Get-SkuCapabilities -Sku $sku).AcceleratedNetworkingEnabled | Should -BeFalse
+        }
+
+        It "Sets NvmeSupport true when NvmeDiskSizeInMiB is present" {
+            $sku = [PSCustomObject]@{
+                Capabilities = @([PSCustomObject]@{ Name = 'NvmeDiskSizeInMiB'; Value = '3686400' })
+            }
+            (Get-SkuCapabilities -Sku $sku).NvmeSupport | Should -BeTrue
+        }
+    }
+
+    Context "Null capabilities property" {
+        It "Returns defaults when Capabilities is null" {
+            $sku = [PSCustomObject]@{ Capabilities = $null }
+            $result = Get-SkuCapabilities -Sku $sku
+            $result.HyperVGenerations | Should -Be 'V1'
+            $result.CpuArchitecture | Should -Be 'x64'
+        }
     }
 }

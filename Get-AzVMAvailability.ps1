@@ -382,9 +382,10 @@ $script:RunContext = [pscustomobject]@{
     ShowPlacement      = $false
     DesiredCount       = 1
     Caches             = [ordered]@{
-        ValidRegions  = $null
-        Pricing       = @{}
-        ActualPricing = @{}
+        ValidRegions       = $null
+        Pricing            = @{}
+        ActualPricing      = @{}
+        PlacementWarned403 = $false
     }
 }
 $script:CachedValidRegions = $null
