@@ -46,7 +46,7 @@ jobs:
           )
           $lines -join [System.Environment]::NewLine |
             Set-Content -Path "$env:RUNNER_TEMP/issue-body.md" -Encoding utf8
-          $existing = gh issue list --repo "${{ github.repository }}" --state open --search "Tooling health check failed" --json number --jq '.[0].number'
+          $existing = gh issue list --repo "${{ github.repository }}" --state open --search "Tooling health check failed" --json number --jq '.[0].number // empty'
           if ([string]::IsNullOrWhiteSpace($existing)) {
             gh issue create --repo "${{ github.repository }}" --title $title --body-file "$env:RUNNER_TEMP/issue-body.md"
             Write-Host "Issue opened."
