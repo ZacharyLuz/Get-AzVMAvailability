@@ -381,7 +381,6 @@ $script:RunContext = [pscustomobject]@{
     RecommendOutput    = $null
     ShowPlacement      = $false
     DesiredCount       = 1
-    AzureEndpoints     = $null
     Caches             = [ordered]@{
         ValidRegions  = $null
         Pricing       = @{}
@@ -1216,7 +1215,7 @@ function New-RecommendOutputContract {
         topN               = $TopN
         pricingEnabled     = $FetchPricing
         placementEnabled   = $ShowPlacement
-        spotPricingEnabled = $ShowSpot
+        spotPricingEnabled = ($FetchPricing -and $ShowSpot)
         target             = [pscustomobject]$TargetProfile
         targetAvailability = @($TargetAvailability)
         recommendations    = @($rankedPayload)
@@ -2043,8 +2042,16 @@ function Get-PlacementScores {
     )
 
     $scores = @{}
-    $normalizedSkus = @($SkuNames | Where-Object { $_ } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First 5)
-    $normalizedRegions = @($Regions | Where-Object { $_ } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First 8)
+    $uniqueSkus = @($SkuNames | Where-Object { $_ } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
+    $uniqueRegions = @($Regions | Where-Object { $_ } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ } | Select-Object -Unique)
+    if ($uniqueSkus.Count -gt 5) {
+        Write-Verbose "Placement score: truncating from $($uniqueSkus.Count) to 5 SKUs (API limit)."
+    }
+    if ($uniqueRegions.Count -gt 8) {
+        Write-Verbose "Placement score: truncating from $($uniqueRegions.Count) to 8 regions (API limit)."
+    }
+    $normalizedSkus = @($uniqueSkus | Select-Object -First 5)
+    $normalizedRegions = @($uniqueRegions | Select-Object -First 8)
 
     if ($normalizedSkus.Count -eq 0 -or $normalizedRegions.Count -eq 0) {
         return $scores

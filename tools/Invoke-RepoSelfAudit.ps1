@@ -94,10 +94,15 @@ function Get-RepoFiles {
 
     Push-Location $Root
     try {
-        if (Test-Path '.git') {
-            $files = git ls-files 2>$null
-            if ($LASTEXITCODE -eq 0 -and $files) {
-                return $files
+        if ((Test-Path '.git') -and (Get-Command git -ErrorAction SilentlyContinue)) {
+            try {
+                $files = git ls-files 2>$null
+                if ($LASTEXITCODE -eq 0 -and $files) {
+                    return $files
+                }
+            }
+            catch {
+                Write-Verbose "git ls-files failed: $($_.Exception.Message)"
             }
         }
         return Get-ChildItem -Path $Root -Recurse -File | ForEach-Object {
