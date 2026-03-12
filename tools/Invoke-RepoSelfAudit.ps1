@@ -230,12 +230,12 @@ function Find-HygieneRisks {
         $_ -notmatch '^artifacts/'
     }
     $secretPatterns = @(
-        'AKIA[0-9A-Z]{16}',
-        '(?i)client_secret\s*[:=]\s*["''][^"'']+',
-        '(?i)tenant[_-]?id\s*[:=]\s*["''][0-9a-f\-]{20,}',
-        '(?i)subscription[_-]?id\s*[:=]\s*["''][0-9a-f\-]{20,}',
-        '(?i)password\s*[:=]\s*["''][^"'']+',
-        '(?i)connectionstring\s*[:=]\s*["''][^"'']+'
+        "AKIA[0-9A-Z]{16}",
+        "(?i)client_secret\s*[:=]\s*[`"'][^`"']+",
+        "(?i)tenant[_-]?id\s*[:=]\s*[`"'][0-9a-f\-]{20,}",
+        "(?i)subscription[_-]?id\s*[:=]\s*[`"'][0-9a-f\-]{20,}",
+        "(?i)password\s*[:=]\s*[`"'][^`"']+",
+        "(?i)connectionstring\s*[:=]\s*[`"'][^`"']+"
     )
 
     foreach ($tf in $textFiles) {
