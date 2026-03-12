@@ -47,18 +47,22 @@ if (-not $hasAnalyzer) {
     Write-Host "  SKIP  PSScriptAnalyzer not installed (Install-Module PSScriptAnalyzer)" -ForegroundColor DarkYellow
 }
 else {
-    $analyzerParams = @{ Path = $mainScript; Severity = @('Error', 'Warning') }
-    if (Test-Path $settingsFile) {
-        $analyzerParams.Settings = $settingsFile
+    # Lint main script + tools scripts; dev/ excluded (experimental code)
+    $lintTargets = @($mainScript) + (Get-ChildItem (Join-Path $repoRoot 'tools') -Filter '*.ps1' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+    $issues = @()
+    foreach ($target in $lintTargets) {
+        $analyzerParams = @{ Path = $target; Severity = @('Error', 'Warning') }
+        if (Test-Path $settingsFile) { $analyzerParams.Settings = $settingsFile }
+        $issues += Invoke-ScriptAnalyzer @analyzerParams
     }
-    $issues = Invoke-ScriptAnalyzer @analyzerParams
     if ($issues.Count -eq 0) {
-        Write-Host "  PASS  No warnings or errors" -ForegroundColor Green
+        Write-Host "  PASS  No warnings or errors ($($lintTargets.Count) file(s) checked)" -ForegroundColor Green
     }
     else {
         Write-Host "  FAIL  $($issues.Count) issue(s) found:" -ForegroundColor Red
         foreach ($issue in $issues) {
-            Write-Host "         Line $($issue.Line): [$($issue.Severity)] $($issue.RuleName) - $($issue.Message)" -ForegroundColor Red
+            $relPath = [System.IO.Path]::GetRelativePath($repoRoot, $issue.ScriptPath)
+            Write-Host "         $relPath line $($issue.Line): [$($issue.Severity)] $($issue.RuleName) - $($issue.Message)" -ForegroundColor Red
         }
         $failCount++
     }
