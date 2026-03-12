@@ -420,7 +420,9 @@ This repo includes a **Copilot skill** that teaches AI coding agents (VS Code Co
 
 ### Installing the skill for VS Code Copilot
 
-Copy the skill to your local agent skills directory:
+This skill is already referenced in `.github/copilot-instructions.md` and loads automatically when you open this repo in VS Code with GitHub Copilot enabled.
+
+To use it in **other repositories**, copy the skill to your local skills directory and reference it in that repo's Copilot instructions:
 
 ```powershell
 # Windows
@@ -429,8 +431,6 @@ Copy-Item -Recurse ".github\skills\azure-vm-availability" "$env:USERPROFILE\.age
 # macOS/Linux
 cp -r .github/skills/azure-vm-availability ~/.agents/skills/azure-vm-availability
 ```
-
-Then reference it in your VS Code Copilot configuration. The skill is automatically discovered when placed in `~/.agents/skills/`.
 
 ## Contributing
 

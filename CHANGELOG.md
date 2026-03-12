@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Copilot skill (`.github/skills/azure-vm-availability/SKILL.md`) for AI agent integration -- teaches coding agents when and how to invoke Get-AzVMAvailability via terminal
+- README "AI Agent Integration" section with example agent invocations and installation instructions
+
 ## [1.11.0] - 2026-03-12
 
 ### Added

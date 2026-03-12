@@ -4,7 +4,7 @@ description: "Scan Azure regions for real-time VM SKU availability, capacity sta
 license: MIT
 metadata:
   author: Zachary Luz
-  version: "1.1.0"
+  version: "1.1.0"  # Skill version (independent of script version 1.11.0)
 ---
 
 # Azure VM Availability — Live Capacity Scanner
@@ -325,6 +325,13 @@ Max 5 regions per scan for performance.
   "belowMinSpec": []
 }
 ```
+
+> **Note:** The examples above show key fields for brevity. In actual output,
+> each `recommendations` object also includes `purpose`, `gen`, `arch`, `cpu`,
+> `disk`, `tempDiskGB`, and `accelNet`. The `target` object also includes
+> `TempDiskGB` and `AccelNet`. Treat the schema as additive -- new fields may
+> appear in future versions, but existing fields will not be removed without
+> a `schemaVersion` change.
 
 ---
 
