@@ -14,6 +14,9 @@
         # Function names like Get-AzureEndpoints, Get-RestrictionDetails return
         # collections — plural nouns are intentional and match Azure cmdlet conventions
         'PSUseSingularNouns'
+
+        # PowerShell 7+ handles UTF-8 without BOM correctly; BOM is a legacy requirement
+        'PSUseBOMForUnicodeEncodedFile'
     )
 
     Rules        = @{
