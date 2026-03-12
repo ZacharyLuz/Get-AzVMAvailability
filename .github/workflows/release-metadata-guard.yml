@@ -72,7 +72,7 @@ jobs:
         with:
           script: |
             const body = context.payload.pull_request?.body || '';
-            const required = /- \[[xX]\]\s+Release\/tag plan prepared for this version bump/;
+            const required = /- \[[xX]\]\s+(?:\*\*)?Release\/tag plan prepared for this version bump(?:\*\*)?/;
             if (!required.test(body)) {
               core.setFailed('ScriptVersion changed, but PR checklist item is not checked: "Release/tag plan prepared for this version bump".');
             } else {

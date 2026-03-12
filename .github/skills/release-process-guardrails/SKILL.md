@@ -16,8 +16,8 @@ description: Guardrails for protected-branch release flow (PR-only, merge-then-t
 - Verify CI and code scanning are green before merge
 - If local `main` diverges from `origin/main`, prefer reset to `origin/main` over creating a merge commit
 - Use required closeout checklist artifacts before declaring release complete:
-	- `docs/VERIFY-RELEASE.md`
-	- `.github/skills/release-verification-checklist/SKILL.md`
+  - `docs/VERIFY-RELEASE.md`
+  - `.github/skills/release-verification-checklist/SKILL.md`
 
 ## Checklist
 1) Ensure PR exists for release changes

@@ -75,8 +75,13 @@ jobs:
           Set-Content -Path $notesFile -Value $section.Value.Trim() -Encoding utf8
           "notes_file=$notesFile" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      # Only open a drift issue on manual dispatch when auto-publish is disabled.
+      # On push events the auto-publish step below handles the drift automatically.
+      # Note: this step detects tag-missing drift only. If a tag exists but the
+      # corresponding release was deleted, the verify step at job end will fail
+      # loudly — creating/restoring the release is a manual remediation step.
       - name: Open issue when drift detected and auto-publish disabled
-        if: steps.drift.outputs.tag_exists == 'False' && (github.event_name != 'workflow_dispatch' || inputs.auto_publish == false)
+        if: github.event_name == 'workflow_dispatch' && inputs.auto_publish == false && steps.drift.outputs.tag_exists == 'False'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
@@ -95,7 +100,7 @@ jobs:
             "3. Verify with \\`gh release list\\`."
           ) -join "`n"
 
-          $existing = gh issue list --repo "${{ github.repository }}" --state open --search "$title" --json number --jq '.[0].number'
+          $existing = gh issue list --repo "${{ github.repository }}" --state open --search "$title" --json number --jq '.[0].number // empty'
           if ([string]::IsNullOrWhiteSpace($existing)) {
             gh issue create --repo "${{ github.repository }}" --title "$title" --body "$body" | Out-Null
             Write-Host "Opened release drift issue for $tag"
