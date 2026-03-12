@@ -83,6 +83,18 @@ Before submitting a PR, test with:
 - CSV and XLSX exports
 - Unicode and ASCII terminal modes
 
+## Keeping Tools Current
+
+Three tooling components require active maintenance as the script evolves:
+
+| Tool | What goes stale | How to prevent |
+|------|-----------------|----------------|
+| `tests/` | New functions without Pester coverage | Check the **New functions have Pester test coverage** box in every PR that adds functions |
+| `PSScriptAnalyzerSettings.psd1` | New PSScriptAnalyzer rules not evaluated | Review periodically — `Get-ScriptAnalyzerRule` lists all available rules |
+| `tools/Validate-Script.ps1` | New `.ps1` files not included in lint targets | Update `$lintTargets` when new scripts are added to `tools/` |
+
+A scheduled CI workflow (`.github/workflows/scheduled-health-check.yml`) runs `tools/Validate-Script.ps1` weekly on `main` and opens a GitHub issue automatically if any check fails.
+
 ## Questions?
 
 Feel free to [open an issue](https://github.com/ZacharyLuz/Get-AzVMAvailability/issues) on GitHub.

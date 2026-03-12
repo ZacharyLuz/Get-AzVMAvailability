@@ -1,0 +1,60 @@
+name: "Scheduled Tooling Health Check"
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  health_check:
+    name: Tooling Health Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install required modules
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -Force -SkipPublisherCheck -Scope CurrentUser -MinimumVersion 5.0
+          Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -Scope CurrentUser
+
+      - name: Run Validate-Script
+        id: validate
+        continue-on-error: true
+        shell: pwsh
+        run: .\tools\Validate-Script.ps1
+
+      - name: Open issue on failure
+        if: steps.validate.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $title = "Tooling health check failed -- $(Get-Date -Format 'yyyy-MM-dd')"
+          $runUrl = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          $lines = @(
+            "The weekly tooling health check on **main** detected one or more failures.",
+            "",
+            "Run ``.\tools\Validate-Script.ps1`` locally to reproduce and fix.",
+            "",
+            "**Workflow run:** $runUrl"
+          )
+          $lines -join [System.Environment]::NewLine |
+            Set-Content -Path "$env:RUNNER_TEMP/issue-body.md" -Encoding utf8
+          $existing = gh issue list --repo "${{ github.repository }}" --state open --search "Tooling health check failed" --json number --jq '.[0].number'
+          if ([string]::IsNullOrWhiteSpace($existing)) {
+            gh issue create --repo "${{ github.repository }}" --title $title --body-file "$env:RUNNER_TEMP/issue-body.md"
+            Write-Host "Issue opened."
+          } else {
+            Write-Host "Issue already open: #$existing -- skipping duplicate."
+          }
+
+      - name: Fail job after issue creation
+        if: steps.validate.outcome == 'failure'
+        shell: pwsh
+        run: exit 1
