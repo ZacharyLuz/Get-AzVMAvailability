@@ -126,7 +126,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.10.4
+    Version:        1.11.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -330,7 +330,7 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
 }
 
 #region Configuration
-$ScriptVersion = "1.10.4"
+$ScriptVersion = "1.11.0"
 
 #region Constants
 $HoursPerMonth = 730

@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Release: v1.10.4
+## Current Release: v1.11.0
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
