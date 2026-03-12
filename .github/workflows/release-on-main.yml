@@ -54,12 +54,14 @@ jobs:
           # Guard: detect version regression — ScriptVersion lower than latest tag
           if (-not [string]::IsNullOrWhiteSpace($latestTag)) {
             $latestVersion = $latestTag -replace '^v', ''
-            try {
-              if ([version]$version -lt [version]$latestVersion) {
-                throw "ScriptVersion ($version) is LOWER than the latest git tag ($latestTag). A version bump is required before merging to main."
+            $parsedCurrent = $null
+            $parsedLatest = $null
+            if ([version]::TryParse($version, [ref]$parsedCurrent) -and [version]::TryParse($latestVersion, [ref]$parsedLatest)) {
+              if ($parsedCurrent -lt $parsedLatest) {
+                throw "ScriptVersion ($version) is LOWER than the latest git tag ($latestTag). A version bump is required; ScriptVersion must not be lower than the latest tag."
               }
-            } catch [System.Management.Automation.MethodInvocationException] {
-              Write-Warning "Could not compare versions as [version] objects ($version vs $latestVersion) — skipping regression check."
+            } else {
+              Write-Warning "Could not parse versions as [version] objects ($version vs $latestVersion) — skipping regression check."
             }
           }
 
