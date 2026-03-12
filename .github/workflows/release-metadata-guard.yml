@@ -56,12 +56,26 @@ jobs:
           "head_version=$headVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "base_version=$baseVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+          $changelog = Get-Content "./CHANGELOG.md" -Raw
+
           if ($versionChanged) {
             Write-Host "ScriptVersion changed in this PR. Verifying CHANGELOG entry for $headVersion..."
-            $changelog = Get-Content "./CHANGELOG.md" -Raw
             if ($changelog -notmatch [regex]::Escape("## [$headVersion]")) {
               throw "ScriptVersion changed ($baseVersion -> $headVersion) but CHANGELOG.md is missing heading: ## [$headVersion]"
             }
+            Write-Host "CHANGELOG heading ## [$headVersion] found."
+          } else {
+            Write-Host "ScriptVersion unchanged ($headVersion). Verifying [Unreleased] section has content..."
+            # Capture everything between ## [Unreleased] and the next ## [ heading
+            $unreleasedMatch = [regex]::Match($changelog, '(?s)##\s+\[Unreleased\]\s*(.*?)(?=\r?\n##\s+\[|\z)')
+            if (-not $unreleasedMatch.Success) {
+              throw "CHANGELOG.md is missing ## [Unreleased] section."
+            }
+            $unreleasedBody = $unreleasedMatch.Groups[1].Value.Trim()
+            if ([string]::IsNullOrWhiteSpace($unreleasedBody)) {
+              throw "PR does not bump ScriptVersion — CHANGELOG.md ## [Unreleased] section must contain at least one entry describing what changed."
+            }
+            Write-Host "[Unreleased] section has content. Changelog enforcement passed."
           }
 
           Write-Host "Release metadata guard passed."

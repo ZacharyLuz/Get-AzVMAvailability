@@ -330,7 +330,7 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
 }
 
 #region Configuration
-$ScriptVersion = "1.11.0"
+$ScriptVersion = "1.11.2"
 
 #region Constants
 $HoursPerMonth = 730

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.2] - 2026-03-12
+
+### Added
+- Startup version check gate (issue #41): `release-metadata-guard.yml` now requires at least one entry under `## [Unreleased]` for PRs that do not bump `$ScriptVersion`, closing the loophole where maintenance PRs bypassed all CHANGELOG enforcement
+
+### Fixed
+- `$ScriptVersion` corrected to `1.11.2` — the constant was never bumped past `1.11.0` despite v1.11.1 and three subsequent maintenance PRs shipping to `main`
+
+### Changed (CI / Tooling — PRs #38–40, previously undocumented)
+- **PR #38** — Expanded test coverage from 142 to 182 tests: added `HelperFunctions.Tests.ps1` covering `Get-SafeString`, `Get-GeoGroup`, `Get-SkuFamily`, `Get-ProcessorVendor`; fixed `$script:RunContext.Caches` initialization that caused silent nil-ref failures in pricing logic
+- **PR #39** — Added `.github/workflows/scheduled-health-check.yml` (weekly PSScriptAnalyzer + Pester run on `main`); added PR template coverage gate requiring checklist completion before merge
+- **PR #40** — Fixed 4 Copilot post-merge findings: cross-platform temp path (`[System.IO.Path]::GetTempPath()` replaces `$env:TEMP`); backtick-escaped `$ScriptVersion` in YAML double-quoted PowerShell strings; `github.base_ref || 'main'` fallback for `workflow_dispatch` triggers
+
 ## [1.11.1] - 2026-03-12
 
 ### Added
