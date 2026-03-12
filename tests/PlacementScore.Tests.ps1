@@ -1,3 +1,7 @@
+# Mock functions declare parameters to match real Azure cmdlet signatures but don't reference them
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Mock function parameters match real cmdlet signatures for Pester overrides')]
+param()
+
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
 

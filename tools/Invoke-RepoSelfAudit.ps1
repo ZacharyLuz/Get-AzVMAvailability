@@ -62,6 +62,7 @@ function New-AuditResult {
     .SYNOPSIS
         Creates a structured audit finding object.
     #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Creates in-memory object only, no system state change')]
     param(
         [string]$Section,
         [string]$Rating,

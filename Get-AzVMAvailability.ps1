@@ -2028,6 +2028,8 @@ function Get-PlacementScores {
         signal is broadly useful for VM allocation planning). Returns a hashtable keyed by
         "sku|region" with score metadata.
     #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'DesiredCount', Justification = 'Used inside Invoke-WithRetry scriptblock closure')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'IncludeAvailabilityZone', Justification = 'Used inside Invoke-WithRetry scriptblock closure')]
     param(
         [Parameter(Mandatory)]
         [string[]]$SkuNames,
