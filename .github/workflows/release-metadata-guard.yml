@@ -41,7 +41,7 @@ jobs:
           }
           $headVersion = $headMatch.Groups[1].Value
 
-          $baseScript = git show "origin/${{ github.base_ref }}:Get-AzVMAvailability.ps1"
+          $baseScript = (git show "origin/${{ github.base_ref }}:Get-AzVMAvailability.ps1") -join "`n"
           $baseMatch = [regex]::Match($baseScript, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
           if (-not $baseMatch.Success) {
             throw "Could not read ScriptVersion from base branch script."
