@@ -202,6 +202,60 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 ---
 
 ## Version 2.1.0 (Future)
+**Theme: MCP Server Interface** ([#28](https://github.com/ZacharyLuz/Get-AzVMAvailability/issues/28))
+
+Expose VM availability data as MCP tools so AI coding agents (Copilot, Claude, etc.) can pre-validate SKU selection during Terraform/Bicep authoring — before deployment fails.
+
+### MCP Tools
+- [ ] **`check_vm_availability`** - Check if a specific SKU is available in a region (capacity, restrictions, zones)
+- [ ] **`find_alternatives`** - Find similar available SKUs when the target is unavailable (wraps `-Recommend`)
+- [ ] **`get_vm_pricing`** - Get retail/negotiated pricing for a SKU in a region
+- [ ] **`check_quota`** - Check subscription quota for a SKU family in a region
+
+### Server Infrastructure
+- [ ] **MCP Server Process** - Node.js MCP server using `@modelcontextprotocol/sdk` that shells out to the PowerShell module
+- [ ] **PowerShell Module Bridge** - Thin adapter layer: MCP tool → `pwsh -Command "Import-Module AzVMAvailability; ..."` → JSON response
+- [ ] **Authentication Passthrough** - Use caller's existing `Az.Accounts` session (no credential storage in MCP server)
+- [ ] **Container Option** - Dockerfile with PowerShell 7 + Az modules + MCP server for portable deployment
+
+### Architecture
+```mermaid
+flowchart TB
+    Agent["AI Agent<br>(Copilot / Claude / Custom)"]
+    Agent -->|"MCP Protocol<br>(stdio / SSE)"| MCP
+
+    subgraph MCP["MCP Server - Node.js"]
+        T1["check_vm_availability"]
+        T2["find_alternatives"]
+        T3["get_vm_pricing"]
+        T4["check_quota"]
+    end
+
+    MCP -->|"pwsh -Command"| Bridge
+
+    subgraph Bridge["PowerShell Module Bridge"]
+        M1["Get-AzVMAvailability -JsonOutput"]
+        M2["Get-AzVMAvailability -Recommend -JsonOutput"]
+        M3["Get-AzVMPricing"]
+    end
+
+    Bridge -->|"Az PowerShell / REST API"| Azure
+
+    subgraph Azure["Azure APIs"]
+        A1["Compute RP"]
+        A2["Cost Management"]
+        A3["Retail Prices"]
+        A4["Spot Placement Scores"]
+    end
+```
+
+### Dependencies
+- Requires **v2.0.0 Module Implementation** (exported functions for clean tool invocation)
+- Benefits from v1.11.0 Placement Scores and v1.12.0 Fleet Planning data
+
+---
+
+## Version 2.2.0 (Future)
 **Theme: Proactive Monitoring**
 
 - [ ] **Watch Mode** - Continuous monitoring with alerts
