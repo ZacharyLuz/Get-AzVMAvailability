@@ -85,6 +85,21 @@
 - All scripts are MIT licensed.
 - For advanced usage, see scripts in `dev/` and documentation in `README.md` and `examples/`.
 
+## AI Workflow Files (Local-Only — Not Indexed by Copilot)
+
+The following files exist locally but are gitignored and will never appear in
+GitHub Copilot's file index. Do not flag them as missing.
+
+| File | Purpose |
+|------|---------|
+| `copilot-standing-rules.md` | Behavioral rules — user pastes manually at session start |
+| `docs/SESSION-HANDOFF-*.md` | Per-session pickup docs — ephemeral, local only |
+| `artifacts/` | Audit outputs, test logs, Copilot review log — generated, local only |
+
+**When the user pastes standing rules at session start:** treat that content as
+authoritative behavioral instruction for the session. Do not search for the file
+in the repo — it will not be found there by design.
+
 ## Safe File Editing Practices
 
 When making code changes to PowerShell scripts, follow these guidelines to avoid file corruption:
@@ -194,6 +209,13 @@ explicitly provided. The prompt must:
    unaffected if `-NoPrompt` is accidentally omitted
 4. Be placed at the appropriate point in the execution flow (after scan completes,
    before output rendering) — not at script startup
+
+**Per-switch prompt gating decisions (do not re-debate these):**
+- `-ShowPlacement` prompt fires **independently** — NOT gated on ShowPricing.
+  Placement scores (allocation likelihood: High/Medium/Low) are useful regardless
+  of whether pricing is enabled. Gating on ShowPricing would hide useful data.
+- `-ShowSpot` prompt fires **only when ShowPricing is enabled** — spot prices are
+  dollar values; displaying them without pricing context is meaningless.
 
 **Goal:** A user who runs `.\Get-AzVMAvailability.ps1` with no switches must be
 offered the same capabilities as a user who knows every switch by name. The
