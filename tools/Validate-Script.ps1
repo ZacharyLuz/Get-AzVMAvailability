@@ -61,7 +61,7 @@ else {
     else {
         Write-Host "  FAIL  $($issues.Count) issue(s) found:" -ForegroundColor Red
         foreach ($issue in $issues) {
-            $relPath = $issue.ScriptPath -replace [regex]::Escape($repoRoot + '\'), ''
+            $relPath = [System.IO.Path]::GetRelativePath($repoRoot, $issue.ScriptPath)
             Write-Host "         $relPath line $($issue.Line): [$($issue.Severity)] $($issue.RuleName) - $($issue.Message)" -ForegroundColor Red
         }
         $failCount++
