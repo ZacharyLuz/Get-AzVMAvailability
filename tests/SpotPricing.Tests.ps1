@@ -25,7 +25,7 @@ Describe 'Get-AzVMPricing spot/regular data model' {
             }
         }
 
-        function global:Invoke-WithRetry {
+        function Invoke-WithRetry {
             param([scriptblock]$ScriptBlock, [int]$MaxRetries, [string]$OperationName)
             & $ScriptBlock
         }

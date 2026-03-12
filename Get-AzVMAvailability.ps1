@@ -1991,7 +1991,7 @@ function Get-RegularPricingMap {
         $PricingContainer = $PricingContainer[0]
     }
 
-    if ($PricingContainer -is [hashtable] -and $PricingContainer.ContainsKey('Regular')) {
+    if ($PricingContainer -is [System.Collections.IDictionary] -and $PricingContainer.Contains('Regular')) {
         return $PricingContainer.Regular
     }
 
@@ -2012,7 +2012,7 @@ function Get-SpotPricingMap {
         $PricingContainer = $PricingContainer[0]
     }
 
-    if ($PricingContainer -is [hashtable] -and $PricingContainer.ContainsKey('Spot')) {
+    if ($PricingContainer -is [System.Collections.IDictionary] -and $PricingContainer.Contains('Spot')) {
         return $PricingContainer.Spot
     }
 
