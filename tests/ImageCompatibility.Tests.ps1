@@ -1,6 +1,6 @@
 # ImageCompatibility.Tests.ps1
 # Pester tests for Get-ImageRequirements and Test-ImageSkuCompatibility
-# Run with: Invoke-Pester .\tests\ImageCompatibility.Tests.ps1 -Output Detailed
+# Run with: Invoke-Pester .\tests\ImageCompatibility.Tests.ps1 -Output Detailed *> artifacts/test-run.log
 
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
@@ -55,6 +55,7 @@ Describe "Get-ImageRequirements" {
         It "Detects ARM64 architecture from 'aarch64' in SKU name" {
             $result = Get-ImageRequirements -ImageURN 'Publisher:Offer:sku-aarch64:latest'
             $result.Arch | Should -Be 'ARM64'
+            $result.Gen | Should -Be 'Gen2'
         }
     }
 

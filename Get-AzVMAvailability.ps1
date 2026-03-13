@@ -1762,7 +1762,7 @@ function Get-ImageRequirements {
 
     # Determine Generation from SKU name patterns
     $gen = 'Gen1'  # Default to Gen1 for compatibility
-    if ($sku -match '-gen2|-g2|gen2|_gen2|arm64') {
+    if ($sku -match '-gen2|-g2|gen2|_gen2|arm64|aarch64') {
         $gen = 'Gen2'
     }
     elseif ($sku -match '-gen1|-g1|gen1|_gen1') {
