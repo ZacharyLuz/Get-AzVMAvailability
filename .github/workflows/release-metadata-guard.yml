@@ -48,6 +48,18 @@ jobs:
           }
           $baseVersion = $baseMatch.Groups[1].Value
 
+          # Verify .NOTES Version matches $ScriptVersion
+          $notesMatch = [regex]::Match($headScript, '(?m)\.NOTES[\s\S]*?Version:\s*([\d.]+)')
+          if ($notesMatch.Success) {
+            $notesVersion = $notesMatch.Groups[1].Value
+            if ($notesVersion -ne $headVersion) {
+              throw ".NOTES Version ($notesVersion) does not match `$ScriptVersion ($headVersion). Both must be identical."
+            }
+            Write-Host ".NOTES Version matches ScriptVersion: $headVersion"
+          } else {
+            throw "Could not find Version in .NOTES comment block."
+          }
+
           Write-Host "Base version: $baseVersion"
           Write-Host "Head version: $headVersion"
 
