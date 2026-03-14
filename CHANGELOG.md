@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- CI: Fixed `[Unreleased]` changelog guard regex that allowed empty sections to pass — `\s*` consumed newlines past the heading boundary, causing `(.*?)` to capture the next version's content instead of detecting an empty section
+
 ## [1.11.2] - 2026-03-12
 
 ### Added

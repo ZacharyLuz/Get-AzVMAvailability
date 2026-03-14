@@ -78,8 +78,10 @@ jobs:
             Write-Host "CHANGELOG heading ## [$headVersion] found."
           } else {
             Write-Host "ScriptVersion unchanged ($headVersion). Verifying [Unreleased] section has content..."
-            # Capture everything between ## [Unreleased] and the next ## [ heading
-            $unreleasedMatch = [regex]::Match($changelog, '(?s)##\s+\[Unreleased\]\s*(.*?)(?=\r?\n##\s+\[|\z)')
+            # Capture content between ## [Unreleased] heading and the next ## [ heading
+            # Uses [^\n]* (not \s*) after heading to avoid consuming newlines that
+            # belong to the boundary, which would let the lazy (.*?) skip past ## [x.y.z]
+            $unreleasedMatch = [regex]::Match($changelog, '(?s)##\s+\[Unreleased\][^\n]*\n(.*?)(?=\n##\s+\[|\z)')
             if (-not $unreleasedMatch.Success) {
               throw "CHANGELOG.md is missing ## [Unreleased] section."
             }
