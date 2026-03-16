@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.3] - 2026-03-16
+
 ### Fixed
 - CI: Fixed `[Unreleased]` changelog guard regex that allowed empty sections to pass — `\s*` consumed newlines past the heading boundary, causing `(.*?)` to capture the next version's content instead of detecting an empty section
+- Security: Clear auth token (`$headers['Authorization']` and `$token`) in `finally` blocks in `Get-ValidAzureRegions` and `Get-AzActualPricing` to prevent credential leakage on exception paths (G-S1)
+- Resilience: `Invoke-WithRetry` now handles RFC 1123 HTTP-date `Retry-After` values (e.g. `Sun, 16 Mar 2026 14:00:00 GMT`) in addition to integer seconds, preventing premature retries under heavy throttling (G-B1)
+- Reliability: Extended outer `try/finally` to cover the export section so `Restore-OriginalSubscriptionContext` is guaranteed to run even if the user presses Ctrl+C during XLSX/CSV generation (G-B2)
+
+### Performance
+- `Get-AzActualPricing`: Changed Cost Management OData filter from `contains(meterCategory,'Virtual Machines')` to exact `meterCategory eq 'Virtual Machines'`, eliminating a server-side full-scan (G-P4)
 
 ## [1.11.2] - 2026-03-12
 

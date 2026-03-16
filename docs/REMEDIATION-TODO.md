@@ -46,29 +46,26 @@
 
 ## Phase 4.5 — Gemini Code Review Hardening (2026-03-16)
 Source: Gemini 3.1 Pro architectural review of `Get-AzVMAvailability.ps1` v1.11.2.
-Findings triaged into Security, Critical Bugs, and Performance categories.
+Findings triaged into: **Do Now** (standalone fixes, ship as v1.11.x patch) vs
+**Defer to Phase 5** (fold into module extraction — fixing the monolith twice not worth it).
 
-### Security
-- [ ] G-S1 Token leakage: wrap `Invoke-RestMethod` in `try/finally` in `Get-ValidAzureRegions` and `Get-AzActualPricing`; clear `$headers['Authorization']` and `$token = $null` in the `finally` block regardless of success or failure.
+### Do Now — Security & Bugs (target: v1.11.x patch PR)
+- [x] G-S1 Token leakage: wrap `Invoke-RestMethod` in `try/finally` in `Get-ValidAzureRegions` and `Get-AzActualPricing`; clear `$headers['Authorization']` and `$token = $null` in the `finally` block regardless of success or failure.
+- [x] G-B1 `Invoke-WithRetry`: `Retry-After` header only handles integer seconds; Azure can return an absolute HTTP-date string (`'R'` format). Add `[datetime]::TryParseExact($retryAfter, 'R', [CultureInfo]::InvariantCulture, [DateTimeStyles]::None, [ref]$retryDate)` fallback to compute `$waitSeconds` from `($retryDate.ToUniversalTime() - [datetime]::UtcNow).TotalSeconds`.
+- [x] G-B2 Ctrl+C bypass: the outer `try/finally` around per-subscription scanning does not guarantee context restoration if a `PipelineStoppedException` is thrown during parallel execution. Wrap the entire main execution body (subscription loop through export) in a single top-level `try/finally` that calls `Restore-OriginalSubscriptionContext`.
+- [x] G-P4 `Get-AzActualPricing` OData filter: change `contains(meterCategory,'Virtual Machines')` to exact `meterCategory eq 'Virtual Machines'` — `contains()` forces a full-scan on the Azure backend.
 
-### Critical Bugs
-- [ ] G-B1 `Invoke-WithRetry`: `Retry-After` header only handles integer seconds; Azure can return an absolute HTTP-date string (`'R'` format). Add `[datetime]::TryParseExact($retryAfter, 'R', [CultureInfo]::InvariantCulture, [DateTimeStyles]::None, [ref]$retryDate)` fallback to compute `$waitSeconds` from `($retryDate.ToUniversalTime() - [datetime]::UtcNow).TotalSeconds`.
-- [ ] G-B2 Ctrl+C bypass: the outer `try/finally` around per-subscription scanning does not guarantee context restoration if a `PipelineStoppedException` is thrown during parallel execution. Wrap the entire main execution body (subscription loop through export) in a single top-level `try/finally` that calls `Restore-OriginalSubscriptionContext`.
-
-### Performance
-- [ ] G-P1 `Get-RestrictionDetails` (lines 880–896): replace `$zonesOK/Limited/Restricted += $zone` array concat with `[System.Collections.Generic.List[string]]::new()` + `.Add()`.
-- [ ] G-P2 `$familyDetails += $detailObj` per-SKU inner loop (~line 2776): replace with `[System.Collections.Generic.List[PSCustomObject]]::new()` + `.Add()`.
-- [ ] G-P3 `$rows += $row` per-family per-region loop (~line 2710): same List[T] pattern.
-- [ ] G-P4 `Get-AzActualPricing` OData filter: change `contains(meterCategory,'Virtual Machines')` to exact `meterCategory eq 'Virtual Machines'` — `contains()` forces a full-scan on the Azure backend.
-
-### Deferred / Needs Decision Before Implementing
-- [ ] G-D1 Explicit `-DefaultProfile $azContext` in parallel runspaces — Az 7+ handles context inheritance per-runspace; validate empirically before adding noise. Decision required before P5.
-- [ ] G-D2 `-ForceRefresh` switch to bypass `$script:RunContext.Caches` in persistent/automation sessions — low-risk add; target v1.12.0 or Phase 5.
+### Defer to Phase 5 — Fold into Module Extraction
+- [ ] G-P1 `Get-RestrictionDetails` (lines 880–896): replace `$zonesOK/Limited/Restricted += $zone` array concat with `[System.Collections.Generic.List[string]]::new()` + `.Add()`. Fix during extraction of `Get-RestrictionDetails` into `Private/SKU/`.
+- [ ] G-P2 `$familyDetails += $detailObj` per-SKU inner loop (~line 2776): replace with `[System.Collections.Generic.List[PSCustomObject]]::new()` + `.Add()`. Fix during Phase 5 extraction.
+- [ ] G-P3 `$rows += $row` per-family per-region loop (~line 2710): same List[T] pattern. Fix during Phase 5 extraction.
+- [ ] G-D1 Explicit `-DefaultProfile $azContext` in parallel runspaces — Az 7+ handles context inheritance per-runspace; validate empirically before adding noise. Evaluate during Phase 5 parallel scanning extraction.
+- [ ] G-D2 `-ForceRefresh` switch to bypass `$script:RunContext.Caches` — target v1.12.0 or Phase 5 feature add.
 
 ### Global Gates (Phase 4.5)
-- [ ] Analyzer passes
-- [ ] Tests pass
-- [ ] Validation script passes
+- [x] Analyzer passes
+- [x] Tests pass
+- [x] Validation script passes
 
 ---
 
