@@ -184,13 +184,21 @@ function Find-HygieneRisks {
 
     $suspiciousNamePatterns = @(
         'HANDOFF', 'CONTEXT', 'CLAUDE', 'AGENTS', 'copilot-', '-handoff', '-context',
-        'TODO', 'NOTES', 'SCRATCH', 'draft-', 'temp-'
+        'TODO', 'NOTES', 'SCRATCH', 'draft-', 'temp-', '_inspect_', 'debug-'
     )
     # Note: .csv and .xlsx are excluded from artifact pattern matching because
     # this repo generates those as intentional export outputs. The artifacts/
     # directory should be gitignored to prevent them from being tracked.
     $artifactPatterns = @(
-        '\.log$', '\.tmp$', '\.bak$', '\.zip$', '\.exe$', '\.dll$'
+        '\.log$', '\.tmp$', '\.bak$', '\.zip$', '\.exe$', '\.dll$',
+        # Office/presentation files belong in OneDrive, not git
+        '\.pptx$', '\.ppt$', '\.docx$', '\.doc$', '\.pdf$',
+        # Media files (demo animations should be gitignored locally)
+        '\.mp4$', '\.mov$', '\.webm$', '\.avi$', '\.gif$',
+        # Additional archive formats
+        '\.7z$', '\.tar$', '\.gz$', '\.rar$',
+        # Python files — this is a pure PowerShell repo
+        '\.py$', '\.pyc$'
     )
 
     foreach ($f in $Files) {

@@ -85,3 +85,10 @@ backups/linkedin-assets/
 # GitHub configuration files (settings FOR GitHub, not part of project)
 Protect_Main_Branch.json
 **/branch-protection*.json
+
+# AI workflow artifacts (local review docs, never commit)
+docs/Gemini*
+docs/SESSION-HANDOFF-*.md
+
+# AI toolkit / agent skills installed locally
+.github/skills/
