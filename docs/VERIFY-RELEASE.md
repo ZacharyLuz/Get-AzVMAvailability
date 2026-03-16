@@ -22,7 +22,7 @@ git remote -v
 Select-String -Path .\Get-AzVMAvailability.ps1 -Pattern '^\$ScriptVersion\s*=\s*"'
 ```
 
-Expected: version line shows the current release (for example, `1.10.2`).
+Expected: version line reads `$ScriptVersion = "X.Y.Z"` where `X.Y.Z` matches the latest release in `CHANGELOG.md`.
 
 ## 3) Confirm PowerShell Runtime (Required: 7+)
 

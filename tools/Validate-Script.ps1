@@ -212,6 +212,35 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
         $versionMismatches += "ROADMAP.md: file not found"
     }
 
+    # Scan all tracked .md files under docs/ for backtick-wrapped version literals.
+    # This catches prose examples (e.g. `1.10.2`) that weren't in the explicit list above.
+    # Excludes: CHANGELOG.md (intentionally full of old versions), gitignored SESSION-HANDOFF
+    # files (ephemeral session snapshots), and internal trackers with historical version data.
+    $ignoredDocFiles    = @('CHANGELOG.md', 'copilot-review-log.md', 'Gemini Code Review March 2026.md', 'REMEDIATION-PROGRESS.md')
+    $ignoredDocPatterns = @('SESSION-HANDOFF-*.md')
+    $versionPattern     = [regex]'`(\d+\.\d+\.\d+)`'
+    $docsDir            = Join-Path $repoRoot 'docs'
+    if (Test-Path $docsDir) {
+        $mdFiles = Get-ChildItem $docsDir -Recurse -Include '*.md' -ErrorAction SilentlyContinue |
+            Where-Object {
+                $fname = $_.Name
+                $ignoredDocFiles -notcontains $fname -and
+                -not ($ignoredDocPatterns | Where-Object { $fname -like $_ })
+            }
+        foreach ($mdFile in $mdFiles) {
+            $mdContent = Get-Content $mdFile.FullName -Raw -ErrorAction SilentlyContinue
+            if (-not $mdContent) { continue }
+            $hits = $versionPattern.Matches($mdContent)
+            foreach ($hit in $hits) {
+                $hitVer = $hit.Groups[1].Value
+                if ($hitVer -ne $scriptVer) {
+                    $relPath = [System.IO.Path]::GetRelativePath($repoRoot, $mdFile.FullName)
+                    $versionMismatches += "$relPath contains hardcoded version example ``$hitVer`` (expected ``$scriptVer`` or remove the literal)"
+                }
+            }
+        }
+    }
+
     if ($versionMismatches.Count -eq 0) {
         Write-Host "  PASS  All version references match v$scriptVer" -ForegroundColor Green
     }
