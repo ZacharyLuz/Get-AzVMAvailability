@@ -1,6 +1,6 @@
 # Get-AzVMAvailability — Live Demo Guide
 
-**Version:** 1.9.0 | **Duration:** ~30 minutes + Q&A | **Audience:** Internal Microsoft / External Customers
+**Version:** 1.11.2 | **Duration:** ~40 minutes + Q&A | **Audience:** Internal Microsoft / External Customers
 
 ---
 
@@ -35,10 +35,10 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
 ## Demo Flow
 
 ```
-Act 1: "Where Can I Deploy?"     (~10 min)  Scenarios 1-3
-Act 2: "What Should I Deploy?"   (~10 min)  Scenarios 4-6
-Act 3: "Automation & Export"     (~5 min)   Scenario 7
-Closing: Recap + Q&A             (~5 min)
+CRAWL — "Where Can I Deploy?"    (~15 min)  Scenarios 1-4
+WALK  — "What Should I Deploy?"  (~15 min)  Scenarios 5-7
+RUN   — "Automation & Export"    (~5 min)   Scenario 8
+Closing: Recap + Q&A              (~5 min)
 ```
 
 ---
@@ -55,9 +55,9 @@ Closing: Recap + Q&A             (~5 min)
 
 ---
 
-## Act 1: "Where Can I Deploy?"
+## CRAWL — "Where Can I Deploy?"
 
-### Scenario 1: Interactive Prompt Mode (~4 min, LIVE)
+### Scenario 1: Interactive Prompt Mode (~5 min, LIVE)
 
 **The story:** First-time user, no idea what parameters exist. Just run it.
 
@@ -82,6 +82,20 @@ Closing: Recap + Q&A             (~5 min)
 - Color-coded capacity status for each family
 - The quota utilization column (e.g., `12/100 vCPUs`)
 - Zone availability information
+
+**Step 2 — Introduce the drill-down:**
+
+After the initial scan, show `-EnableDrillDown` for interactive per-SKU exploration — this is the core "zoom in" move.
+
+```powershell
+.\Get-AzVMAvailability.ps1 -Region "eastus" -FamilyFilter "D" -EnableDrillDown -NoPrompt
+```
+
+**Drill-down talking points:**
+- "At any point after the scan, you can drill into a specific family for full per-SKU detail."
+- "The drill-down adds Gen, Architecture, CPU, Disk, zone availability, and vCPU/memory columns."
+- "This is the crawl: start broad across all families, then zoom into what matters."
+- "Every scan you'll see later — pricing, image compat — also supports this drill-down."
 
 **Transition:**
 > "That's great for exploring, but what if you already know exactly what you need?"
@@ -133,15 +147,42 @@ Closing: Recap + Q&A             (~5 min)
 > "For government customers, we have a `USGov` preset that auto-sets the Azure Government environment. Same tool, same syntax. China cloud works the same way."
 
 **Transition:**
-> "Now you know WHERE you can deploy. Let's talk about WHAT you should deploy — and what it'll cost."
+> "Before we leave 'where', one more dimension: capacity data tells you whether a SKU is *reported* as available. Placement scores tell you how *likely* Azure is to actually fulfill the request."
 
 ---
 
-## Act 2: "What Should I Deploy?"
+### Scenario 4: Placement Scores (~3 min, LIVE)
 
-### Scenario 4: Live Pricing (~3 min, LIVE or pre-captured)
+**The story:** Capacity says OK, but you've seen allocations fail anyway. Placement scores give you Azure's confidence level.
 
-**The story:** Manager asks "what will this cost?" You answer in real time.
+```powershell
+.\Get-AzVMAvailability.ps1 -Region "eastus","westus2","uksouth" -FamilyFilter "D" -ShowPlacement -DesiredCount 5 -NoPrompt
+```
+
+**Talking points:**
+- "`-ShowPlacement` adds a High / Medium / Low allocation likelihood column from the Azure Placement Scores API."
+- "Capacity status says whether a SKU is restricted or constrained. Placement says: *if you submit the deployment request right now, how likely is Azure to fulfill it?*"
+- "High = confident allocation capacity. Medium = probably works. Low = consider a different region or SKU."
+- "`-DesiredCount 5` means we want five VMs simultaneously — great for fleet planning where a partial allocation is worthless."
+- "The score is live data from the API Azure uses for its own capacity planning."
+
+**What to highlight on screen:**
+- The Allocation Likelihood column (High/Medium/Low) appearing next to the capacity status
+- Regional differences — the same SKU may be High in East US and Medium in UK South
+- `-DesiredCount` changing the score vs. count of 1 (more VMs = higher bar for High)
+
+**Note:** Requires "Compute Recommendations" RBAC role. If absent, the script skips placement scores and notes this in the output header.
+
+**Transition:**
+> "Now you know WHERE to deploy and how confident Azure is. Let's talk about WHAT to deploy — and what it'll cost."
+
+---
+
+## WALK — "What Should I Deploy?"
+
+### Scenario 5: Live Pricing + Spot (~4 min, LIVE or pre-captured)
+
+**The story:** Manager asks "what will this cost — and what if we use Spot?"
 
 ```powershell
 .\Get-AzVMAvailability.ps1 -Region "eastus" -FamilyFilter "D" -ShowPricing -NoPrompt
@@ -158,12 +199,24 @@ Closing: Recap + Q&A             (~5 min)
 - The pricing source indicator (EA/MCA vs. Retail)
 - Cost differences between SKU variants (e.g., D4s_v5 vs. D4as_v5)
 
+**Part B — Spot vs. On-Demand:**
+
+```powershell
+.\Get-AzVMAvailability.ps1 -Region "eastus" -FamilyFilter "D" -ShowPricing -ShowSpot -NoPrompt
+```
+
+**Part B talking points:**
+- "`-ShowSpot` adds a Spot $/hr column alongside the regular on-demand price."
+- "Typical spot discounts run 40-80% off on-demand. Great for batch jobs, rendering, and interruptible workloads."
+- "You see both prices side-by-side so you can make the trade-off decision instantly."
+- "`-ShowSpot` requires `-ShowPricing` — spot prices are dollar values; they need the pricing context to be meaningful."
+
 **Transition:**
 > "Cost and capacity are covered. But have you ever deployed a VM and *then* found out your image doesn't support that SKU? Gen1 vs Gen2, x64 vs ARM64..."
 
 ---
 
-### Scenario 5: Image Compatibility (~3 min, LIVE)
+### Scenario 6: Image Compatibility (~3 min, LIVE)
 
 **The story:** Customer wants to deploy Ubuntu ARM64 — which SKUs actually support it?
 
@@ -174,7 +227,7 @@ Closing: Recap + Q&A             (~5 min)
 **Talking points:**
 - "`-ImageURN` specifies a VM image using the standard Publisher:Offer:Sku:Version format."
 - "The tool detects that this Ubuntu image is ARM64 and Gen2 — then flags every SKU that can't run it."
-- "You'll see Gen and Arch columns in the drill-down, plus an `Img` compatibility indicator."
+- "You'll see Gen and Arch columns in the drill-down (same feature from Scenario 1), plus an `Img` compatibility indicator."
 - "This catches deployment failures BEFORE you waste 10 minutes on a failed `az vm create`."
 
 **What to do during drill-down:**
@@ -198,7 +251,7 @@ Closing: Recap + Q&A             (~5 min)
 
 ---
 
-### Scenario 6: Recommend Mode — The Money Scenario (~4 min, LIVE)
+### Scenario 7: Recommend Mode — The Money Scenario (~5 min, LIVE)
 
 **The story:** Customer calls: "My Standard_D4s_v3 is capacity constrained in East US. What do I do?"
 
@@ -211,24 +264,37 @@ Closing: Recap + Q&A             (~5 min)
 - "The scoring algorithm weighs 6 dimensions: vCPU count (25 points), memory (25), family match (20), VM generation (13), CPU architecture (12), and premium IO support (5). Max score is 100."
 - "A score of 95-100 means it's nearly identical. 80-90 means same family, slightly different specs. Below 70, you're crossing into different families."
 - "Adding `-ShowPricing` lets you immediately see if the alternative is cheaper or more expensive."
+- "v1.10 added CPU (Intel/AMD/ARM) and Disk columns so you see the full hardware profile without leaving the tool."
 - "We're scanning two regions here — so you can also tell the customer 'Your SKU is constrained in East US but has full capacity in West US 2.'"
 
 **What to highlight on screen:**
 - The similarity scores in the Score column
 - The target SKU profile at the top (vCPU, memory, family)
+- The CPU and Disk columns showing hardware details per alternative
 - Alternatives ranked by score with pricing comparison
 - Capacity status of each alternative in each region
+
+**Part B — ARM64 candidates with fleet safety:**
+
+```powershell
+.\Get-AzVMAvailability.ps1 -Recommend "Standard_D4s_v3" -Region "eastus" -AllowMixedArch -ShowPricing -TopN 10 -NoPrompt
+```
+
+**Part B talking points:**
+- "By default, the recommender filters to the same CPU architecture as the target — so x64 targets only see x64 alternatives."
+- "`-AllowMixedArch` opens it up to include ARM64 Ampere SKUs — often lower price, but a code recompile is needed."
+- "When mixed architectures appear together, fleet safety warnings fire automatically to prevent accidental x64/ARM64 fleet mixing."
 
 **Transition:**
 > "Everything we've seen outputs to the terminal. But what about automation pipelines and executive reports?"
 
 ---
 
-## Act 3: "Automation & Export"
+## RUN — "Automation & Export"
 
-### Scenario 7: JSON + Excel Export (~3 min, LIVE or pre-captured)
+### Scenario 8: JSON + Excel Export (~3 min, LIVE or pre-captured)
 
-**Part A — JSON for automation:**
+**Part A — JSON for automation:****
 
 ```powershell
 .\Get-AzVMAvailability.ps1 -Recommend "D4s_v5" -Region "eastus" -JsonOutput -NoPrompt
@@ -273,11 +339,15 @@ Closing: Recap + Q&A             (~5 min)
 | Capability | How |
 |---|---|
 | Interactive exploration | Just run the script, no parameters |
+| Drill-down | `-EnableDrillDown` for per-SKU Gen/Arch/CPU/Disk/zone detail |
 | Multi-region comparison | `-Region` with multiple values or `-RegionPreset` |
 | Family filtering | `-FamilyFilter "D","E"` |
+| Placement scores | `-ShowPlacement` (allocation likelihood: High/Medium/Low) |
 | Live pricing | `-ShowPricing` (auto-detects EA/retail) |
+| Spot vs. on-demand | `-ShowPricing -ShowSpot` (side-by-side cost delta) |
 | Image compatibility | `-ImageURN` with drill-down |
 | SKU recommendations | `-Recommend "SKU_Name"` with scoring |
+| Arch filtering | `-AllowMixedArch` for ARM64 candidates + fleet safety |
 | JSON automation | `-JsonOutput` for pipelines |
 | Excel export | `-AutoExport -OutputFormat XLSX` for stakeholders |
 | Sovereign cloud | `-RegionPreset USGov` or `-Environment AzureUSGovernment` |
@@ -303,6 +373,9 @@ Common questions and how to answer them:
 | "Can I filter to a specific SKU?" | Yes, use `-SkuFilter "Standard_D4s*"` with wildcards. |
 | "What if ImportExcel isn't installed?" | Falls back to CSV automatically. |
 | "Is this safe to run in production?" | It's read-only — no resource modifications, only API reads. |
+| "What's the placement score for a SKU?" | Use `-ShowPlacement`. Requires Compute Recommendations RBAC role. |
+| "Can I see Spot prices?" | Add `-ShowSpot` to any scan that uses `-ShowPricing`. |
+| "Can I include ARM64 alternatives?" | Use `-AllowMixedArch` with `-Recommend`. Fleet safety warnings fire when mixed arch appears. |
 
 ### Project Links
 
@@ -316,12 +389,14 @@ Common questions and how to answer them:
 
 For scenarios that take longer (pricing lookups, large region scans), consider preparing screenshots or terminal recordings:
 
-1. **Pricing (Scenario 4):** First pricing call can take 5-10 seconds while the Retail API responds. Run once before the demo to warm up your session.
-2. **Excel (Scenario 7B):** Have a pre-generated XLSX file open in Excel as a backup. The conditional formatting is the showpiece.
-3. **Image drill-down (Scenario 5):** If your subscription has restricted SKUs, the contrast between compatible and incompatible rows is more dramatic — pick a subscription where you'll see both.
+1. **Pricing (Scenario 5):** First pricing call can take 5-10 seconds while the Retail API responds. Run once before the demo to warm up your session.
+2. **Excel (Scenario 8B):** Have a pre-generated XLSX file open in Excel as a backup. The conditional formatting is the showpiece.
+3. **Image drill-down (Scenario 6):** If your subscription has restricted SKUs, the contrast between compatible and incompatible rows is more dramatic — pick a subscription where you'll see both.
+4. **Placement Scores (Scenario 4):** Requires "Compute Recommendations" RBAC role. If the role isn't assigned, test in a subscription where it is, or note that it degrades gracefully.
 
 ### Recommended Demo Order Adjustments
 
-- **Short version (15 min):** Scenarios 1, 2, 6, 7A — skip presets, pricing, and image compat.
-- **Executive version (10 min):** Scenarios 2, 6, 7B — targeted results, recommendations, Excel handoff.
-- **Engineer version (20 min):** Scenarios 2, 4, 5, 6 — skip interactive prompts, focus on depth.
+- **Short version (15 min):** Scenarios 1, 2, 7, 8A — skip presets, pricing, and image compat.
+- **Executive version (10 min):** Scenarios 2, 7, 8B — targeted results, recommendations, Excel handoff.
+- **Engineer version (20 min):** Scenarios 1, 2, 4, 5, 6, 7 — skip JSON/Excel automation.
+- **Full feature version (40 min):** All 8 scenarios — show the complete crawl/walk/run arc.

@@ -1,0 +1,7 @@
+# Ignore everything in this folder by default
+*
+
+# Keep only the guide and demo commands script
+!.gitignore
+!DEMO-GUIDE.md
+!Demo-Commands.ps1
