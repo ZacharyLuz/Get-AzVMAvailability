@@ -32,8 +32,7 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
 .\Get-AzVMAvailability.ps1 `
     -Region "eastus" `
     -FamilyFilter "D" `
-    -EnableDrillDown `
-    -NoPrompt
+    -EnableDrillDown
 #endregion Scenario 1
 
 #region Scenario 2 — Targeted Multi-Region Scan (~3 min)
@@ -59,7 +58,7 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
 # Note: Requires "Compute Recommendations" RBAC role; degrades gracefully if absent.
 .\Get-AzVMAvailability.ps1 `
     -Region "eastus", "westus2", "uksouth" `
-    -FamilyFilter "D" `
+    -SkuFilter "Standard_D4s_v5", "Standard_D8s_v5", "Standard_D16s_v5" `
     -ShowPlacement `
     -DesiredCount 5 `
     -NoPrompt
@@ -79,12 +78,12 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
     -NoPrompt
 
 # Part B — Spot vs. On-Demand cost delta.
-# ShowSpot adds a Spot $/hr column alongside regular on-demand pricing.
+# ShowSpot adds a Spot $/hr column in recommend mode alongside regular on-demand pricing.
 # Typical spot discounts: 40-80% off on-demand. Useful for batch/interruptible workloads.
-# Note: -ShowSpot requires -ShowPricing to be meaningful.
-.\Get-AzVMAvailability.ps1 `
+# Note: -ShowSpot is available in recommend mode when -ShowPricing is also enabled.
+.\.Get-AzVMAvailability.ps1 `
+    -Recommend "Standard_D4s_v5" `
     -Region "eastus" `
-    -FamilyFilter "D" `
     -ShowPricing `
     -ShowSpot `
     -NoPrompt

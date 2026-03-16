@@ -88,7 +88,7 @@ Closing: Recap + Q&A              (~5 min)
 After the initial scan, show `-EnableDrillDown` for interactive per-SKU exploration — this is the core "zoom in" move.
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus" -FamilyFilter "D" -EnableDrillDown -NoPrompt
+.\Get-AzVMAvailability.ps1 -Region "eastus" -FamilyFilter "D" -EnableDrillDown
 ```
 
 **Drill-down talking points:**
@@ -156,7 +156,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **The story:** Capacity says OK, but you've seen allocations fail anyway. Placement scores give you Azure's confidence level.
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus","westus2","uksouth" -FamilyFilter "D" -ShowPlacement -DesiredCount 5 -NoPrompt
+.\Get-AzVMAvailability.ps1 -Region "eastus","westus2","uksouth" -SkuFilter "Standard_D4s_v5","Standard_D8s_v5","Standard_D16s_v5" -ShowPlacement -DesiredCount 5 -NoPrompt
 ```
 
 **Talking points:**
@@ -202,14 +202,14 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **Part B — Spot vs. On-Demand:**
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus" -FamilyFilter "D" -ShowPricing -ShowSpot -NoPrompt
+.\Get-AzVMAvailability.ps1 -Recommend "Standard_D4s_v5" -Region "eastus" -ShowPricing -ShowSpot -NoPrompt
 ```
 
 **Part B talking points:**
-- "`-ShowSpot` adds a Spot $/hr column alongside the regular on-demand price."
+- "`-ShowSpot` adds a Spot $/hr column in recommend mode alongside the regular on-demand price."
 - "Typical spot discounts run 40-80% off on-demand. Great for batch jobs, rendering, and interruptible workloads."
 - "You see both prices side-by-side so you can make the trade-off decision instantly."
-- "`-ShowSpot` requires `-ShowPricing` — spot prices are dollar values; they need the pricing context to be meaningful."
+- "`-ShowSpot` is available in recommend mode when `-ShowPricing` is also enabled."
 
 **Transition:**
 > "Cost and capacity are covered. But have you ever deployed a VM and *then* found out your image doesn't support that SKU? Gen1 vs Gen2, x64 vs ARM64..."
@@ -294,7 +294,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 
 ### Scenario 8: JSON + Excel Export (~3 min, LIVE or pre-captured)
 
-**Part A — JSON for automation:****
+**Part A — JSON for automation:**
 
 ```powershell
 .\Get-AzVMAvailability.ps1 -Recommend "D4s_v5" -Region "eastus" -JsonOutput -NoPrompt
@@ -344,7 +344,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 | Family filtering | `-FamilyFilter "D","E"` |
 | Placement scores | `-ShowPlacement` (allocation likelihood: High/Medium/Low) |
 | Live pricing | `-ShowPricing` (auto-detects EA/retail) |
-| Spot vs. on-demand | `-ShowPricing -ShowSpot` (side-by-side cost delta) |
+| Spot vs. on-demand | `-Recommend "SKU" -ShowPricing -ShowSpot` (recommend mode; side-by-side cost delta) |
 | Image compatibility | `-ImageURN` with drill-down |
 | SKU recommendations | `-Recommend "SKU_Name"` with scoring |
 | Arch filtering | `-AllowMixedArch` for ARM64 candidates + fleet safety |
@@ -374,7 +374,7 @@ Common questions and how to answer them:
 | "What if ImportExcel isn't installed?" | Falls back to CSV automatically. |
 | "Is this safe to run in production?" | It's read-only — no resource modifications, only API reads. |
 | "What's the placement score for a SKU?" | Use `-ShowPlacement`. Requires Compute Recommendations RBAC role. |
-| "Can I see Spot prices?" | Add `-ShowSpot` to any scan that uses `-ShowPricing`. |
+| "Can I see Spot prices?" | Use `-Recommend "SKU" -ShowPricing -ShowSpot` — Spot pricing is available in recommend mode when `-ShowPricing` is also enabled. |
 | "Can I include ARM64 alternatives?" | Use `-AllowMixedArch` with `-Recommend`. Fleet safety warnings fire when mixed arch appears. |
 
 ### Project Links
