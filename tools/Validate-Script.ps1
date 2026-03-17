@@ -225,10 +225,16 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
     if (Test-Path $docsDir) {
         $gitCmd = Get-Command git -ErrorAction SilentlyContinue
         $rawFiles = if ($gitCmd) {
-            (& git -C $repoRoot ls-files -- 'docs/' 2>$null) |
-                Where-Object { $_ -match '\.md$' } |
-                ForEach-Object { Join-Path $repoRoot $_ } |
-                Get-Item -ErrorAction SilentlyContinue
+            $trackedFiles = & git -C $repoRoot ls-files -- 'docs/' 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  WARN  git ls-files failed (not a git worktree?); falling back to Get-ChildItem for docs scan (untracked files may trigger false positives)" -ForegroundColor Yellow
+                Get-ChildItem $docsDir -Recurse -Include '*.md' -ErrorAction SilentlyContinue
+            } else {
+                $trackedFiles |
+                    Where-Object { $_ -match '\.md$' } |
+                    ForEach-Object { Join-Path $repoRoot $_ } |
+                    Get-Item -ErrorAction SilentlyContinue
+            }
         } else {
             Write-Host "  WARN  git not found; falling back to Get-ChildItem for docs scan (untracked files may trigger false positives)" -ForegroundColor Yellow
             Get-ChildItem $docsDir -Recurse -Include '*.md' -ErrorAction SilentlyContinue

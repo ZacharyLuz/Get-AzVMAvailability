@@ -222,7 +222,9 @@ public class InvokeWithRetryFakeThrottledException : Exception {
 
         It "Passes RFC1123 Retry-After header through the catch path to Start-Sleep" {
             Mock Start-Sleep {}
-            $script:futureRfc = ([datetime]::UtcNow.AddSeconds(3)).ToString('R')
+            # +300s — far enough that the computed wait (~300s) can't be confused
+            # with the default exponential backoff on attempt 1 (2s + jitter ≤3s).
+            $script:futureRfc = ([datetime]::UtcNow.AddSeconds(300)).ToString('R')
             $script:rfcIntegCalls = 0
             Invoke-WithRetry -MaxRetries 2 -OperationName "Integration RFC1123" -ScriptBlock {
                 $script:rfcIntegCalls++
@@ -231,7 +233,7 @@ public class InvokeWithRetryFakeThrottledException : Exception {
                     throw [InvokeWithRetryFakeThrottledException]::new('429 Too Many Requests', $resp)
                 }
             }
-            Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -ge 1 }
+            Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -ge 60 }
         }
     }
 }
