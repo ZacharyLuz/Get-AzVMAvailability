@@ -178,4 +178,60 @@ Describe "Invoke-WithRetry" {
             $waitSeconds | Should -BeGreaterOrEqual 1
         }
     }
+
+    Context "Retry-After integration — end-to-end catch path" {
+        BeforeAll {
+            # Guard: Add-Type fails if the type already exists in the session (e.g. repeated test runs).
+            # Unique prefix avoids collisions with any types from the main script or other tests.
+            if (-not ([System.Management.Automation.PSTypeName]'InvokeWithRetry_FakeThrottledException').Type) {
+                Add-Type @'
+using System;
+using System.Collections.Generic;
+public class InvokeWithRetry_FakeHeaders : Dictionary<string, string> {}
+public class InvokeWithRetry_FakeStatusCode { public int value__; public InvokeWithRetry_FakeStatusCode(int c) { value__ = c; } }
+public class InvokeWithRetry_FakeResponse {
+    public InvokeWithRetry_FakeStatusCode StatusCode;
+    public InvokeWithRetry_FakeHeaders Headers;
+    public InvokeWithRetry_FakeResponse(int code, string retryAfter) {
+        StatusCode = new InvokeWithRetry_FakeStatusCode(code);
+        Headers = new InvokeWithRetry_FakeHeaders();
+        if (retryAfter != null) Headers["Retry-After"] = retryAfter;
+    }
+}
+public class InvokeWithRetry_FakeThrottledException : Exception {
+    public InvokeWithRetry_FakeResponse Response { get; }
+    public InvokeWithRetry_FakeThrottledException(string message, InvokeWithRetry_FakeResponse response)
+        : base(message) { Response = response; }
+}
+'@
+            }
+        }
+
+        It "Passes integer Retry-After header through the catch path to Start-Sleep" {
+            Mock Start-Sleep {}
+            $script:intIntegCalls = 0
+            Invoke-WithRetry -MaxRetries 2 -OperationName "Integration int" -ScriptBlock {
+                $script:intIntegCalls++
+                if ($script:intIntegCalls -eq 1) {
+                    $resp = [InvokeWithRetry_FakeResponse]::new(429, '5')
+                    throw [InvokeWithRetry_FakeThrottledException]::new('429 Too Many Requests', $resp)
+                }
+            }
+            Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -ge 5 }
+        }
+
+        It "Passes RFC1123 Retry-After header through the catch path to Start-Sleep" {
+            Mock Start-Sleep {}
+            $script:futureRfc = ([datetime]::UtcNow.AddSeconds(3)).ToString('R')
+            $script:rfcIntegCalls = 0
+            Invoke-WithRetry -MaxRetries 2 -OperationName "Integration RFC1123" -ScriptBlock {
+                $script:rfcIntegCalls++
+                if ($script:rfcIntegCalls -eq 1) {
+                    $resp = [InvokeWithRetry_FakeResponse]::new(429, $script:futureRfc)
+                    throw [InvokeWithRetry_FakeThrottledException]::new('429 Too Many Requests', $resp)
+                }
+            }
+            Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -ge 1 }
+        }
+    }
 }

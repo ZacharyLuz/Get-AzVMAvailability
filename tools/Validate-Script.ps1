@@ -212,8 +212,10 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
         $versionMismatches += "ROADMAP.md: file not found"
     }
 
-    # Scan all tracked .md files under docs/ for backtick-wrapped version literals.
+    # Scan git-tracked .md files under docs/ for backtick-wrapped version literals.
     # This catches prose examples (e.g. `1.10.2`) that weren't in the explicit list above.
+    # Uses git ls-files instead of Get-ChildItem so only committed/staged files are scanned —
+    # local scratch notes under docs/ cannot trigger false version-consistency failures.
     # Excludes: CHANGELOG.md (intentionally full of old versions), gitignored SESSION-HANDOFF
     # files (ephemeral session snapshots), and internal trackers with historical version data.
     $ignoredDocFiles    = @('CHANGELOG.md', 'copilot-review-log.md', 'Gemini Code Review March 2026.md', 'REMEDIATION-PROGRESS.md')
@@ -221,7 +223,10 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
     $versionPattern     = [regex]'`(\d+\.\d+\.\d+)`'
     $docsDir            = Join-Path $repoRoot 'docs'
     if (Test-Path $docsDir) {
-        $mdFiles = Get-ChildItem $docsDir -Recurse -Include '*.md' -ErrorAction SilentlyContinue |
+        $mdFiles = (& git -C $repoRoot ls-files -- 'docs/' 2>$null) |
+            Where-Object { $_ -match '\.md$' } |
+            ForEach-Object { Join-Path $repoRoot $_ } |
+            Get-Item -ErrorAction SilentlyContinue |
             Where-Object {
                 $fname = $_.Name
                 $ignoredDocFiles -notcontains $fname -and
