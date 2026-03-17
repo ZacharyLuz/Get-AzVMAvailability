@@ -560,11 +560,13 @@ function Invoke-WithRetry {
                         $parsedSeconds = 0
                         $retryDate = [datetime]::MinValue
                         if ([int]::TryParse($retryAfter, [ref]$parsedSeconds)) {
-                            $waitSeconds = $parsedSeconds
+                            # Clamp to ≥1 so Start-Sleep never receives 0 or negative seconds
+                            $waitSeconds = [math]::Max(1, $parsedSeconds)
                         }
-                        elseif ([datetime]::TryParseExact($retryAfter, 'R', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$retryDate)) {
-                            # Azure can return an absolute HTTP-date (RFC 1123 'R' format) instead of integer seconds
-                            $waitSeconds = [int][math]::Ceiling(($retryDate.ToUniversalTime() - [datetime]::UtcNow).TotalSeconds)
+                        elseif ([datetime]::TryParseExact($retryAfter, 'R', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$retryDate)) {
+                            # Azure can return an absolute HTTP-date (RFC 1123 'R' format) instead of integer seconds.
+                            # AssumeUniversal|AdjustToUniversal ensures Kind=Utc so the subtraction is correct regardless of local timezone.
+                            $waitSeconds = [int][math]::Ceiling(($retryDate - [datetime]::UtcNow).TotalSeconds)
                             if ($waitSeconds -lt 1) { $waitSeconds = 1 }
                         }
                     }
@@ -2179,8 +2181,10 @@ function Get-AzActualPricing {
 
         # Query Cost Management API for price sheet data
         # Using the consumption price sheet endpoint with environment-specific ARM URL
-        # OData exact match (eq) instead of contains() to avoid forcing a full backend scan
-        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=meterCategory eq 'Virtual Machines'"
+        # OData exact match (eq) instead of contains() to avoid forcing a full backend scan.
+        # URL-encode the filter so spaces and quotes are valid across all HTTP clients/environments.
+        $odataFilter = [uri]::EscapeDataString("meterCategory eq 'Virtual Machines'")
+        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=$odataFilter"
 
         try {
             $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API" -ScriptBlock {

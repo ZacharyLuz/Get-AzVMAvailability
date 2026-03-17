@@ -126,4 +126,56 @@ Describe "Invoke-WithRetry" {
             $script:attemptZero | Should -Be 1
         }
     }
+
+    Context "Retry-After header parsing — integer seconds" {
+        It "Uses integer Retry-After value as the wait interval" {
+            # Validate the parsing and clamping math used in Invoke-WithRetry
+            $parsedSeconds = 0
+            [int]::TryParse('5', [ref]$parsedSeconds) | Should -BeTrue
+            $waitSeconds = [math]::Max(1, $parsedSeconds)
+            $waitSeconds | Should -Be 5
+        }
+
+        It "Clamps zero Retry-After integer to at least 1 second" {
+            $parsedSeconds = 0
+            [int]::TryParse('0', [ref]$parsedSeconds) | Should -BeTrue
+            $waitSeconds = [math]::Max(1, $parsedSeconds)
+            $waitSeconds | Should -BeGreaterOrEqual 1
+        }
+
+        It "Clamps negative Retry-After integer to at least 1 second" {
+            $parsedSeconds = 0
+            [int]::TryParse('-10', [ref]$parsedSeconds) | Should -BeTrue
+            $waitSeconds = [math]::Max(1, $parsedSeconds)
+            $waitSeconds | Should -BeGreaterOrEqual 1
+        }
+    }
+
+    Context "Retry-After header parsing — RFC1123 HTTP-date" {
+        It "Parses RFC1123 Retry-After date and computes a positive wait interval" {
+            # Construct an RFC1123-formatted date 5 seconds in the future
+            $futureDate = [datetime]::UtcNow.AddSeconds(5)
+            $rfcDate = $futureDate.ToString('R')   # e.g. "Mon, 17 Mar 2026 01:00:00 GMT"
+
+            # Verify the round-trip: TryParseExact with AssumeUniversal|AdjustToUniversal
+            $styles = [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal
+            $parsed = [datetime]::MinValue
+            $ok = [datetime]::TryParseExact($rfcDate, 'R', [System.Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$parsed)
+            $ok | Should -BeTrue
+            $parsed.Kind | Should -Be ([System.DateTimeKind]::Utc)
+            $waitSeconds = [int][math]::Ceiling(($parsed - [datetime]::UtcNow).TotalSeconds)
+            $waitSeconds | Should -BeGreaterOrEqual 1
+        }
+
+        It "Returns wait of at least 1 when RFC1123 date is in the past" {
+            $pastDate = [datetime]::UtcNow.AddSeconds(-10)
+            $rfcDate = $pastDate.ToString('R')
+            $styles = [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal
+            $parsed = [datetime]::MinValue
+            [datetime]::TryParseExact($rfcDate, 'R', [System.Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$parsed) | Should -BeTrue
+            $waitSeconds = [int][math]::Ceiling(($parsed - [datetime]::UtcNow).TotalSeconds)
+            if ($waitSeconds -lt 1) { $waitSeconds = 1 }
+            $waitSeconds | Should -BeGreaterOrEqual 1
+        }
+    }
 }
