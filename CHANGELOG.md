@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Tooling: `Validate-Script.ps1` Check 5 docs scan now uses `git ls-files` instead of `Get-ChildItem` so only committed/staged files can trigger version-consistency failures — prevents false positives from local untracked scratch notes under `docs/`
+- Tooling: `Validate-Script.ps1` Check 5 now guards `git ls-files` with `Get-Command git` — falls back to `Get-ChildItem` with a `WARN` when git is unavailable (e.g. source ZIP install), preventing a `CommandNotFoundException` crash
 - Tests: Added end-to-end `Invoke-WithRetry` integration tests for `Retry-After` header parsing using `Add-Type` fake exception class with real `Response.Headers` dictionary and `Mock Start-Sleep` to exercise the actual `catch` path (189 tests total)
 
 ### Chores

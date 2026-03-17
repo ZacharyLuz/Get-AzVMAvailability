@@ -223,11 +223,17 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
     $versionPattern     = [regex]'`(\d+\.\d+\.\d+)`'
     $docsDir            = Join-Path $repoRoot 'docs'
     if (Test-Path $docsDir) {
-        $mdFiles = (& git -C $repoRoot ls-files -- 'docs/' 2>$null) |
-            Where-Object { $_ -match '\.md$' } |
-            ForEach-Object { Join-Path $repoRoot $_ } |
-            Get-Item -ErrorAction SilentlyContinue |
-            Where-Object {
+        $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+        $rawFiles = if ($gitCmd) {
+            (& git -C $repoRoot ls-files -- 'docs/' 2>$null) |
+                Where-Object { $_ -match '\.md$' } |
+                ForEach-Object { Join-Path $repoRoot $_ } |
+                Get-Item -ErrorAction SilentlyContinue
+        } else {
+            Write-Host "  WARN  git not found; falling back to Get-ChildItem for docs scan (untracked files may trigger false positives)" -ForegroundColor Yellow
+            Get-ChildItem $docsDir -Recurse -Include '*.md' -ErrorAction SilentlyContinue
+        }
+        $mdFiles = $rawFiles | Where-Object {
                 $fname = $_.Name
                 $ignoredDocFiles -notcontains $fname -and
                 -not ($ignoredDocPatterns | Where-Object { $fname -like $_ })
