@@ -183,24 +183,24 @@ Describe "Invoke-WithRetry" {
         BeforeAll {
             # Guard: Add-Type fails if the type already exists in the session (e.g. repeated test runs).
             # Unique prefix avoids collisions with any types from the main script or other tests.
-            if (-not ([System.Management.Automation.PSTypeName]'InvokeWithRetry_FakeThrottledException').Type) {
+            if (-not ([System.Management.Automation.PSTypeName]'InvokeWithRetryFakeThrottledException').Type) {
                 Add-Type @'
 using System;
 using System.Collections.Generic;
-public class InvokeWithRetry_FakeHeaders : Dictionary<string, string> {}
-public class InvokeWithRetry_FakeStatusCode { public int value__; public InvokeWithRetry_FakeStatusCode(int c) { value__ = c; } }
-public class InvokeWithRetry_FakeResponse {
-    public InvokeWithRetry_FakeStatusCode StatusCode;
-    public InvokeWithRetry_FakeHeaders Headers;
-    public InvokeWithRetry_FakeResponse(int code, string retryAfter) {
-        StatusCode = new InvokeWithRetry_FakeStatusCode(code);
-        Headers = new InvokeWithRetry_FakeHeaders();
+public class InvokeWithRetryFakeHeaders : Dictionary<string, string> {}
+public class InvokeWithRetryFakeStatusCode { public int value__; public InvokeWithRetryFakeStatusCode(int c) { value__ = c; } }
+public class InvokeWithRetryFakeResponse {
+    public InvokeWithRetryFakeStatusCode StatusCode;
+    public InvokeWithRetryFakeHeaders Headers;
+    public InvokeWithRetryFakeResponse(int code, string retryAfter) {
+        StatusCode = new InvokeWithRetryFakeStatusCode(code);
+        Headers = new InvokeWithRetryFakeHeaders();
         if (retryAfter != null) Headers["Retry-After"] = retryAfter;
     }
 }
-public class InvokeWithRetry_FakeThrottledException : Exception {
-    public InvokeWithRetry_FakeResponse Response { get; }
-    public InvokeWithRetry_FakeThrottledException(string message, InvokeWithRetry_FakeResponse response)
+public class InvokeWithRetryFakeThrottledException : Exception {
+    public InvokeWithRetryFakeResponse Response { get; }
+    public InvokeWithRetryFakeThrottledException(string message, InvokeWithRetryFakeResponse response)
         : base(message) { Response = response; }
 }
 '@
@@ -213,8 +213,8 @@ public class InvokeWithRetry_FakeThrottledException : Exception {
             Invoke-WithRetry -MaxRetries 2 -OperationName "Integration int" -ScriptBlock {
                 $script:intIntegCalls++
                 if ($script:intIntegCalls -eq 1) {
-                    $resp = [InvokeWithRetry_FakeResponse]::new(429, '5')
-                    throw [InvokeWithRetry_FakeThrottledException]::new('429 Too Many Requests', $resp)
+                    $resp = [InvokeWithRetryFakeResponse]::new(429, '5')
+                    throw [InvokeWithRetryFakeThrottledException]::new('429 Too Many Requests', $resp)
                 }
             }
             Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -ge 5 }
@@ -227,8 +227,8 @@ public class InvokeWithRetry_FakeThrottledException : Exception {
             Invoke-WithRetry -MaxRetries 2 -OperationName "Integration RFC1123" -ScriptBlock {
                 $script:rfcIntegCalls++
                 if ($script:rfcIntegCalls -eq 1) {
-                    $resp = [InvokeWithRetry_FakeResponse]::new(429, $script:futureRfc)
-                    throw [InvokeWithRetry_FakeThrottledException]::new('429 Too Many Requests', $resp)
+                    $resp = [InvokeWithRetryFakeResponse]::new(429, $script:futureRfc)
+                    throw [InvokeWithRetryFakeThrottledException]::new('429 Too Many Requests', $resp)
                 }
             }
             Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -ge 1 }
