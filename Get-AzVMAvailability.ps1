@@ -126,7 +126,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.11.2
+    Version:        1.11.3
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -330,7 +330,7 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
 }
 
 #region Configuration
-$ScriptVersion = "1.11.2"
+$ScriptVersion = "1.11.3"
 
 #region Constants
 $HoursPerMonth = 730
@@ -556,8 +556,19 @@ function Invoke-WithRetry {
                 $isRetryable = $true
                 if ($ex.Response -and $ex.Response.Headers) {
                     $retryAfter = $ex.Response.Headers['Retry-After']
-                    if ($retryAfter -and [int]::TryParse($retryAfter, [ref]$null)) {
-                        $waitSeconds = [int]$retryAfter
+                    if ($retryAfter) {
+                        $parsedSeconds = 0
+                        $retryDate = [datetime]::MinValue
+                        if ([int]::TryParse($retryAfter, [ref]$parsedSeconds)) {
+                            # Clamp to ≥1 so Start-Sleep never receives 0 or negative seconds
+                            $waitSeconds = [math]::Max(1, $parsedSeconds)
+                        }
+                        elseif ([datetime]::TryParseExact($retryAfter, 'R', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$retryDate)) {
+                            # Azure can return an absolute HTTP-date (RFC 1123 'R' format) instead of integer seconds.
+                            # AssumeUniversal|AdjustToUniversal ensures Kind=Utc so the subtraction is correct regardless of local timezone.
+                            $waitSeconds = [int][math]::Ceiling(($retryDate - [datetime]::UtcNow).TotalSeconds)
+                            if ($waitSeconds -lt 1) { $waitSeconds = 1 }
+                        }
                     }
                 }
             }
@@ -802,8 +813,14 @@ function Get-ValidAzureRegions {
             'Content-Type'  = 'application/json'
         }
 
-        $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName 'Region list API' -ScriptBlock {
-            Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
+        try {
+            $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName 'Region list API' -ScriptBlock {
+                Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
+            }
+        }
+        finally {
+            $headers['Authorization'] = $null
+            $token = $null
         }
 
         # Filter to regions with valid names (exclude logical/paired regions)
@@ -2164,10 +2181,19 @@ function Get-AzActualPricing {
 
         # Query Cost Management API for price sheet data
         # Using the consumption price sheet endpoint with environment-specific ARM URL
-        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=contains(meterCategory,'Virtual Machines')"
+        # OData exact match (eq) instead of contains() to avoid forcing a full backend scan.
+        # URL-encode the filter so spaces and quotes are valid across all HTTP clients/environments.
+        $odataFilter = [uri]::EscapeDataString("meterCategory eq 'Virtual Machines'")
+        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=$odataFilter"
 
-        $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API" -ScriptBlock {
-            Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
+        try {
+            $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API" -ScriptBlock {
+                Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
+            }
+        }
+        finally {
+            $headers['Authorization'] = $null
+            $token = $null
         }
 
         if ($response.properties.pricesheets) {
@@ -2764,8 +2790,11 @@ $allSubscriptionData = @()
 $initialAzContext = Get-AzContext -ErrorAction SilentlyContinue
 $initialSubscriptionId = if ($initialAzContext -and $initialAzContext.Subscription) { [string]$initialAzContext.Subscription.Id } else { $null }
 
+# Outer try/finally ensures Az context is restored even if Ctrl+C or PipelineStoppedException
+# interrupts parallel scanning, results processing, or export
 try {
-    foreach ($subId in $TargetSubIds) {
+    try {
+        foreach ($subId in $TargetSubIds) {
         $scanStartTime = Get-Date
         try {
             Use-SubscriptionContextSafely -SubscriptionId $subId | Out-Null
@@ -2874,8 +2903,9 @@ try {
         }
     }
 }
-finally {
-    [void](Restore-OriginalSubscriptionContext -OriginalSubscriptionId $initialSubscriptionId)
+catch {
+    Write-Verbose "Scan loop interrupted: $($_.Exception.Message)"
+    throw
 }
 
 #endregion Data Collection
@@ -4048,3 +4078,7 @@ if ($ExportPath) {
     }
 }
 #endregion Export
+}
+finally {
+    [void](Restore-OriginalSubscriptionContext -OriginalSubscriptionId $initialSubscriptionId)
+}
