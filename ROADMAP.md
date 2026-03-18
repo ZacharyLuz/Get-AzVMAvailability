@@ -163,6 +163,9 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 - [ ] **Deployment Density** - Visualize how many VMs are already in each region
 - [ ] **Compare Available vs Deployed** - Side-by-side view of capacity vs current usage
 
+### Startup / UX
+- [x] **Version Update Check** - At startup, query GitHub Releases API and notify user if a newer version is available (non-blocking, silent on network failure)
+
 ### Enhanced Reporting
 - [ ] **HTML Report Export** - Self-contained HTML report with charts
 - [ ] **Trend Tracking** - Compare against previous scan results

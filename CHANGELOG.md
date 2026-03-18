@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Startup version check: `Test-NewVersionAvailable` queries the GitHub Releases API at startup and prints a one-line advisory if a newer version is available; silently no-ops on network failure or timeout (5 s)
+
 ### Fixed
 - Tooling: `Validate-Script.ps1` Check 5 docs scan now uses `git ls-files` instead of `Get-ChildItem` so only committed/staged files can trigger version-consistency failures — prevents false positives from local untracked scratch notes under `docs/`
 - Tooling: `Validate-Script.ps1` Check 5 now guards `git ls-files` with `Get-Command git` — falls back to `Get-ChildItem` with a `WARN` when git is unavailable (e.g. source ZIP install), preventing a `CommandNotFoundException` crash

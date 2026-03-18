@@ -498,6 +498,35 @@ if ($AutoExport -and -not $ExportPath) {
 #endregion Configuration
 #region Helper Functions
 
+function Test-NewVersionAvailable {
+    <#
+    .SYNOPSIS
+        Checks GitHub Releases for a newer version of the script.
+    .DESCRIPTION
+        Makes a single non-blocking call to the GitHub Releases API.
+        Emits a one-line advisory if a newer tag exists. Silently no-ops
+        if the network is unavailable or the API call times out.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$CurrentVersion
+    )
+    try {
+        $uri = 'https://api.github.com/repos/ZacharyLuz/Get-AzVMAvailability/releases/latest'
+        $response = Invoke-RestMethod -Uri $uri -TimeoutSec 5 -ErrorAction Stop
+        $latestTag = $response.tag_name -replace '^v', ''
+        $latest  = [version]::new(0, 0)
+        $current = [version]::new(0, 0)
+        if ([version]::TryParse($latestTag, [ref]$latest) -and
+            [version]::TryParse($CurrentVersion, [ref]$current) -and
+            $latest -gt $current) {
+            Write-Host "  A newer version (v$latestTag) is available: $($response.html_url)" -ForegroundColor Yellow
+        }
+    }
+    catch {
+        Write-Verbose "Version check skipped: $_"
+    }
+}
+
 function Get-SafeString {
     <#
     .SYNOPSIS
@@ -2735,6 +2764,7 @@ Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "GET-AZVMAVAILABILITY v$ScriptVersion" -ForegroundColor Green
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
+Test-NewVersionAvailable -CurrentVersion $ScriptVersion
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
 if ($SkuFilter -and $SkuFilter.Count -gt 0) {
     Write-Host "SKU Filter: $($SkuFilter -join ', ')" -ForegroundColor Yellow
