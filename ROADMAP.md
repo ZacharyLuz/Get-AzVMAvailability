@@ -165,6 +165,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ### Startup / UX
 - [x] **Version Update Check** - At startup, query GitHub Releases API and notify user if a newer version is available (non-blocking, silent on network failure)
+- [x] **Module Migration Notice** - When a major version (v2.0.0+) is detected, escalate to a multi-line notice directing users to `Install-Module AzVMAvailability` and the migration guide
 
 ### Enhanced Reporting
 - [ ] **HTML Report Export** - Self-contained HTML report with charts

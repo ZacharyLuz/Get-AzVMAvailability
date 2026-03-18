@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Startup version check: `Test-NewVersionAvailable` queries the GitHub Releases API at startup and prints a one-line advisory if a newer version is available; silently no-ops on network failure or timeout (5 s)
+- Module migration notice: when `Test-NewVersionAvailable` detects a new major version (e.g. v2.0.0 while running v1.x), escalates to a 4-line yellow notice directing users to `Install-Module AzVMAvailability` and the release URL — patch/minor updates keep the original one-liner
 
 ### Fixed
 - Tooling: `Validate-Script.ps1` Check 5 docs scan now uses `git ls-files` instead of `Get-ChildItem` so only committed/staged files can trigger version-consistency failures — prevents false positives from local untracked scratch notes under `docs/`

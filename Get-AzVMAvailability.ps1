@@ -506,6 +506,9 @@ function Test-NewVersionAvailable {
         Makes a single non-blocking call to the GitHub Releases API.
         Emits a one-line advisory if a newer tag exists. Silently no-ops
         if the network is unavailable or the API call times out.
+        When the latest release is a new major version (e.g. v2.0.0 while
+        running v1.x), shows an expanded migration notice pointing users
+        to Install-Module and the migration guide.
     #>
     param(
         [Parameter(Mandatory)][string]$CurrentVersion
@@ -516,10 +519,21 @@ function Test-NewVersionAvailable {
         $latestTag = $response.tag_name -replace '^v', ''
         $latest  = [version]::new(0, 0)
         $current = [version]::new(0, 0)
-        if ([version]::TryParse($latestTag, [ref]$latest) -and
-            [version]::TryParse($CurrentVersion, [ref]$current) -and
-            $latest -gt $current) {
-            Write-Host "  A newer version (v$latestTag) is available: $($response.html_url)" -ForegroundColor Yellow
+        if (-not ([version]::TryParse($latestTag, [ref]$latest) -and
+                  [version]::TryParse($CurrentVersion, [ref]$current))) {
+            return
+        }
+        if ($latest -gt $current) {
+            if ($latest.Major -gt $current.Major) {
+                # Major version bump means script-to-module migration — give explicit guidance
+                Write-Host "  NOTICE: v$latestTag is a new major release that converts this script to a" -ForegroundColor Yellow
+                Write-Host "  PowerShell module. The standalone script will no longer receive updates." -ForegroundColor Yellow
+                Write-Host "  Migrate: Install-Module AzVMAvailability" -ForegroundColor Yellow
+                Write-Host "  Details: $($response.html_url)" -ForegroundColor Yellow
+            }
+            else {
+                Write-Host "  A newer version (v$latestTag) is available: $($response.html_url)" -ForegroundColor Yellow
+            }
         }
     }
     catch {
