@@ -220,7 +220,18 @@ Standard_D16ds_v5,1
 Standard_D16ls_v6,1
 ```
 
-**Column name flexibility:** The parser accepts `SKU`, `Name`, or `VmSize` for the SKU column, and `Qty`, `Quantity`, or `Count` for the quantity column.
+**JSON file format** (save as `fleet.json`):
+```json
+[
+  { "SKU": "Standard_D2s_v5", "Qty": 17 },
+  { "SKU": "Standard_D4s_v5", "Qty": 4 },
+  { "SKU": "Standard_D8s_v5", "Qty": 5 },
+  { "SKU": "Standard_D16ds_v5", "Qty": 1 },
+  { "SKU": "Standard_D16ls_v6", "Qty": 1 }
+]
+```
+
+**Column name flexibility:** The parser accepts `SKU`, `Name`, or `VmSize` for the SKU column, and `Qty`, `Quantity`, or `Count` for the quantity column. Duplicate SKU rows are summed automatically.
 
 **Output:** Color-coded per-SKU capacity table + per-family quota pass/fail (Used/Available/Limit) + overall PASS/FAIL verdict.
 

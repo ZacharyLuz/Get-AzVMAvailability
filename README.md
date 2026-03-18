@@ -176,7 +176,7 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 | `-JsonOutput`           | Switch   | Emit structured JSON for the [AzVMAvailability-Agent](https://github.com/ZacharyLuz/AzVMAvailability-Agent) or automation |
 | `-SkipRegionValidation` | Switch   | Skip Azure region metadata validation (use only when Azure metadata lookup is unavailable)                                |
 | `-Fleet`                | Hashtable| Fleet BOM as hashtable: `@{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}` — validates capacity + quota for entire fleet     |
-| `-FleetFile`            | String   | Path to CSV or JSON file with fleet BOM (columns: SKU, Qty). Easiest input method for spreadsheet users                   |
+| `-FleetFile`            | String   | Path to CSV or JSON file with fleet BOM. CSV: columns `SKU,Qty`. JSON: array of `{"SKU":"...","Qty":N}` objects. Easiest input method for spreadsheet users |
 
 > **Tuning tip:** Use `-MinScore 0` to see all candidates when capacity is tight, or raise it (e.g., 70) to prioritize closer matches.
 
