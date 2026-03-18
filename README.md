@@ -5,7 +5,7 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.12.0-brightgreen)
+![Version](https://img.shields.io/badge/Version-1.12.1-brightgreen)
 
 ## Disclosure & Disclaimer
 
@@ -96,6 +96,9 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 # With auto-export
 .\Get-AzVMAvailability.ps1 -Region "eastus","eastus2" -AutoExport
+
+# Fleet readiness check from CSV file
+.\Get-AzVMAvailability.ps1 -FleetFile .\examples\fleet-bom.csv -Region "eastus" -NoPrompt
 ```
 
 ## Usage Examples
@@ -172,6 +175,8 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 | `-MinScore`             | Int      | Minimum similarity score (0-100) for recommended alternatives; set 0 to show all (default 50)                             |
 | `-JsonOutput`           | Switch   | Emit structured JSON for the [AzVMAvailability-Agent](https://github.com/ZacharyLuz/AzVMAvailability-Agent) or automation |
 | `-SkipRegionValidation` | Switch   | Skip Azure region metadata validation (use only when Azure metadata lookup is unavailable)                                |
+| `-Fleet`                | Hashtable| Fleet BOM as hashtable: `@{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}` — validates capacity + quota for entire fleet     |
+| `-FleetFile`            | String   | Path to CSV or JSON file with fleet BOM (columns: SKU, Qty). Easiest input method for spreadsheet users                   |
 
 > **Tuning tip:** Use `-MinScore 0` to see all candidates when capacity is tight, or raise it (e.g., 70) to prioritize closer matches.
 
@@ -351,7 +356,7 @@ SKUs that are available but **incompatible** with your image are shown in dark y
 ### Console Output (with Pricing)
 ```
 ====================================================================================
-GET-AZVMAVAILABILITY v1.12.0
+GET-AZVMAVAILABILITY v1.12.1
 ====================================================================================
 SKU Filter: Standard_D2s_v5 | Pricing: Enabled
 

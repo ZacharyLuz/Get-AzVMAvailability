@@ -126,7 +126,7 @@
     Author:         Zachary Luz
     Company:        Microsoft
     Created:        2026-01-21
-    Version:        1.12.0
+    Version:        1.12.1
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -207,6 +207,18 @@
     (https://github.com/ZacharyLuz/AzVMAvailability-Agent) which parses this output to
     provide conversational VM recommendations. Also useful for piping into other tools
     or storing scan results programmatically.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -FleetFile .\fleet.csv -Region "eastus" -NoPrompt
+    Load a fleet BOM from CSV file. The CSV needs SKU and Qty columns:
+    SKU,Qty
+    Standard_D2s_v5,17
+    Standard_D4s_v5,4
+    Standard_D8s_v5,5
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
+    Inline fleet BOM using PowerShell hashtable syntax.
 
 .EXAMPLE
     .\Get-AzVMAvailability.ps1
@@ -312,7 +324,10 @@ param(
     [switch]$SkipRegionValidation,
 
     [Parameter(Mandatory = $false, HelpMessage = "Fleet BOM: hashtable of SKU=Quantity pairs for fleet readiness validation (e.g., @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4})")]
-    [hashtable]$Fleet
+    [hashtable]$Fleet,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV or JSON file containing fleet BOM (columns: SKU, Qty). CSV example: 'SKU,Qty\\nStandard_D2s_v5,17')")]
+    [string]$FleetFile
 )
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
@@ -332,6 +347,32 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
     }
 }
 
+# FleetFile: load CSV/JSON into $Fleet hashtable
+if ($FleetFile) {
+    if (-not (Test-Path $FleetFile)) { throw "Fleet file not found: $FleetFile" }
+    $ext = [System.IO.Path]::GetExtension($FleetFile).ToLower()
+    if ($ext -eq '.json') {
+        $jsonData = Get-Content $FleetFile -Raw | ConvertFrom-Json
+        $Fleet = @{}
+        foreach ($item in $jsonData) {
+            $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel.SKU)$' } | Select-Object -First 1).Value
+            $qtyProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
+            if ($skuProp -and $qtyProp) { $Fleet[$skuProp] = [int]$qtyProp }
+        }
+    }
+    else {
+        $csvData = Import-Csv $FleetFile
+        $Fleet = @{}
+        foreach ($row in $csvData) {
+            $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel.SKU)$' } | Select-Object -First 1).Value
+            $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
+            if ($skuProp -and $qtyProp) { $Fleet[$skuProp] = [int]$qtyProp }
+        }
+    }
+    if ($Fleet.Count -eq 0) { throw "No valid SKU/Qty rows found in $FleetFile. Expected columns: SKU (or Name/VmSize), Qty (or Quantity/Count)" }
+    Write-Host "Loaded $($Fleet.Count) SKUs from $FleetFile" -ForegroundColor Cyan
+}
+
 # Fleet mode: normalize keys (strip double-prefix) and derive SkuFilter
 if ($Fleet -and $Fleet.Count -gt 0) {
     $normalizedFleet = @{}
@@ -346,7 +387,7 @@ if ($Fleet -and $Fleet.Count -gt 0) {
 }
 
 #region Configuration
-$ScriptVersion = "1.12.0"
+$ScriptVersion = "1.12.1"
 
 #region Constants
 $HoursPerMonth = 730
