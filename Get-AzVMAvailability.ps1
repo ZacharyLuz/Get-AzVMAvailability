@@ -309,7 +309,10 @@ param(
     [switch]$AllowMixedArch,
 
     [Parameter(Mandatory = $false, HelpMessage = "Skip validation of region names against Azure metadata")]
-    [switch]$SkipRegionValidation
+    [switch]$SkipRegionValidation,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Fleet BOM: hashtable of SKU=Quantity pairs for fleet readiness validation (e.g., @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4})")]
+    [hashtable]$Fleet
 )
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
@@ -327,6 +330,19 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
     if ($val -and $val.Count -eq 1 -and $val[0] -match ',') {
         Set-Variable -Name $paramName -Value @($val[0] -split ',' | ForEach-Object { $_.Trim().Trim('"', "'") } | Where-Object { $_ })
     }
+}
+
+# Fleet mode: normalize keys (strip double-prefix) and derive SkuFilter
+if ($Fleet -and $Fleet.Count -gt 0) {
+    $normalizedFleet = @{}
+    foreach ($key in @($Fleet.Keys)) {
+        $clean = $key -replace '^Standard_Standard_', 'Standard_'
+        if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
+        $normalizedFleet[$clean] = $Fleet[$key]
+    }
+    $Fleet = $normalizedFleet
+    $SkuFilter = @($Fleet.Keys)
+    Write-Verbose "Fleet mode: derived SkuFilter from $($Fleet.Count) Fleet SKUs"
 }
 
 #region Configuration
@@ -1012,6 +1028,222 @@ function Get-QuotaAvailable {
         Limit     = $quota.Limit
         Current   = $quota.CurrentValue
     }
+}
+
+function Get-FleetReadiness {
+    <#
+    .SYNOPSIS
+        Validates a fleet BOM against scan data to produce per-SKU and per-quota-family readiness.
+    .DESCRIPTION
+        Takes a Fleet hashtable (SKU=Qty) and scan data, then checks:
+        1. Does each SKU exist in the scanned regions?
+        2. What is the capacity status for each SKU?
+        3. Does the quota family have enough available vCPUs for the aggregated demand?
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Fleet,
+
+        [Parameter(Mandatory)]
+        [array]$SubscriptionData
+    )
+
+    $results = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $quotaDemandByFamily = @{}
+
+    foreach ($skuName in $Fleet.Keys) {
+        $normalizedSku = $skuName
+        $qty = [int]$Fleet[$skuName]
+
+        $foundInAnyRegion = $false
+        $bestStatus = 'NOT FOUND'
+        $bestRegion = $null
+        $skuVcpu = 0
+        $skuFamily = $null
+        $skuMemGiB = 0
+        $quotaAvailable = $null
+        $quotaLimit = $null
+        $quotaCurrent = $null
+
+        foreach ($subData in $SubscriptionData) {
+            foreach ($regionData in $subData.RegionData) {
+                if ($regionData.Error) { continue }
+                $region = Get-SafeString $regionData.Region
+
+                foreach ($sku in $regionData.Skus) {
+                    if ($sku.Name -ne $normalizedSku) { continue }
+                    $foundInAnyRegion = $true
+                    $skuVcpu = [int](Get-CapValue $sku 'vCPUs')
+                    $skuMemGiB = [int](Get-CapValue $sku 'MemoryGB')
+                    $skuFamily = $sku.Family
+
+                    $restrictions = Get-RestrictionDetails $sku
+                    $status = $restrictions.Status
+
+                    # Rank: OK > LIMITED > CAPACITY-CONSTRAINED > RESTRICTED > BLOCKED
+                    $statusRank = switch ($status) {
+                        'OK' { 5 }
+                        'LIMITED' { 4 }
+                        'CAPACITY-CONSTRAINED' { 3 }
+                        'PARTIAL' { 2 }
+                        'RESTRICTED' { 1 }
+                        default { 0 }
+                    }
+                    $bestRank = switch ($bestStatus) {
+                        'OK' { 5 }
+                        'LIMITED' { 4 }
+                        'CAPACITY-CONSTRAINED' { 3 }
+                        'PARTIAL' { 2 }
+                        'RESTRICTED' { 1 }
+                        'NOT FOUND' { -1 }
+                        default { 0 }
+                    }
+
+                    if ($statusRank -gt $bestRank) {
+                        $bestStatus = $status
+                        $bestRegion = $region
+                    }
+
+                    # Build quota lookup for this region
+                    $quotaLookup = @{}
+                    foreach ($q in $regionData.Quotas) { $quotaLookup[$q.Name.Value] = $q }
+
+                    # Try exact match first, then substring fallback
+                    $matchedFamily = $skuFamily
+                    if ($skuFamily -and -not $quotaLookup[$skuFamily]) {
+                        $fallback = $quotaLookup.Keys | Where-Object { $skuFamily -like "*$_*" -or $_ -like "*$skuFamily*" } | Select-Object -First 1
+                        if ($fallback) { $matchedFamily = $fallback }
+                    }
+
+                    if ($matchedFamily -and $quotaLookup[$matchedFamily]) {
+                        $qInfo = Get-QuotaAvailable -QuotaLookup $quotaLookup -SkuFamily $matchedFamily
+                        $quotaAvailable = $qInfo.Available
+                        $quotaLimit = $qInfo.Limit
+                        $quotaCurrent = $qInfo.Current
+                    }
+                }
+            }
+        }
+
+        $totalVcpuDemand = $qty * $skuVcpu
+
+        # Aggregate demand per quota family for cross-SKU quota check
+        if ($skuFamily) {
+            if (-not $quotaDemandByFamily.ContainsKey($skuFamily)) {
+                $quotaDemandByFamily[$skuFamily] = @{ Demand = 0; Available = $quotaAvailable; Limit = $quotaLimit; Current = $quotaCurrent }
+            }
+            $quotaDemandByFamily[$skuFamily].Demand += $totalVcpuDemand
+        }
+
+        $results.Add([pscustomobject]@{
+            SKU           = $normalizedSku
+            Qty           = $qty
+            vCPUEach      = $skuVcpu
+            MemGiBEach    = $skuMemGiB
+            TotalvCPU     = $totalVcpuDemand
+            QuotaFamily   = if ($skuFamily) { $skuFamily } else { '?' }
+            Capacity      = $bestStatus
+            BestRegion    = if ($bestRegion) { $bestRegion } else { '-' }
+            QuotaUsed     = if ($null -ne $quotaCurrent) { $quotaCurrent } else { '?' }
+            QuotaAvail    = if ($null -ne $quotaAvailable) { $quotaAvailable } else { '?' }
+            QuotaLimit    = if ($null -ne $quotaLimit) { $quotaLimit } else { '?' }
+            Found         = $foundInAnyRegion
+        })
+    }
+
+    # Compute per-family quota pass/fail
+    $familyResults = [System.Collections.Generic.List[PSCustomObject]]::new()
+    foreach ($family in $quotaDemandByFamily.Keys) {
+        $entry = $quotaDemandByFamily[$family]
+        $pass = if ($null -ne $entry.Available) { $entry.Available -ge $entry.Demand } else { $null }
+        $familyResults.Add([pscustomobject]@{
+            QuotaFamily   = $family
+            TotalDemand   = $entry.Demand
+            Used          = if ($null -ne $entry.Current) { $entry.Current } else { '?' }
+            Available     = if ($null -ne $entry.Available) { $entry.Available } else { '?' }
+            Limit         = if ($null -ne $entry.Limit) { $entry.Limit } else { '?' }
+            Pass          = $pass
+        })
+    }
+
+    return @{
+        SKUs    = @($results)
+        Quotas  = @($familyResults)
+    }
+}
+
+function Write-FleetReadinessSummary {
+    <#
+    .SYNOPSIS
+        Renders the fleet readiness summary to console with color-coded pass/fail.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$FleetResult,
+
+        [Parameter(Mandatory)]
+        [hashtable]$Fleet
+    )
+
+    $totalVMs = ($Fleet.Values | Measure-Object -Sum).Sum
+    $totalvCPU = ($FleetResult.SKUs | Measure-Object -Property TotalvCPU -Sum).Sum
+
+    Write-Host ""
+    Write-Host ("=" * 100) -ForegroundColor Gray
+    Write-Host "FLEET READINESS SUMMARY" -ForegroundColor Cyan
+    Write-Host ("=" * 100) -ForegroundColor Gray
+    Write-Host "Fleet: $($Fleet.Count) SKUs | $totalVMs VMs | $totalvCPU vCPUs total" -ForegroundColor White
+    Write-Host ""
+
+    # Per-SKU table
+    $headerFmt = "{0,-28} {1,4} {2,5} {3,5} {4,10} {5,22} {6,-12}"
+    Write-Host ($headerFmt -f 'SKU', 'Qty', 'vCPU', 'Mem', 'Need', 'Capacity', 'Region') -ForegroundColor White
+    Write-Host ("-" * 100) -ForegroundColor Gray
+
+    foreach ($row in $FleetResult.SKUs) {
+        $capacityColor = switch ($row.Capacity) {
+            'OK'                    { 'Green' }
+            'LIMITED'               { 'Yellow' }
+            'CAPACITY-CONSTRAINED'  { 'DarkYellow' }
+            'NOT FOUND'             { 'Red' }
+            default                 { 'Gray' }
+        }
+        $needStr = "$($row.TotalvCPU) vCPU"
+        $line = $headerFmt -f $row.SKU, $row.Qty, $row.vCPUEach, $row.MemGiBEach, $needStr, $row.Capacity, $row.BestRegion
+        Write-Host $line -ForegroundColor $capacityColor
+    }
+
+    Write-Host ""
+    Write-Host "QUOTA VALIDATION BY FAMILY:" -ForegroundColor White
+    Write-Host ("-" * 100) -ForegroundColor Gray
+
+    $quotaFmt = "{0,-40} {1,8} {2,8} {3,10} {4,8} {5,6}"
+    Write-Host ($quotaFmt -f 'Quota Family', 'Need', 'Used', 'Available', 'Limit', 'Pass') -ForegroundColor White
+    Write-Host ("-" * 100) -ForegroundColor Gray
+
+    $allPass = $true
+    foreach ($q in $FleetResult.Quotas) {
+        $passStr = if ($null -eq $q.Pass) { '?' } elseif ($q.Pass) { 'YES' } else { 'NO' }
+        $passColor = if ($null -eq $q.Pass) { 'Yellow' } elseif ($q.Pass) { 'Green' } else { 'Red' }
+        if ($q.Pass -eq $false) { $allPass = $false }
+        if ($null -eq $q.Pass) { $allPass = $false }
+
+        $line = $quotaFmt -f $q.QuotaFamily, $q.TotalDemand, $q.Used, $q.Available, $q.Limit, $passStr
+        Write-Host $line -ForegroundColor $passColor
+    }
+
+    Write-Host ""
+    if ($allPass) {
+        Write-Host "FLEET READINESS: PASS" -ForegroundColor Green -BackgroundColor Black
+        Write-Host "All SKUs have capacity and quota covers the fleet demand." -ForegroundColor Green
+    }
+    else {
+        Write-Host "FLEET READINESS: FAIL" -ForegroundColor Red -BackgroundColor Black
+        Write-Host "One or more SKUs have capacity issues or insufficient quota." -ForegroundColor Red
+        Write-Host "Request quota increase: https://aka.ms/ProdportalCRP/?#create/Microsoft.Support/Parameters/" -ForegroundColor Yellow
+    }
+
+    Write-Host ("=" * 100) -ForegroundColor Gray
 }
 
 function Get-StatusIcon {
@@ -2909,6 +3141,21 @@ catch {
 }
 
 #endregion Data Collection
+#region Fleet Readiness
+
+if ($Fleet -and $Fleet.Count -gt 0) {
+    $fleetResult = Get-FleetReadiness -Fleet $Fleet -SubscriptionData $allSubscriptionData
+    Write-FleetReadinessSummary -FleetResult $fleetResult -Fleet $Fleet
+
+    if ($JsonOutput) {
+        $fleetResult | ConvertTo-Json -Depth 5
+    }
+
+    # Fleet mode exits after summary — no need to render full scan output
+    return
+}
+
+#endregion Fleet Readiness
 #region Recommend Mode
 
 if ($Recommend) {
