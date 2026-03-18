@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Fleet Readiness Mode** — `-Fleet` hashtable parameter for BOM-level capacity and quota validation (`-Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}`)
+- Fleet auto-derives `-SkuFilter` from Fleet keys with double-prefix guard (`Standard_Standard_` → `Standard_`)
+- `Get-FleetReadiness` function — validates fleet BOM against scan data, checks per-SKU capacity, aggregates vCPU demand per quota family with fuzzy family name matching fallback
+- `Write-FleetReadinessSummary` function — color-coded console output with per-SKU table, per-family quota pass/fail (Used/Available/Limit), and overall verdict
+
+### Changed
+- Release workflow: push-to-main releases now auto-publish (not draft) — release notes are editable on GitHub without a new PR; manual dispatch still defaults to draft via `draft_release` input
+
 ### Fixed
 - Tooling: `Validate-Script.ps1` Check 5 docs scan now uses `git ls-files` instead of `Get-ChildItem` so only committed/staged files can trigger version-consistency failures — prevents false positives from local untracked scratch notes under `docs/`
 - Tooling: `Validate-Script.ps1` Check 5 now guards `git ls-files` with `Get-Command git` — falls back to `Get-ChildItem` with a `WARN` when git is unavailable (e.g. source ZIP install), preventing a `CommandNotFoundException` crash

@@ -24,6 +24,7 @@ copilot-standing-rules.md
 # Temp files
 *.tmp
 *.temp
+.tmp_*  # dotfile-prefixed temp files (.tmp_reply.json, .tmp_pr_body.md) — complements *.tmp pattern above
 *.out
 *~
 *.swp

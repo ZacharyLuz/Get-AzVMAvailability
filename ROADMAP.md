@@ -198,6 +198,8 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 - [ ] **Workload Profiles** - Pre-tuned scoring weights for MemoryOptimized, ComputeOptimized, GPU
 - [ ] **VMSS Script Generation** - Generate deployment scripts for regional fleet allocation
 - [ ] **Fleet Strategy Modes** - Balanced/HighAvailability/CostOptimized/MaxSavings
+- [ ] **Azure Compute Fleet Integration** - Evaluate `Microsoft.AzureFleet/fleets` API for mixed Spot+on-demand fleet deployments (requires `Compute Fleet Contributor` role `2bed379c`) <!-- short GUID is intentional — roadmap reference, not RBAC assignment code -->
+- [ ] **Programmatic Quota Management** - Evaluate `Microsoft.ComputeLimit` API for automated quota increase requests (requires `Compute Limit Operator` role `980cf6f7`) <!-- short GUID is intentional — roadmap reference, not RBAC assignment code -->
 
 ---
 
@@ -286,6 +288,49 @@ AVD deployments depend on VM SKU availability and quota (already covered), but a
 - Personal host sizing math: `1 VM per assigned user`
 - Spot placement scores (feature/placement-score-phase1) are directly relevant for cost-optimized pooled AVD
 - AVD session planning decisions needed before implementation
+
+---
+
+## Future: SKU Modernization Scanner
+**Theme: Proactive SKU Retirement & Capacity Risk Detection**
+
+Scan a subscription's deployed VMs to find SKUs that are scheduled for retirement, deprecated, or running in low-capacity regions — then recommend newer replacement SKUs with better availability.
+
+### Proposed Features
+- [ ] **`-Modernize` Parameter** - Interactive mode that discovers deployed VMs and flags at-risk SKUs
+- [ ] **ARG Inventory Scan** - Use Azure Resource Graph to enumerate all deployed VMs by region, SKU, and resource group
+- [ ] **Retirement Detection** - Cross-reference deployed SKUs against Azure's published retirement/deprecation schedule (Compute RP `resourceSkus` with `NotAvailableForNewDeployments` restrictions)
+- [ ] **Low-Capacity Flagging** - Identify deployed SKUs where current capacity status is `NotAvailable` or `Restricted` in the deployment region
+- [ ] **Upgrade Recommendations** - For each at-risk SKU, run the existing similarity scoring engine (`-Recommend`) to suggest newer replacements with `Available` capacity
+- [ ] **Generation Gap Detection** - Flag VMs running on older generations (v2/v3/v4) when v5/v6 equivalents exist in the same family
+- [ ] **Side-by-Side Comparison** - Table showing current SKU vs recommended upgrade with vCPU, memory, pricing, and capacity delta
+- [ ] **Migration Impact Summary** - Per-VM output: resource group, VM name, current SKU, risk reason, top recommendation, pricing delta
+- [ ] **Export Support** - CSV/XLSX/JSON export of modernization report for fleet planning
+
+### Data Sources
+- **Deployed VMs:** Azure Resource Graph (`Microsoft.Compute/virtualMachines`)
+- **SKU Retirement Status:** Compute RP `resourceSkus` API — restrictions array contains `NotAvailableForNewDeployments` for retiring SKUs
+- **Capacity Status:** Existing capacity scanning logic (already built)
+- **Replacement Scoring:** Existing `Get-SkuSimilarityScore` engine (already built)
+- **Pricing:** Existing retail/negotiated pricing pipeline (already built)
+
+### Interactive Flow
+1. Scan subscription via ARG → list all unique deployed SKUs by region
+2. Check each SKU for retirement restrictions and capacity status
+3. Flag at-risk SKUs (retiring, restricted, low capacity)
+4. For each flagged SKU, run recommend engine to find available replacements
+5. Present color-coded summary: green (healthy), yellow (low capacity), red (retiring/unavailable)
+6. User selects which replacements to include in export report
+
+### Dependencies
+- Benefits from **ARG Integration** backlog items (VM inventory, cross-subscription discovery)
+- Reuses **v1.8.0 Recommend Engine** (`Get-SkuSimilarityScore`, `-Recommend`, `-TopN`)
+- Reuses **v1.3.0 Pricing** pipeline for cost delta calculations
+
+### Notes
+- `NotAvailableForNewDeployments` in the `resourceSkus` restrictions array is the programmatic signal for SKU retirement — no scraping of retirement announcement pages needed
+- Existing VMs on retiring SKUs continue to run but cannot be resized, redeployed after deallocation, or added to scale sets
+- Generation detection heuristic: parse version suffix from SKU name (e.g., `Standard_D4s_v3` → v3, compare against `Standard_D4s_v5` → v5)
 
 ---
 

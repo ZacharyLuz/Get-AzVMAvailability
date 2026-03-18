@@ -125,7 +125,7 @@ jobs:
 
           throw "Release metadata drift detected for $tag and auto-publish is disabled."
 
-      - name: Auto-publish draft release when drift detected
+      - name: Auto-publish release when drift detected
         if: steps.drift.outputs.tag_exists == 'False' && (github.event_name == 'push' || inputs.auto_publish == true)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -145,7 +145,10 @@ jobs:
           git tag "$tag" "$sha"
           git push origin "$tag"
 
-          $draft = $true
+          # Default to published (not draft) — release notes are editable on GitHub
+          # without a new PR. Draft releases required fix-CHANGELOG → PR → merge → publish
+          # cycle for every typo. Manual dispatch can still override via draft_release input.
+          $draft = $false
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $draft = "${{ inputs.draft_release }}" -eq "true"
           }
