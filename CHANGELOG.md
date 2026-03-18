@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.0] - 2026-03-18
 
 ### Added
 - **Fleet Readiness Mode** — `-Fleet` hashtable parameter for BOM-level capacity and quota validation (`-Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}`)
@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Release workflow: push-to-main releases now auto-publish (not draft) — release notes are editable on GitHub without a new PR; manual dispatch still defaults to draft via `draft_release` input
+- CI: Release workflow now fails on version stagnation — if `$ScriptVersion` matches an existing tag but HEAD has new commits, the workflow throws instead of silently passing. Every merge to main requires a version bump.
 
 ### Fixed
 - Tooling: `Validate-Script.ps1` Check 5 docs scan now uses `git ls-files` instead of `Get-ChildItem` so only committed/staged files can trigger version-consistency failures — prevents false positives from local untracked scratch notes under `docs/`

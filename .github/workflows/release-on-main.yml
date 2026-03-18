@@ -69,6 +69,17 @@ jobs:
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "tag_exists=$tagExists" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+          # Guard: detect version stagnation — tag exists but HEAD has new commits since tag
+          # Every push to main MUST include a version bump so the release workflow creates a new tag/release.
+          if ($tagExists) {
+            $tagSha = git rev-list -n 1 "$tag" 2>$null
+            $headSha = "${{ github.sha }}"
+            if ($tagSha -ne $headSha) {
+              $commitsSinceTag = git rev-list --count "$tag..$headSha"
+              throw "Version stagnation: ScriptVersion is $version but tag $tag already exists (from commit $($tagSha.Substring(0,7))). HEAD ($($headSha.Substring(0,7))) is $commitsSinceTag commit(s) ahead. Every merge to main requires a version bump. Bump `$ScriptVersion` in Get-AzVMAvailability.ps1 and add a CHANGELOG section."
+            }
+          }
+
       - name: Extract CHANGELOG section for version
         id: notes
         if: steps.drift.outputs.tag_exists == 'False'
