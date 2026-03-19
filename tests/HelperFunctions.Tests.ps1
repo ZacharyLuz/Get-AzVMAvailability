@@ -20,9 +20,6 @@ BeforeAll {
     foreach ($functionName in $functionNames) {
         . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName $functionName)))
     }
-
-    # Get-SkuCapabilities reads $MBPerGB from parent scope (known tech debt)
-    $script:MBPerGB = 1024
 }
 
 Describe "Get-SafeString" {

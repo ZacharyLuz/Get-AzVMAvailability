@@ -1357,7 +1357,11 @@ function Write-FleetReadinessSummary {
 }
 
 function Get-StatusIcon {
-    param([string]$Status)
+    param(
+        [string]$Status,
+        [Parameter(Mandatory)]
+        [hashtable]$Icons
+    )
     switch ($Status) {
         'OK' { return $Icons.OK }
         'CAPACITY-CONSTRAINED' { return $Icons.CAPACITY }
@@ -2177,7 +2181,7 @@ function Get-SkuCapabilities {
                 'MaxResourceVolumeMB' {
                     $mb = 0
                     if ([int]::TryParse($cap.Value, [ref]$mb) -and $mb -gt 0) {
-                        $capabilities.TempDiskGB = [math]::Round($mb / $MBPerGB, 0)
+                        $capabilities.TempDiskGB = [math]::Round($mb / 1024, 0)
                     }
                 }
                 'AcceleratedNetworkingEnabled' {
@@ -3873,7 +3877,7 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
 
         if ($regionStats) {
             $status = $regionStats.Capacity
-            $icon = Get-StatusIcon $status
+            $icon = Get-StatusIcon -Status $status -Icons $Icons
             if ($status -eq 'OK') { $bestStatus = 'OK' }
             elseif ($status -match 'CONSTRAINED|PARTIAL' -and $bestStatus -ne 'OK') { $bestStatus = 'MIXED' }
             $line += " | " + $icon.PadRight($colWidth)
