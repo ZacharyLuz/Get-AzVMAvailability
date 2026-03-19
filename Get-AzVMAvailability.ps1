@@ -232,6 +232,12 @@
     Inline fleet BOM using PowerShell hashtable syntax.
 
 .EXAMPLE
+    .\Get-AzVMAvailability.ps1 -GenerateFleetTemplate
+    Creates fleet-template.csv and fleet-template.json in the current directory.
+    Edit the files with your VM SKUs and quantities, then run:
+    .\Get-AzVMAvailability.ps1 -FleetFile .\fleet-template.csv -Region "eastus" -NoPrompt
+
+.EXAMPLE
     .\Get-AzVMAvailability.ps1
     Run interactively. After exploring regions and families, you'll be prompted to optionally
     enter recommend mode to find alternatives for a specific SKU.
@@ -338,10 +344,47 @@ param(
     [hashtable]$Fleet,
 
     [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV or JSON fleet BOM file. CSV: columns SKU,Qty. JSON: array of {SKU:'...',Qty:N} objects. Duplicate SKUs are summed.")]
-    [string]$FleetFile
+    [string]$FleetFile,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Generate fleet-template.csv and fleet-template.json in the current directory, then exit. No Azure login required.")]
+    [switch]$GenerateFleetTemplate
 )
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
+
+#region GenerateFleetTemplate
+if ($GenerateFleetTemplate) {
+    $csvPath = Join-Path $PWD 'fleet-template.csv'
+    $jsonPath = Join-Path $PWD 'fleet-template.json'
+    $csvContent = @"
+SKU,Qty
+Standard_D2s_v5,10
+Standard_D4s_v5,5
+Standard_D8s_v5,3
+Standard_E4s_v5,2
+Standard_E16s_v5,1
+"@
+    $jsonContent = @"
+[
+  { "SKU": "Standard_D2s_v5", "Qty": 10 },
+  { "SKU": "Standard_D4s_v5", "Qty": 5 },
+  { "SKU": "Standard_D8s_v5", "Qty": 3 },
+  { "SKU": "Standard_E4s_v5", "Qty": 2 },
+  { "SKU": "Standard_E16s_v5", "Qty": 1 }
+]
+"@
+    Set-Content -Path $csvPath -Value $csvContent -Encoding utf8
+    Set-Content -Path $jsonPath -Value $jsonContent -Encoding utf8
+    Write-Host "Created fleet templates:" -ForegroundColor Green
+    Write-Host "  CSV: $csvPath" -ForegroundColor Cyan
+    Write-Host "  JSON: $jsonPath" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Next steps:" -ForegroundColor Yellow
+    Write-Host "  1. Edit the template with your VM SKUs and quantities"
+    Write-Host "  2. Run: .\Get-AzVMAvailability.ps1 -FleetFile .\fleet-template.csv -Region 'eastus' -NoPrompt"
+    return
+}
+#endregion GenerateFleetTemplate
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Warning "PowerShell 7+ is required to run Get-AzVMAvailability.ps1."

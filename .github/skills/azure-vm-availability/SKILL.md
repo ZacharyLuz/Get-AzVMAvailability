@@ -199,14 +199,21 @@ User request
 **Scenario:** Validate that an entire VM fleet (bill of materials) can be deployed — checks capacity and quota for every SKU in the BOM simultaneously.
 
 ```powershell
-# From a CSV file (easiest — export from Excel, paste from table)
-# CSV format: SKU,Qty (one row per VM type)
+# Step 1: Generate template files (no Azure login needed)
+.\Get-AzVMAvailability.ps1 -GenerateFleetTemplate
+# → Creates fleet-template.csv and fleet-template.json in current directory
+# → Edit with your actual SKUs and quantities
+
+# Step 2: Run the scan with your fleet file
+.\Get-AzVMAvailability.ps1 -FleetFile .\fleet-template.csv -Region "eastus" -NoPrompt
+
+# Alternative: CSV file (export from Excel, paste from table)
 .\Get-AzVMAvailability.ps1 -FleetFile .\fleet.csv -Region "eastus" -NoPrompt
 
-# Inline hashtable (for scripting/automation)
+# Alternative: Inline hashtable (for scripting/automation)
 .\Get-AzVMAvailability.ps1 -Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
 
-# JSON file input (for automation pipelines)
+# Alternative: JSON file input (for automation pipelines)
 .\Get-AzVMAvailability.ps1 -FleetFile .\fleet.json -Region "eastus" -NoPrompt -JsonOutput
 ```
 

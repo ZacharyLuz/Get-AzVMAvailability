@@ -145,6 +145,12 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
 #     -NoPrompt
 #endregion Scenario 7B
 
+#region Scenario 7C — Generate Fleet Template
+# Generate starter CSV + JSON fleet template files — no Azure login needed.
+# Users edit the template with their actual SKUs, then run -FleetFile.
+.\Get-AzVMAvailability.ps1 -GenerateFleetTemplate
+#endregion Scenario 7C
+
 # ============================================================
 # RUN: "Automation & Export"
 # ============================================================

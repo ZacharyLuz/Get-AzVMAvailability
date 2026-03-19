@@ -177,8 +177,51 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 | `-SkipRegionValidation` | Switch   | Skip Azure region metadata validation (use only when Azure metadata lookup is unavailable)                                |
 | `-Fleet`                | Hashtable| Fleet BOM as hashtable: `@{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}` — validates capacity + quota for entire fleet     |
 | `-FleetFile`            | String   | Path to CSV or JSON file with fleet BOM. CSV: columns `SKU,Qty`. JSON: array of `{"SKU":"...","Qty":N}` objects. Easiest input method for spreadsheet users |
+| `-GenerateFleetTemplate`| Switch   | Creates `fleet-template.csv` and `fleet-template.json` in the current directory, then exits. No Azure login required |
 
 > **Tuning tip:** Use `-MinScore 0` to see all candidates when capacity is tight, or raise it (e.g., 70) to prioritize closer matches.
+
+## Fleet Planning Quick Start
+
+Validate whether your entire VM deployment can be provisioned in a target region.
+
+### Step 1: Create your fleet file
+
+**Option A — Generate a template** (easiest):
+```powershell
+.\Get-AzVMAvailability.ps1 -GenerateFleetTemplate
+# Creates fleet-template.csv and fleet-template.json in current directory
+# Edit with your actual SKUs and quantities
+```
+
+**Option B — Write a CSV** (Excel / text editor):
+```csv
+SKU,Qty
+Standard_D2s_v5,17
+Standard_D4s_v5,4
+Standard_D8s_v5,5
+```
+
+**Option C — Write a JSON file**:
+```json
+[
+  { "SKU": "Standard_D2s_v5", "Qty": 17 },
+  { "SKU": "Standard_D4s_v5", "Qty": 4 },
+  { "SKU": "Standard_D8s_v5", "Qty": 5 }
+]
+```
+
+> **Column names are flexible:** `SKU`, `Name`, or `VmSize` for the SKU column; `Qty`, `Quantity`, or `Count` for quantity. Duplicate SKU rows are summed automatically. The `Standard_` prefix is optional.
+
+### Step 2: Run the scan
+
+```powershell
+.\Get-AzVMAvailability.ps1 -FleetFile .\fleet-template.csv -Region "eastus" -NoPrompt
+```
+
+### Step 3: Read the verdict
+
+The output shows per-SKU capacity status, per-family quota pass/fail (Used/Available/Limit), and an overall **PASS/FAIL** verdict.
 
 ## Region Presets
 

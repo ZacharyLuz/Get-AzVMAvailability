@@ -11,9 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **`-FleetFile` parameter** — load fleet BOM from CSV or JSON file instead of inline hashtable. Accepts flexible column names (SKU/Name/VmSize, Qty/Quantity/Count). Removes the biggest adoption barrier for fleet readiness validation.
-- Example fleet CSV at `examples/fleet-bom.csv`
+- **`-GenerateFleetTemplate` switch** — creates `fleet-template.csv` and `fleet-template.json` in the current directory with sample SKUs. No Azure login required. Eliminates guesswork about file format.
+- Example fleet CSV at `examples/fleet-bom.csv` and JSON at `examples/fleet-bom.json`
+- Fleet Planning Quick Start section in README with step-by-step guide
 - Fleet workflow added to SKILL.md decision tree and Workflow 7 section for AI agent routing
-- Fleet demo scenario (7B) added to `demo/Demo-Commands.ps1`
+- Fleet demo scenarios (7B, 7C) added to `demo/Demo-Commands.ps1`
 
 ## [1.12.0] - 2026-03-18
 
