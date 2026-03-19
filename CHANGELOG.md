@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Archived 9 internal process documents to `docs/archive/` (gitignored) — removes remediation artifacts from public repo (#74)
 - Updated `copilot-instructions.md` with current metrics (4,442 lines, 34 functions, 349 Write-Host, 0 exit calls, 189 tests/11 files), line numbers, parent-scope dependency table, and module extraction order
 
+### Added
+- 19 Pester tests for `-FleetFile` CSV/JSON parsing: column name matching, duplicate detection, validation rules, normalization, and `-Fleet`/`-FleetFile` mutual exclusion (#62)
+
 ## [1.12.1] - 2026-03-18
 
 ### Added
