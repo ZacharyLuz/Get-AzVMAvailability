@@ -118,7 +118,7 @@ This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests
 ## Architecture Details
 
 - **Script metrics (current):** 4,442 lines, 34 functions, 349 `Write-Host` calls,
-  0 `Write-Output` calls, 9 `exit` calls, 0 pipeline-emitted objects.
+  0 `Write-Output` calls, 0 `exit` calls, 0 pipeline-emitted objects.
 - **`$script:RunContext`** — centralized runtime state object. All functions should
   access state through this object — however, several functions still read parent-scope
   variables implicitly (see Known Technical Debt below). Contains caches, pricing
@@ -142,11 +142,11 @@ These are confirmed issues from code review. The agent should know them without
 having to rediscover them by reading 4,442 lines.
 
 ### Performance Hotspots (exact locations)
-| Line | Issue | Fix |
-|------|-------|-----|
-| **3470** | `$familyDetails += $detailObj` inside per-SKU loop (5 regions × 600 SKUs = 3,000 reallocations) | `[System.Collections.Generic.List[PSCustomObject]]::new()` + `.Add()` |
-| **3403** | `$rows += $row` inside per-family loop per region | Same List[T] pattern |
-| **1041–1057** | `$zonesOK/Limited/Restricted += $zone` inside `Get-RestrictionDetails` (called thousands of times) | List[string] |
+| Line | Issue | Status |
+|------|-------|--------|
+| **3470** | `$familyDetails` per-SKU loop accumulation | **Fixed** — converted to `List[PSCustomObject]` + `.Add()` |
+| **3403** | `$rows` per-family per-region accumulation | **Fixed** — converted to `List[T]` + `.Add()` |
+| **1041–1057** | `$zonesOK/Limited/Restricted` in `Get-RestrictionDetails` | **Fixed** — converted to `List[string]` + `.Add()` |
 | **3242** | `$allSubscriptionData += @{...}` per-subscription | Low impact (1–3 iterations typically) |
 | **~862** | `Get-CapValue` uses `Where-Object` pipeline (~18,000 calls per scan) | Pre-index SKU capabilities as hashtable at scan time |
 | **~2498+** | Pricing fallback is all-or-nothing: one failure abandons all regions to retail | Per-region fallback |
@@ -167,11 +167,10 @@ parameters. Every one is a hidden wire that must be cut before module conversion
 | `Get-PlacementScores` | `$MaxRetries`, `$script:RunContext.Caches.PlacementWarned403` | Add `-MaxRetries` param, pass cache |
 | `Get-ValidAzureRegions` | `$MaxRetries`, `$script:RunContext.Caches`, `$script:AzureEndpoints` | Add params |
 
-### `exit` vs `throw` (9 exit calls — risky if dot-sourced)
-Lines 394, 2611, 2691, 2697, 2733, 2762, 2793, 3597, 3642 use `exit` inside
-interactive validation flow. If someone dot-sources the script or calls it from
-another script, these kill the caller's session. Replace with `throw` for error
-cases and `return` for user-initiated cancellation.
+### `exit` vs `throw` — **Fixed**
+All 9 original `exit` calls (Lines 394, 2611, 2691, 2697, 2733, 2762, 2793, 3597, 3642)
+have been replaced with `throw` (error paths) and `return` (user-initiated cancellation).
+The script no longer kills the caller's session when dot-sourced or called from another script.
 
 ### Pipeline Composability (zero pipeline output)
 The script emits nothing to the pipeline — all data rendered via `Write-Host`.

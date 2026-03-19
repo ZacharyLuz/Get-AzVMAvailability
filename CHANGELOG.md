@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced all 9 `exit` calls with `throw` (error paths) and `return` (user cancellation) for module safety — script no longer kills the caller's session when dot-sourced (#68)
 - Converted 3 hot-loop `+=` array accumulations to `[System.Collections.Generic.List[T]]` in `Get-RestrictionDetails`, `$rows`, and `$familyDetails` (#70)
 - Archived 9 internal process documents to `docs/archive/` (gitignored) — removes remediation artifacts from public repo (#74)
-- Updated `copilot-instructions.md` with current metrics (4,442 lines, 34 functions, 349 Write-Host, 0 exit calls, 208 tests/12 files), line numbers, parent-scope dependency table, and module extraction order
+- Updated `copilot-instructions.md` with current metrics (4,442 lines, 34 functions, 349 Write-Host, 0 exit calls, 189 tests/11 files), line numbers, parent-scope dependency table, and module extraction order
 
 ## [1.12.1] - 2026-03-18
 
