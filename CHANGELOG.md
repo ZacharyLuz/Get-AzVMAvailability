@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - 19 Pester tests for `-FleetFile` CSV/JSON parsing: column name matching, duplicate detection, validation rules, normalization, and `-Fleet`/`-FleetFile` mutual exclusion (#62)
 
+### Fixed
+- Inlined parallel scan logic into `ForEach-Object -Parallel` scriptblock — PowerShell prohibits `$using:` references to ScriptBlock variables, causing runtime errors in multi-region scans (#53)
+
 ## [1.12.1] - 2026-03-18
 
 ### Added
