@@ -390,3 +390,15 @@ Date: 2026-03-12
 | 2 | Get-AzVMAvailability.ps1:3072 | "This new Write-Host line will be emitted even when -JsonOutput is set." | **Disagree** | Line 3072 is the pre-existing script banner (one of 308 Write-Host calls). Not introduced by this PR. Gating all Write-Host behind JsonOutput is v2.0.0 scope (pipeline composability). | No action — pre-existing code. |
 | 3 | Get-AzVMAvailability.ps1:413 | "-FleetFile path handling uses Test-Path without -LiteralPath and without verifying it's a file." | **Agree** | Wildcard chars in paths and directory paths would cause confusing errors. | Fixed: -LiteralPath + -PathType Leaf on Test-Path, Get-Content, Import-Csv. |
 | 4 | Get-AzVMAvailability.ps1:430 | "Fleet BOM parsing accepts SKU values with leading/trailing whitespace and quantity values that are 0/negative." | **Agree** | Whitespace SKUs won't match discovery results. Zero/negative qty is nonsensical. | Fixed: .Trim() on SKU + positive int validation with descriptive throw. |
+
+---
+## PR #80 — refactor: fix parent-scope implicit dependencies in 9 functions (#72)
+**Date:** 2026-03-19 | **Branch:** fix/parent-scope-deps | **Commit:** fdd2efe
+
+| # | File:Line | Copilot Finding | Assessment | Reasoning | Action |
+|---|-----------|----------------|------------|-----------|--------|
+| 1 | Get-AzVMAvailability.ps1:905 | "Help text says 'cached at script scope' but implementation now uses -Caches dictionary." | **Agree** | Stale docstring from before parameterization. | Fixed in fdd2efe: updated docstring. |
+| 2 | Get-AzVMAvailability.ps1:1866 | "-RunContext is optional but function writes to it unconditionally — will throw if omitted." | **Partially Agree** | Made Mandatory. Skipped runtime property validation — internal function with 2 callers, not public API yet. Will add validation at module boundary in v2.0.0. | Fixed in fdd2efe: [Parameter(Mandatory)]. |
+| 3 | Get-AzVMAvailability.ps1:1856 | "[Nullable[int]]$MinScore with no default could cause issues when passed to [int]$MinScore in New-RecommendOutputContract." | **Disagree** | MinScore is intentionally nullable: null = no minimum filter (skip filtering), 0 = keep all with score >= 0. Both callers pass the script param value which has a default. Null->0 coercion in the contract is correct (0 = no filter in JSON). | No action — intentional design. |
+| 4 | Get-AzVMAvailability.ps1:2214 | "Bare 1024 is a magic number — reintroduced when $MBPerGB was removed." | **Agree** | Should be self-documenting. | Fixed in fdd2efe: local constant $MiBPerGiB = 1024. |
+| 5 | tests/Get-ValidAzureRegions.Tests.ps1:18 | "$script:TestAzureEndpoints is initialized but never used — dead test setup state." | **Agree** | Leftover from refactoring. | Fixed in fdd2efe: removed. |
