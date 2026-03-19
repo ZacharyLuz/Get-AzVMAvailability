@@ -1454,7 +1454,8 @@ function Get-SkuSimilarityScore {
     #>
     param(
         [Parameter(Mandatory)][hashtable]$Target,
-        [Parameter(Mandatory)][hashtable]$Candidate
+        [Parameter(Mandatory)][hashtable]$Candidate,
+        [hashtable]$FamilyInfo
     )
 
     $score = 0
@@ -1478,8 +1479,8 @@ function Get-SkuSimilarityScore {
         $score += 20
     }
     else {
-        $targetInfo = if ($script:FamilyInfo) { $script:FamilyInfo[$Target.Family] } else { $null }
-        $candidateInfo = if ($script:FamilyInfo) { $script:FamilyInfo[$Candidate.Family] } else { $null }
+        $targetInfo = if ($FamilyInfo) { $FamilyInfo[$Target.Family] } else { $null }
+        $candidateInfo = if ($FamilyInfo) { $FamilyInfo[$Candidate.Family] } else { $null }
         $targetCat = if ($targetInfo) { $targetInfo.Category } else { 'Unknown' }
         $candidateCat = if ($candidateInfo) { $candidateInfo.Category } else { 'Unknown' }
         if ($targetCat -ne 'Unknown' -and $targetCat -eq $candidateCat) {
@@ -1593,6 +1594,7 @@ function Write-RecommendOutputContract {
         [Parameter(Mandatory)][pscustomobject]$Contract,
         [Parameter(Mandatory)][hashtable]$Icons,
         [Parameter(Mandatory)][bool]$FetchPricing,
+        [hashtable]$FamilyInfo,
         [int]$OutputWidth = 122
     )
 
@@ -1911,7 +1913,7 @@ function Invoke-RecommendMode {
                     continue
                 }
 
-                $simScore = Get-SkuSimilarityScore -Target $targetProfile -Candidate $candidateProfile
+                $simScore = Get-SkuSimilarityScore -Target $targetProfile -Candidate $candidateProfile -FamilyInfo $FamilyInfo
 
                 $priceHr = $null
                 $priceMo = $null
@@ -1989,7 +1991,7 @@ function Invoke-RecommendMode {
             return
         }
 
-        Write-RecommendOutputContract -Contract $script:RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -OutputWidth $script:OutputWidth
+        Write-RecommendOutputContract -Contract $script:RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -FamilyInfo $FamilyInfo -OutputWidth $script:OutputWidth
         return
     }
 
@@ -2094,7 +2096,7 @@ function Invoke-RecommendMode {
         return
     }
 
-    Write-RecommendOutputContract -Contract $script:RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -OutputWidth $script:OutputWidth
+    Write-RecommendOutputContract -Contract $script:RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -FamilyInfo $FamilyInfo -OutputWidth $script:OutputWidth
 }
 
 #endregion Helper Functions

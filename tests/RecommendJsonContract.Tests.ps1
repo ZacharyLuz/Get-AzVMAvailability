@@ -65,7 +65,7 @@ BeforeAll {
     }
 
     function Get-SkuSimilarityScore {
-        param([hashtable]$Target, [hashtable]$Candidate)
+        param([hashtable]$Target, [hashtable]$Candidate, [hashtable]$FamilyInfo)
         $score = 100
         if ($Target.Architecture -ne $Candidate.Architecture) { $score -= 12 }
         if ($Target.vCPU -ne $Candidate.vCPU) { $score -= 8 }

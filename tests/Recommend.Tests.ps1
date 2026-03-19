@@ -2,6 +2,7 @@ BeforeAll {
     Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
     . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName 'Get-SkuSimilarityScore')))
     . ([scriptblock]::Create((Get-MainScriptVariableAssignment -VariableName 'FamilyInfo' -ScopePrefix 'script')))
+    $script:TestFamilyInfo = $script:FamilyInfo
 }
 
 Describe 'Get-SkuSimilarityScore' {
@@ -67,13 +68,13 @@ Describe 'Get-SkuSimilarityScore' {
         It 'Gives 15 points for same category (Memory: E vs M)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'E'; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'M'; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 15
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate -FamilyInfo $script:TestFamilyInfo | Should -Be 15
         }
 
         It 'Gives 15 points for EC vs E (same Memory category)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'EC'; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'E'; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 15
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate -FamilyInfo $script:TestFamilyInfo | Should -Be 15
         }
 
         It 'Gives 0 points for different family and category' {
@@ -138,8 +139,8 @@ Describe 'Get-SkuSimilarityScore' {
             $sameFamily = @{ vCPU = 48; MemoryGB = 384; Family = 'E'; Generation = 'V2'; Architecture = 'x64'; PremiumIO = $true }
             $diffFamily = @{ vCPU = 64; MemoryGB = 512; Family = 'M'; Generation = 'V2'; Architecture = 'x64'; PremiumIO = $true }
 
-            $scoreSameFamily = Get-SkuSimilarityScore -Target $target -Candidate $sameFamily
-            $scoreDiffFamily = Get-SkuSimilarityScore -Target $target -Candidate $diffFamily
+            $scoreSameFamily = Get-SkuSimilarityScore -Target $target -Candidate $sameFamily -FamilyInfo $script:TestFamilyInfo
+            $scoreDiffFamily = Get-SkuSimilarityScore -Target $target -Candidate $diffFamily -FamilyInfo $script:TestFamilyInfo
 
             $scoreDiffFamily | Should -BeGreaterThan $scoreSameFamily
         }
