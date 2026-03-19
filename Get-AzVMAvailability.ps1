@@ -461,7 +461,6 @@ $ScriptVersion = "1.12.1"
 #region Constants
 $HoursPerMonth = 730
 $ParallelThrottleLimit = 4
-$MBPerGB = 1024
 $OutputWidthWithPricing = 140
 $OutputWidthBase = 122
 $OutputWidthMin = 100
@@ -1832,7 +1831,37 @@ function Invoke-RecommendMode {
         [string]$TargetSkuName,
 
         [Parameter(Mandatory)]
-        [array]$SubscriptionData
+        [array]$SubscriptionData,
+
+        [hashtable]$FamilyInfo = @{},
+
+        [hashtable]$Icons = @{},
+
+        [bool]$FetchPricing = $false,
+
+        [bool]$ShowSpot = $false,
+
+        [bool]$ShowPlacement = $false,
+
+        [bool]$AllowMixedArch = $false,
+
+        [int]$MinvCPU = 0,
+
+        [int]$MinMemoryGB = 0,
+
+        [Nullable[int]]$MinScore,
+
+        [int]$TopN = 5,
+
+        [int]$DesiredCount = 1,
+
+        [bool]$JsonOutput = $false,
+
+        [int]$MaxRetries = 3,
+
+        [pscustomobject]$RunContext,
+
+        [int]$OutputWidth = 122
     )
 
     $targetSku = $null
@@ -1917,8 +1946,8 @@ function Invoke-RecommendMode {
                 $priceMo = $null
                 $spotPriceHr = $null
                 $spotPriceMo = $null
-                if ($FetchPricing -and $script:RunContext.RegionPricing[[string]$region]) {
-                    $regionPriceData = $script:RunContext.RegionPricing[[string]$region]
+                if ($FetchPricing -and $RunContext.RegionPricing[[string]$region]) {
+                    $regionPriceData = $RunContext.RegionPricing[[string]$region]
                     $regularPriceMap = Get-RegularPricingMap -PricingContainer $regionPriceData
                     $spotPriceMap = Get-SpotPricingMap -PricingContainer $regionPriceData
                     $skuPricing = $regularPriceMap[$sku.Name]
@@ -1982,14 +2011,14 @@ function Invoke-RecommendMode {
     }
 
     if (-not $filtered -or $filtered.Count -eq 0) {
-        $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @() -Warnings @() -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
+        $RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @() -Warnings @() -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
         )
         if ($JsonOutput) {
-            $script:RunContext.RecommendOutput | ConvertTo-Json -Depth 6
+            $RunContext.RecommendOutput | ConvertTo-Json -Depth 6
             return
         }
 
-        Write-RecommendOutputContract -Contract $script:RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -FamilyInfo $FamilyInfo -OutputWidth $script:OutputWidth
+        Write-RecommendOutputContract -Contract $RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -FamilyInfo $FamilyInfo -OutputWidth $OutputWidth
         return
     }
 
@@ -2002,7 +2031,7 @@ function Invoke-RecommendMode {
     Select-Object -First $TopN
 
     if ($ShowPlacement) {
-        $placementScores = Get-PlacementScores -SkuNames @($ranked | Select-Object -ExpandProperty SKU) -Regions @($ranked | Select-Object -ExpandProperty Region) -DesiredCount $DesiredCount -MaxRetries $MaxRetries -Caches $script:RunContext.Caches
+        $placementScores = Get-PlacementScores -SkuNames @($ranked | Select-Object -ExpandProperty SKU) -Regions @($ranked | Select-Object -ExpandProperty Region) -DesiredCount $DesiredCount -MaxRetries $MaxRetries -Caches $RunContext.Caches
         $ranked = @($ranked | ForEach-Object {
                 $item = $_
                 $key = "{0}|{1}" -f $item.SKU, $item.Region.ToLower()
@@ -2086,15 +2115,15 @@ function Invoke-RecommendMode {
         $fleetWarnings += "Mixed accelerated networking support — network performance will vary across the fleet."
     }
 
-    $script:RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($fleetWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
+    $RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($fleetWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
     )
 
     if ($JsonOutput) {
-        $script:RunContext.RecommendOutput | ConvertTo-Json -Depth 6
+        $RunContext.RecommendOutput | ConvertTo-Json -Depth 6
         return
     }
 
-    Write-RecommendOutputContract -Contract $script:RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -FamilyInfo $FamilyInfo -OutputWidth $script:OutputWidth
+    Write-RecommendOutputContract -Contract $RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -FamilyInfo $FamilyInfo -OutputWidth $OutputWidth
 }
 
 #endregion Helper Functions
@@ -3355,7 +3384,13 @@ if ($Fleet -and $Fleet.Count -gt 0) {
 #region Recommend Mode
 
 if ($Recommend) {
-    Invoke-RecommendMode -TargetSkuName $Recommend -SubscriptionData $allSubscriptionData
+    Invoke-RecommendMode -TargetSkuName $Recommend -SubscriptionData $allSubscriptionData `
+        -FamilyInfo $FamilyInfo -Icons $Icons -FetchPricing ([bool]$FetchPricing) `
+        -ShowSpot $ShowSpot.IsPresent -ShowPlacement $ShowPlacement.IsPresent `
+        -AllowMixedArch $AllowMixedArch.IsPresent -MinvCPU $MinvCPU -MinMemoryGB $MinMemoryGB `
+        -MinScore $MinScore -TopN $TopN -DesiredCount $DesiredCount `
+        -JsonOutput $JsonOutput.IsPresent -MaxRetries $MaxRetries `
+        -RunContext $script:RunContext -OutputWidth $script:OutputWidth
     return
 }
 
@@ -3844,7 +3879,13 @@ if (-not $NoPrompt -and -not $Recommend) {
             if ($recommendSku -notmatch '^Standard_') {
                 $recommendSku = "Standard_$recommendSku"
             }
-            Invoke-RecommendMode -TargetSkuName $recommendSku -SubscriptionData $allSubscriptionData
+            Invoke-RecommendMode -TargetSkuName $recommendSku -SubscriptionData $allSubscriptionData `
+                -FamilyInfo $FamilyInfo -Icons $Icons -FetchPricing ([bool]$FetchPricing) `
+                -ShowSpot $ShowSpot.IsPresent -ShowPlacement $ShowPlacement.IsPresent `
+                -AllowMixedArch $AllowMixedArch.IsPresent -MinvCPU $MinvCPU -MinMemoryGB $MinMemoryGB `
+                -MinScore $MinScore -TopN $TopN -DesiredCount $DesiredCount `
+                -JsonOutput $JsonOutput.IsPresent -MaxRetries $MaxRetries `
+                -RunContext $script:RunContext -OutputWidth $script:OutputWidth
         }
         else {
             Write-Host "Skipping recommend mode (no SKU provided)." -ForegroundColor Yellow

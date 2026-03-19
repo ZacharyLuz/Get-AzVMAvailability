@@ -74,7 +74,7 @@ BeforeAll {
     }
 
     function Get-PlacementScores {
-        param([string[]]$SkuNames, [string[]]$Regions, [int]$DesiredCount, [int]$MaxRetries, [hashtable]$Caches)
+        param([string[]]$SkuNames, [string[]]$Regions, [int]$DesiredCount, [int]$MaxRetries, [System.Collections.IDictionary]$Caches)
         $scores = @{}
         foreach ($sku in $SkuNames) {
             foreach ($region in $Regions) {
@@ -100,19 +100,28 @@ BeforeAll {
 
 Describe 'Invoke-RecommendMode JSON contract' {
     BeforeEach {
-        $script:AllowMixedArch = $false
-        $script:FetchPricing = $false
-        $script:MinvCPU = $null
-        $script:MinMemoryGB = $null
-        $script:MinScore = 0
-        $script:TopN = 5
-        $script:JsonOutput = $true
-        $script:ShowPlacement = $false
-        $script:ShowSpot = $false
-        $script:DesiredCount = 1
-        $script:RunContext = [pscustomobject]@{
+        $script:TestRunContext = [pscustomobject]@{
             RegionPricing   = @{}
             RecommendOutput = $null
+            Caches          = [ordered]@{ PlacementWarned403 = $false }
+        }
+
+        $script:RecommendParams = @{
+            FamilyInfo    = $script:FamilyInfo
+            Icons         = $script:Icons
+            FetchPricing  = $false
+            ShowSpot      = $false
+            ShowPlacement = $false
+            AllowMixedArch = $false
+            MinvCPU       = 0
+            MinMemoryGB   = 0
+            MinScore      = 0
+            TopN          = 5
+            DesiredCount  = 1
+            JsonOutput    = $true
+            MaxRetries    = 0
+            RunContext    = $script:TestRunContext
+            OutputWidth   = 122
         }
     }
 
@@ -134,7 +143,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
             }
         )
 
-        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData) | ConvertFrom-Json
+        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData @script:RecommendParams) | ConvertFrom-Json
 
         $result.target | Should -Not -BeNullOrEmpty
         $result.placementEnabled | Should -BeFalse
@@ -156,7 +165,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
     }
 
     It 'Returns empty recommendations contract when no candidates meet MinScore' {
-        $script:MinScore = 101
+        $script:RecommendParams.MinScore = 101
 
         $subscriptionData = @(
             [pscustomobject]@{
@@ -174,7 +183,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
             }
         )
 
-        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData) | ConvertFrom-Json
+        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData @script:RecommendParams) | ConvertFrom-Json
 
         $result.minScore | Should -Be 101
         $result.recommendations.Count | Should -Be 0
@@ -199,14 +208,14 @@ Describe 'Invoke-RecommendMode JSON contract' {
             }
         )
 
-        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData) | ConvertFrom-Json
+        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData @script:RecommendParams) | ConvertFrom-Json
 
         @($result.recommendations.sku) | Should -Contain 'Standard_D8s_v5'
         @($result.recommendations.sku) | Should -Not -Contain 'Standard_D8ps_v6'
     }
 
     It 'Includes mixed-architecture warning when AllowMixedArch is true' {
-        $script:AllowMixedArch = $true
+        $script:RecommendParams.AllowMixedArch = $true
 
         $subscriptionData = @(
             [pscustomobject]@{
@@ -225,7 +234,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
             }
         )
 
-        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData) | ConvertFrom-Json
+        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData @script:RecommendParams) | ConvertFrom-Json
 
         @($result.recommendations.sku) | Should -Contain 'Standard_D8s_v5'
         @($result.recommendations.sku) | Should -Contain 'Standard_D8ps_v6'
@@ -233,7 +242,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
     }
 
     It 'Adds allocation score when ShowPlacement is enabled' {
-        $script:ShowPlacement = $true
+        $script:RecommendParams.ShowPlacement = $true
 
         $subscriptionData = @(
             [pscustomobject]@{
@@ -251,7 +260,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
             }
         )
 
-        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData) | ConvertFrom-Json
+        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData @script:RecommendParams) | ConvertFrom-Json
 
         $result.placementEnabled | Should -BeTrue
         $result.recommendations.Count | Should -BeGreaterThan 0
@@ -260,9 +269,9 @@ Describe 'Invoke-RecommendMode JSON contract' {
     }
 
     It 'Sets spot pricing fields when ShowSpot and FetchPricing are enabled' {
-        $script:ShowSpot = $true
-        $script:FetchPricing = $true
-        $script:RunContext.RegionPricing = @{
+        $script:RecommendParams.ShowSpot = $true
+        $script:RecommendParams.FetchPricing = $true
+        $script:TestRunContext.RegionPricing = @{
             eastus = @{
                 Regular = @{
                     'Standard_D4s_v5' = @{ Hourly = 0.2; Monthly = 146 }
@@ -290,7 +299,7 @@ Describe 'Invoke-RecommendMode JSON contract' {
             }
         )
 
-        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData) | ConvertFrom-Json
+        $result = (Invoke-RecommendMode -TargetSkuName 'Standard_D4s_v5' -SubscriptionData $subscriptionData @script:RecommendParams) | ConvertFrom-Json
         $recommendation = @($result.recommendations | Where-Object { $_.sku -eq 'Standard_D8s_v5' })[0]
 
         $result.spotPricingEnabled | Should -BeTrue
