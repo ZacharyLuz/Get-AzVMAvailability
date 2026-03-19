@@ -3234,7 +3234,7 @@ try {
                                 $attempt++
                                 $msg = $_.Exception.Message
                                 $isThrottle = $msg -match '429' -or $msg -match 'Too Many Requests' -or
-                                $msg -match '503' -or $msg -match 'ServiceUnavailable'
+                                $msg -match '503' -or $msg -match 'ServiceUnavailable' -or $msg -match 'Service Unavailable'
                                 if ($isThrottle -and $attempt -le $Retries) {
                                     $baseDelay = [math]::Pow(2, $attempt)
                                     $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
