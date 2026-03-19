@@ -391,7 +391,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Warning "PowerShell 7+ is required to run Get-AzVMAvailability.ps1."
     Write-Host "Current host: $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)" -ForegroundColor Yellow
     Write-Host "Install PowerShell 7 and rerun with: pwsh -File .\Get-AzVMAvailability.ps1" -ForegroundColor Cyan
-    exit 1
+    throw "PowerShell 7+ is required. Current version: $($PSVersionTable.PSVersion)"
 }
 
 # Normalize string[] params — pwsh -File passes comma-delimited values as a single string
@@ -1032,9 +1032,9 @@ function Get-RestrictionDetails {
     }
 
     # Categorize zones based on restriction type
-    $zonesOK = @()
-    $zonesLimited = @()
-    $zonesRestricted = @()
+    $zonesOK = [System.Collections.Generic.List[string]]::new()
+    $zonesLimited = [System.Collections.Generic.List[string]]::new()
+    $zonesRestricted = [System.Collections.Generic.List[string]]::new()
     $reasonCodes = @()
 
     foreach ($r in $Sku.Restrictions) {
@@ -1042,10 +1042,10 @@ function Get-RestrictionDetails {
         if ($r.Type -eq 'Zone' -and $r.RestrictionInfo -and $r.RestrictionInfo.Zones) {
             foreach ($zone in $r.RestrictionInfo.Zones) {
                 if ($r.ReasonCode -eq 'NotAvailableForSubscription') {
-                    if ($zonesLimited -notcontains $zone) { $zonesLimited += $zone }
+                    if (-not $zonesLimited.Contains($zone)) { $zonesLimited.Add($zone) }
                 }
                 else {
-                    if ($zonesRestricted -notcontains $zone) { $zonesRestricted += $zone }
+                    if (-not $zonesRestricted.Contains($zone)) { $zonesRestricted.Add($zone) }
                 }
             }
         }
@@ -1053,8 +1053,8 @@ function Get-RestrictionDetails {
 
     if ($Sku.LocationInfo -and $Sku.LocationInfo[0].Zones) {
         foreach ($zone in $Sku.LocationInfo[0].Zones) {
-            if ($zonesLimited -notcontains $zone -and $zonesRestricted -notcontains $zone) {
-                if ($zonesOK -notcontains $zone) { $zonesOK += $zone }
+            if (-not $zonesLimited.Contains($zone) -and -not $zonesRestricted.Contains($zone)) {
+                if (-not $zonesOK.Contains($zone)) { $zonesOK.Add($zone) }
             }
         }
     }
@@ -2608,7 +2608,7 @@ if (-not $TargetSubIds) {
         }
         else {
             Write-Host "ERROR: No subscription context. Run Connect-AzAccount or specify -SubscriptionId" -ForegroundColor Red
-            exit 1
+            throw "No subscription context available. Run Connect-AzAccount or specify -SubscriptionId."
         }
     }
     else {
@@ -2688,13 +2688,13 @@ if (-not $Regions) {
 
                 if ($selectedNumbers.Count -eq 0) {
                     Write-Host "ERROR: No valid selections entered" -ForegroundColor Red
-                    exit 1
+                    throw "No valid region selections entered."
                 }
 
                 $invalidNumbers = $selectedNumbers | Where-Object { $_ -lt 1 -or $_ -gt $locations.Count }
                 if ($invalidNumbers.Count -gt 0) {
                     Write-Host "ERROR: Invalid selection(s): $($invalidNumbers -join ', '). Valid range is 1-$($locations.Count)" -ForegroundColor Red
-                    exit 1
+                    throw "Invalid region selection(s): $($invalidNumbers -join ', '). Valid range is 1-$($locations.Count)."
                 }
 
                 $selectedNumbers = @($selectedNumbers | Sort-Object -Unique)
@@ -2730,7 +2730,7 @@ elseif ($null -eq $validRegions -or $validRegions.Count -eq 0) {
     if ($NoPrompt) {
         Write-Host "`nERROR: Region validation is unavailable in -NoPrompt mode." -ForegroundColor Red
         Write-Host "Use valid regions when connectivity is restored, or explicitly set -SkipRegionValidation to override." -ForegroundColor Yellow
-        exit 1
+        throw "Region validation unavailable in -NoPrompt mode. Use -SkipRegionValidation to override."
     }
 
     Write-Warning "Region validation unavailable — proceeding with user-provided regions in interactive mode."
@@ -2759,7 +2759,7 @@ if ($invalidRegions.Count -gt 0) {
 if ($validatedRegions.Count -eq 0) {
     Write-Host "`nERROR: No valid regions to scan. Please specify valid Azure region names." -ForegroundColor Red
     Write-Host "Example valid regions: eastus, westus2, centralus, westeurope, eastasia" -ForegroundColor Gray
-    exit 1
+    throw "No valid regions to scan. Specify valid Azure region names."
 }
 
 $Regions = $validatedRegions
@@ -2790,7 +2790,7 @@ if ($Regions.Count -gt $maxRegions) {
         }
         else {
             Write-Host "Scan cancelled. Please re-run with $maxRegions or fewer regions." -ForegroundColor Yellow
-            exit 0
+            return
         }
     }
 }
@@ -3278,7 +3278,7 @@ if ($Recommend) {
 #region Process Results
 
 $allFamilyStats = @{}
-$familyDetails = @()
+$familyDetails = [System.Collections.Generic.List[PSCustomObject]]::new()
 $familySkuIndex = @{}
 $processStartTime = Get-Date
 
@@ -3345,7 +3345,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
 
         Write-Host "SKU FAMILIES:" -ForegroundColor Cyan
 
-        $rows = @()
+        $rows = [System.Collections.Generic.List[PSCustomObject]]::new()
         foreach ($family in ($familyGroups.Keys | Sort-Object)) {
             $skus = $familyGroups[$family]
 
@@ -3400,7 +3400,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 $row | Add-Member -NotePropertyName '$/Mo' -NotePropertyValue $priceMoStr
             }
 
-            $rows += $row
+            $rows.Add($row)
 
             # Track for drill-down
             if (-not $familySkuIndex.ContainsKey($family)) { $familySkuIndex[$family] = @{} }
@@ -3467,7 +3467,7 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     $detailObj | Add-Member -NotePropertyName '$/Mo' -NotePropertyValue $skuPriceMo
                 }
 
-                $familyDetails += $detailObj
+                $familyDetails.Add($detailObj)
             }
 
             # Track for summary
@@ -3594,7 +3594,7 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
             $invalidNums = $nums | Where-Object { $_ -lt 1 -or $_ -gt $familyList.Count }
             if ($invalidNums.Count -gt 0) {
                 Write-Host "ERROR: Invalid family selection(s): $($invalidNums -join ', ')" -ForegroundColor Red
-                exit 1
+                throw "Invalid family selection(s): $($invalidNums -join ', ')."
             }
             $SelectedFamilyFilter = @($nums | ForEach-Object { $familyList[$_ - 1] })
         }
@@ -3639,7 +3639,7 @@ if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
                     $invalidSku = $skuNums | Where-Object { $_ -lt 1 -or $_ -gt $skus.Count }
                     if ($invalidSku.Count -gt 0) {
                         Write-Host "ERROR: Invalid SKU selection(s): $($invalidSku -join ', ')" -ForegroundColor Red
-                        exit 1
+                        throw "Invalid SKU selection(s): $($invalidSku -join ', ')."
                     }
                     $SelectedSkuFilter[$fam] = @($skuNums | ForEach-Object { $skus[$_ - 1] })
                 }
