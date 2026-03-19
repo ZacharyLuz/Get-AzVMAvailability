@@ -3218,7 +3218,64 @@ try {
         if ($canUseParallel) {
             try {
                 $regionData = $Regions | ForEach-Object -Parallel {
-                    & $using:scanRegionScript -region ([string]$_) -skuFilterCopy $using:SkuFilter -maxRetries $using:MaxRetries
+                    $region = [string]$_
+                    $skuFilterCopy = $using:SkuFilter
+                    $maxRetries = $using:MaxRetries
+
+                    # Inline retry — parallel runspaces cannot see script-scope functions or external scriptblocks
+                    $retryCall = {
+                        param([scriptblock]$Action, [int]$Retries)
+                        $attempt = 0
+                        while ($true) {
+                            try {
+                                return (& $Action)
+                            }
+                            catch {
+                                $attempt++
+                                $msg = $_.Exception.Message
+                                $isThrottle = $msg -match '429' -or $msg -match 'Too Many Requests' -or
+                                $msg -match '503' -or $msg -match 'ServiceUnavailable'
+                                if ($isThrottle -and $attempt -le $Retries) {
+                                    $baseDelay = [math]::Pow(2, $attempt)
+                                    $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
+                                    Start-Sleep -Milliseconds (($baseDelay + $jitter) * 1000)
+                                    continue
+                                }
+                                throw
+                            }
+                        }
+                    }
+
+                    try {
+                        $allSkus = & $retryCall -Action {
+                            Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
+                            Where-Object { $_.ResourceType -eq 'virtualMachines' }
+                        } -Retries $maxRetries
+
+                        if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
+                            $allSkus = $allSkus | Where-Object {
+                                $skuName = $_.Name
+                                $isMatch = $false
+                                foreach ($pattern in $skuFilterCopy) {
+                                    $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
+                                    if ($skuName -match $regexPattern) {
+                                        $isMatch = $true
+                                        break
+                                    }
+                                }
+                                $isMatch
+                            }
+                        }
+
+                        $quotas = & $retryCall -Action {
+                            Get-AzVMUsage -Location $region -ErrorAction Stop
+                        } -Retries $maxRetries
+
+                        @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
+                    }
+                    catch {
+                        @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                    }
                 } -ThrottleLimit $ParallelThrottleLimit
             }
             catch {
