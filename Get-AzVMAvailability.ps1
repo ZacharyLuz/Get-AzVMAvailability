@@ -354,6 +354,7 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 #region GenerateFleetTemplate
 if ($GenerateFleetTemplate) {
+    if ($JsonOutput) { throw "Cannot use -GenerateFleetTemplate with -JsonOutput. Template generation writes files to disk, not JSON to stdout." }
     $csvPath = Join-Path $PWD 'fleet-template.csv'
     $jsonPath = Join-Path $PWD 'fleet-template.json'
     $csvContent = @"
@@ -404,30 +405,36 @@ foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter'
 # FleetFile: load CSV/JSON into $Fleet hashtable
 if ($FleetFile) {
     if ($Fleet) { throw "Cannot specify both -Fleet and -FleetFile. Use one or the other." }
-    if (-not (Test-Path $FleetFile)) { throw "Fleet file not found: $FleetFile" }
+    if (-not (Test-Path -LiteralPath $FleetFile -PathType Leaf)) { throw "Fleet file not found or is not a file: $FleetFile" }
     $ext = [System.IO.Path]::GetExtension($FleetFile).ToLower()
     if ($ext -notin '.csv', '.json') { throw "Unsupported file type '$ext'. FleetFile must be .csv or .json" }
     if ($ext -eq '.json') {
-        $jsonData = @(Get-Content $FleetFile -Raw | ConvertFrom-Json)
+        $jsonData = @(Get-Content -LiteralPath $FleetFile -Raw | ConvertFrom-Json)
         $Fleet = @{}
         foreach ($item in $jsonData) {
             $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                if ($Fleet.ContainsKey($skuProp)) { $Fleet[$skuProp] += [int]$qtyProp }
-                else { $Fleet[$skuProp] = [int]$qtyProp }
+                $skuClean = $skuProp.Trim()
+                $qtyInt = [int]$qtyProp
+                if ($qtyInt -le 0) { throw "Invalid quantity '$qtyProp' for SKU '$skuClean'. Qty must be a positive integer." }
+                if ($Fleet.ContainsKey($skuClean)) { $Fleet[$skuClean] += $qtyInt }
+                else { $Fleet[$skuClean] = $qtyInt }
             }
         }
     }
     else {
-        $csvData = Import-Csv $FleetFile
+        $csvData = Import-Csv -LiteralPath $FleetFile
         $Fleet = @{}
         foreach ($row in $csvData) {
             $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                if ($Fleet.ContainsKey($skuProp)) { $Fleet[$skuProp] += [int]$qtyProp }
-                else { $Fleet[$skuProp] = [int]$qtyProp }
+                $skuClean = $skuProp.Trim()
+                $qtyInt = [int]$qtyProp
+                if ($qtyInt -le 0) { throw "Invalid quantity '$qtyProp' for SKU '$skuClean'. Qty must be a positive integer." }
+                if ($Fleet.ContainsKey($skuClean)) { $Fleet[$skuClean] += $qtyInt }
+                else { $Fleet[$skuClean] = $qtyInt }
             }
         }
     }
