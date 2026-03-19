@@ -902,7 +902,7 @@ function Get-ValidAzureRegions {
     .DESCRIPTION
         Uses REST API for speed (2-3x faster than Get-AzLocation).
         Falls back to Get-AzLocation if REST API fails.
-        Caches result at script scope to avoid repeated calls.
+        Caches result in the passed-in -Caches dictionary to avoid repeated calls.
     #>
     [OutputType([string[]])]
     param(
@@ -1859,6 +1859,7 @@ function Invoke-RecommendMode {
 
         [int]$MaxRetries = 3,
 
+        [Parameter(Mandatory)]
         [pscustomobject]$RunContext,
 
         [int]$OutputWidth = 122
@@ -2208,9 +2209,10 @@ function Get-SkuCapabilities {
                 'HyperVGenerations' { $capabilities.HyperVGenerations = $cap.Value }
                 'CpuArchitectureType' { $capabilities.CpuArchitecture = $cap.Value }
                 'MaxResourceVolumeMB' {
+                    $MiBPerGiB = 1024
                     $mb = 0
                     if ([int]::TryParse($cap.Value, [ref]$mb) -and $mb -gt 0) {
-                        $capabilities.TempDiskGB = [math]::Round($mb / 1024, 0)
+                        $capabilities.TempDiskGB = [math]::Round($mb / $MiBPerGiB, 0)
                     }
                 }
                 'AcceleratedNetworkingEnabled' {

@@ -15,7 +15,6 @@ BeforeAll {
 
     # Initialize test defaults
     $script:TestMaxRetries = 3
-    $script:TestAzureEndpoints = $null
 }
 
 Describe "Get-ValidAzureRegions" {
