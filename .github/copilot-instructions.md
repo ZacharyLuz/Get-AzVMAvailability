@@ -117,7 +117,7 @@ This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests
 
 ## Architecture Details
 
-- **Script metrics (current):** 3,725 lines, 29 functions, 308 `Write-Host` calls,
+- **Script metrics (current):** 4,442 lines, 34 functions, 349 `Write-Host` calls,
   0 `Write-Output` calls, 9 `exit` calls, 0 pipeline-emitted objects.
 - **`$script:RunContext`** — centralized runtime state object. All functions should
   access state through this object — however, several functions still read parent-scope
@@ -133,23 +133,23 @@ This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests
 - **Parallel scanning** — `ForEach-Object -Parallel` with explicit `$using:`
   references. The parallel block duplicates retry logic inline (necessary — parallel
   runspaces cannot see script-scope functions).
-- **Test suite** — 142 Pester tests across 10 files. Always redirect Pester output
+- **Test suite** — 189 Pester tests across 11 files. Always redirect Pester output
   to log file: `Invoke-Pester ... *> artifacts/test-run.log`
 
 ## Known Technical Debt
 
 These are confirmed issues from code review. The agent should know them without
-having to rediscover them by reading 3,725 lines.
+having to rediscover them by reading 4,442 lines.
 
 ### Performance Hotspots (exact locations)
 | Line | Issue | Fix |
 |------|-------|-----|
-| **2776** | `$familyDetails += $detailObj` inside per-SKU loop (5 regions × 600 SKUs = 3,000 reallocations) | `[System.Collections.Generic.List[PSCustomObject]]::new()` + `.Add()` |
-| **2710** | `$rows += $row` inside per-family loop per region | Same List[T] pattern |
-| **880–896** | `$zonesOK/Limited/Restricted += $zone` inside `Get-RestrictionDetails` (called thousands of times) | List[string] |
-| **2565** | `$allSubscriptionData += @{...}` per-subscription | Low impact (1–3 iterations typically) |
-| **707–712** | `Get-CapValue` uses `Where-Object` pipeline (~18,000 calls per scan) | Pre-index SKU capabilities as hashtable at scan time |
-| **2423–2454** | Pricing fallback is all-or-nothing: one failure abandons all regions to retail | Per-region fallback |
+| **3470** | `$familyDetails += $detailObj` inside per-SKU loop (5 regions × 600 SKUs = 3,000 reallocations) | `[System.Collections.Generic.List[PSCustomObject]]::new()` + `.Add()` |
+| **3403** | `$rows += $row` inside per-family loop per region | Same List[T] pattern |
+| **1041–1057** | `$zonesOK/Limited/Restricted += $zone` inside `Get-RestrictionDetails` (called thousands of times) | List[string] |
+| **3242** | `$allSubscriptionData += @{...}` per-subscription | Low impact (1–3 iterations typically) |
+| **~862** | `Get-CapValue` uses `Where-Object` pipeline (~18,000 calls per scan) | Pre-index SKU capabilities as hashtable at scan time |
+| **~2498+** | Pricing fallback is all-or-nothing: one failure abandons all regions to retail | Per-region fallback |
 
 ### Parent-Scope Implicit Dependencies (blocks module extraction)
 These functions read variables from the parent scope without receiving them as
@@ -162,20 +162,22 @@ parameters. Every one is a hidden wire that must be cut before module conversion
 | `Get-SkuSimilarityScore` | `$script:FamilyInfo` | Add `-FamilyInfo` parameter |
 | `Write-RecommendOutputContract` | `$FamilyInfo`, `$Icons` | Add both as parameters |
 | `Invoke-RecommendMode` | 10+ parent-scope vars | Convert to `Get-AzVMRecommendation` cmdlet with all as explicit params |
-| `Get-AzVMPricing` | `$script:RunContext.Caches`, `$HoursPerMonth`, `$MaxRetries` | Pass `$Cache` hashtable as parameter |
-| `Get-AzActualPricing` | Same as above | Same fix |
+| `Get-AzVMPricing` | `$script:RunContext.Caches`, `$HoursPerMonth`, `$MaxRetries`, `$script:AzureEndpoints` | Pass `$Cache` hashtable + endpoints as parameters |
+| `Get-AzActualPricing` | Same as above + `$script:RunContext.Caches.PlacementWarned403` | Same fix |
+| `Get-PlacementScores` | `$MaxRetries`, `$script:RunContext.Caches.PlacementWarned403` | Add `-MaxRetries` param, pass cache |
+| `Get-ValidAzureRegions` | `$MaxRetries`, `$script:RunContext.Caches`, `$script:AzureEndpoints` | Add params |
 
 ### `exit` vs `throw` (9 exit calls — risky if dot-sourced)
-Lines 1953, 2033, 2039, 2075, 2104, 2135, 2887, 2932 all use `exit 1` inside
+Lines 394, 2611, 2691, 2697, 2733, 2762, 2793, 3597, 3642 use `exit` inside
 interactive validation flow. If someone dot-sources the script or calls it from
 another script, these kill the caller's session. Replace with `throw` for error
 cases and `return` for user-initiated cancellation.
 
 ### Pipeline Composability (zero pipeline output)
 The script emits nothing to the pipeline — all data rendered via `Write-Host`.
-`$familyDetails` (built at L2601) and the output contracts contain properly
+`$familyDetails` (built at L3470) and the output contracts contain properly
 structured `[PSCustomObject]` arrays but are never emitted. The minimal fix is
-adding `$familyDetails` output after L2835 for non-JSON mode.
+adding `$familyDetails` output after the processing loop for non-JSON mode.
 
 ### Module Conversion — Function Extraction Order (v2.0.0)
 Extract in this order to minimize risk:
@@ -183,19 +185,21 @@ Extract in this order to minimize risk:
 **Phase 1 — Zero risk (no dependencies):** `Get-SafeString`, `Get-GeoGroup`,
 `Get-SkuFamily`, `Get-ProcessorVendor`, `Get-DiskCode`, `Get-RestrictionReason`,
 `Format-ZoneStatus`, `Format-RegionList`, `Get-QuotaAvailable`,
-`Test-SkuMatchesFilter`, `Get-ImageRequirements`, `Test-ImageSkuCompatibility`
+`Test-SkuMatchesFilter`, `Get-ImageRequirements`, `Test-ImageSkuCompatibility`,
+`Get-FleetReadiness`, `Write-FleetReadinessSummary`
 
 **Phase 2 — Minor coupling (fix hidden deps):** `Get-StatusIcon`, `Get-SkuCapabilities`,
 `Get-SkuSimilarityScore`, `Get-RestrictionDetails`
 
 **Phase 3 — Azure API functions:** `Invoke-WithRetry`, `Get-AzureEndpoints`,
-`Get-ValidAzureRegions`, `Get-AzVMPricing`, `Get-AzActualPricing`
+`Get-ValidAzureRegions`, `Get-AzVMPricing`, `Get-AzActualPricing`,
+`Get-PlacementScores`, `Get-RegularPricingMap`, `Get-SpotPricingMap`
 
 **Phase 4 — Recommend engine:** `Invoke-RecommendMode` → `Get-AzVMRecommendation`
 
-**Phase 5 — Export:** XLSX/CSV block (L3334–3725, 391 lines) → `Export-AzVMAvailabilityReport`
+**Phase 5 — Export:** XLSX/CSV block (L4047–4442, ~395 lines) → `Export-AzVMAvailabilityReport`
 
-**Phase 6 — Interactive shell:** Prompts (L1941–2388, 447 lines) → optional
+**Phase 6 — Interactive shell:** Prompts (L2599–3060, ~461 lines) → optional
 `Invoke-AzVMAvailabilityWizard` wrapper
 
 ### Target Module Structure (v2.0.0)
@@ -211,6 +215,7 @@ AzVMAvailability/
 │   ├── Azure/   (endpoints, regions, pricing, retry)
 │   ├── SKU/     (family, capabilities, similarity, restrictions, filter)
 │   ├── Image/   (requirements, compatibility)
+│   ├── Fleet/   (readiness, summary)
 │   ├── Format/  (icons, zone status, recommend output)
 │   └── Utility/ (SafeString, GeoGroup, SubscriptionContext)
 └── Get-AzVMAvailability.ps1            # thin backward-compat wrapper
@@ -232,9 +237,10 @@ with a forward-looking tone. Do not commit new files of this type.
 
 ## Roadmap
 
-| Version | Theme | Key Work |
-|---------|-------|----------|
-| v1.12.0 | Fleet Planning | `-FleetSize`, `Get-FleetAllocation`, `-GenerateScript`, `-FleetStrategy` (Balanced/HighAvailability/CostOptimized/MaxSavings) |
-| v2.0.0 | Module Conversion | Public/Private layout, PSGallery publishing, Phase 5 remediation (P5.1–P5.8) |
-| v2.1.0 | MCP Server | 4 tools: `check_vm_availability`, `find_alternatives`, `get_vm_pricing`, `check_quota` — depends on v2.0.0 |
-| v2.2.0 | Proactive Monitoring | Watch mode, capacity alerts, Azure Monitor, Azure Functions |
+| Version | Theme | Status | Key Work |
+|---------|-------|--------|----------|
+| v1.12.0 | Fleet MVP | **Released** | `-Fleet` hashtable BOM validation, `Get-FleetReadiness`, `Write-FleetReadinessSummary`, fuzzy quota matching, used/available/limit display |
+| v1.12.1 | Fleet UX | **Released** | `-FleetFile` CSV/JSON input, `-GenerateFleetTemplate`, example files, README Quick Start, input validation (`-LiteralPath`, trim, qty guard) |
+| v2.0.0 | Module Conversion | Planned | Public/Private layout, PSGallery publishing, gate 349 Write-Host behind `-JsonOutput` (#65), pipeline composability, `exit` → `throw` |
+| v2.1.0 | MCP Server | Planned | 4 tools: `check_vm_availability`, `find_alternatives`, `get_vm_pricing`, `check_quota` — depends on v2.0.0 |
+| v2.2.0 | Proactive Monitoring | Planned | Watch mode, capacity alerts, Azure Monitor, Azure Functions |
