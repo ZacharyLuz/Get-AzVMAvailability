@@ -1,5 +1,4 @@
 BeforeAll {
-    $script:ScriptPath = Join-Path $PSScriptRoot '..\Get-AzVMAvailability.ps1'
     $script:TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "FleetFileTests-$(Get-Random)"
     New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
 }
@@ -257,7 +256,7 @@ Standard_D2s_v5,0
         } | Should -Throw '*Qty must be a positive integer*'
     }
 
-    It 'Throws on empty fleet after parsing' {
+    It 'Yields empty fleet when CSV has no matching column names' {
         $csvPath = Join-Path $script:TempDir 'empty.csv'
         @"
 Foo,Bar
@@ -277,6 +276,7 @@ a,b
     }
 }
 #endregion Input Validation Tests
+
 
 #region Fleet Normalization Tests
 Describe 'Fleet SKU Normalization' {
