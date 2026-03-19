@@ -91,5 +91,8 @@ Protect_Main_Branch.json
 docs/Gemini*
 docs/SESSION-HANDOFF-*.md
 
+# Archived internal process artifacts (remediation, proposals, session handoffs)
+docs/archive/
+
 # AI toolkit / agent skills installed locally
 .github/skills/
