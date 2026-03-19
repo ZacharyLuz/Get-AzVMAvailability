@@ -74,7 +74,7 @@ BeforeAll {
     }
 
     function Get-PlacementScores {
-        param([string[]]$SkuNames, [string[]]$Regions, [int]$DesiredCount)
+        param([string[]]$SkuNames, [string[]]$Regions, [int]$DesiredCount, [int]$MaxRetries, [hashtable]$Caches)
         $scores = @{}
         foreach ($sku in $SkuNames) {
             foreach ($region in $Regions) {

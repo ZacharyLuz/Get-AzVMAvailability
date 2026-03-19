@@ -13,23 +13,22 @@ BeforeAll {
         . ([scriptblock]::Create((Get-MainScriptFunctionDefinition -FunctionName $functionName)))
     }
 
-    # Initialize script-scope variables the function depends on
-    $script:CachedValidRegions = $null
-    $script:AzureEndpoints = $null
-    $script:MaxRetries = 3
+    # Initialize test defaults
+    $script:TestMaxRetries = 3
+    $script:TestAzureEndpoints = $null
 }
 
 Describe "Get-ValidAzureRegions" {
 
     BeforeEach {
-        $script:CachedValidRegions = $null
+        $script:TestCaches = @{}
     }
 
     Context "Caching" {
 
         It "Returns cached regions on second call without re-fetching" {
-            $script:CachedValidRegions = @('eastus', 'westus2', 'centralus')
-            $result = Get-ValidAzureRegions
+            $script:TestCaches = @{ ValidRegions = @('eastus', 'westus2', 'centralus') }
+            $result = Get-ValidAzureRegions -MaxRetries $script:TestMaxRetries -Caches $script:TestCaches
             $result | Should -HaveCount 3
             $result | Should -Contain 'eastus'
         }
@@ -67,7 +66,7 @@ Describe "Get-ValidAzureRegions" {
             Mock Get-AzAccessToken { [PSCustomObject]@{ Token = 'mock-token' } }
             Mock Invoke-RestMethod { $mockResponse }
 
-            $result = Get-ValidAzureRegions
+            $result = Get-ValidAzureRegions -MaxRetries $script:TestMaxRetries -Caches $script:TestCaches
             $result | Should -HaveCount 3
             $result | Should -Contain 'eastus'
             $result | Should -Contain 'eastus2'
@@ -86,7 +85,7 @@ Describe "Get-ValidAzureRegions" {
             Mock Get-AzAccessToken { [PSCustomObject]@{ Token = 'mock-token' } }
             Mock Invoke-RestMethod { $mockResponse }
 
-            $result = Get-ValidAzureRegions
+            $result = Get-ValidAzureRegions -MaxRetries $script:TestMaxRetries -Caches $script:TestCaches
             $result | Should -Contain 'westus2'
             $result | Should -Not -Contain 'staging'
         }
@@ -102,9 +101,9 @@ Describe "Get-ValidAzureRegions" {
             Mock Get-AzAccessToken { [PSCustomObject]@{ Token = 'mock-token' } }
             Mock Invoke-RestMethod { $mockResponse }
 
-            Get-ValidAzureRegions | Out-Null
-            $script:CachedValidRegions | Should -Not -BeNullOrEmpty
-            $script:CachedValidRegions | Should -Contain 'eastus'
+            Get-ValidAzureRegions -MaxRetries $script:TestMaxRetries -Caches $script:TestCaches | Out-Null
+            $script:TestCaches.ValidRegions | Should -Not -BeNullOrEmpty
+            $script:TestCaches.ValidRegions | Should -Contain 'eastus'
         }
     }
 
@@ -120,7 +119,7 @@ Describe "Get-ValidAzureRegions" {
                 )
             }
 
-            $result = Get-ValidAzureRegions
+            $result = Get-ValidAzureRegions -MaxRetries $script:TestMaxRetries -Caches $script:TestCaches
             $result | Should -HaveCount 2
             $result | Should -Contain 'eastus'
             $result | Should -Contain 'westus2'
@@ -134,7 +133,7 @@ Describe "Get-ValidAzureRegions" {
             Mock Get-AzContext { throw "No context" }
             Mock Get-AzLocation { throw "No locations available" }
 
-            $result = Get-ValidAzureRegions
+            $result = Get-ValidAzureRegions -MaxRetries $script:TestMaxRetries -Caches $script:TestCaches
             $result | Should -BeNullOrEmpty
         }
 
@@ -142,14 +141,14 @@ Describe "Get-ValidAzureRegions" {
             Mock Get-AzContext { throw "No context" }
             Mock Get-AzLocation { throw "Connection error" }
 
-            { Get-ValidAzureRegions } | Should -Not -Throw
+            { Get-ValidAzureRegions -MaxRetries $script:TestMaxRetries -Caches $script:TestCaches } | Should -Not -Throw
         }
     }
 
     Context "Sovereign cloud support" {
 
         It "Uses sovereign ARM URL when AzureEndpoints is set" {
-            $script:AzureEndpoints = @{ ResourceManagerUrl = 'https://management.chinacloudapi.cn/' }
+            $sovereignEndpoints = @{ ResourceManagerUrl = 'https://management.chinacloudapi.cn/' }
 
             Mock Get-AzContext { [PSCustomObject]@{ Subscription = @{ Id = '00000000-0000-0000-0000-000000000000' } } }
             Mock Get-AzAccessToken { [PSCustomObject]@{ Token = 'mock-token' } }
@@ -159,10 +158,8 @@ Describe "Get-ValidAzureRegions" {
                 @{ value = @(@{ name = 'chinaeast'; metadata = @{ regionCategory = 'Recommended' } }) }
             }
 
-            $result = Get-ValidAzureRegions
+            $result = Get-ValidAzureRegions -MaxRetries $script:TestMaxRetries -AzureEndpoints $sovereignEndpoints -Caches $script:TestCaches
             $result | Should -Contain 'chinaeast'
-
-            $script:AzureEndpoints = $null
         }
     }
 }

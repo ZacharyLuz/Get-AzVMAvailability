@@ -12,11 +12,8 @@ BeforeAll {
 Describe 'Get-PlacementScores' {
 
     BeforeEach {
-        $script:MaxRetries = 0
-        $script:RunContext = [pscustomobject]@{
-            Caches = [ordered]@{
-                PlacementWarned403 = $false
-            }
+        $script:TestCaches = [ordered]@{
+            PlacementWarned403 = $false
         }
 
         if (Test-Path function:Invoke-AzSpotPlacementScore) {
@@ -25,7 +22,7 @@ Describe 'Get-PlacementScores' {
     }
 
     It 'Returns empty hashtable when placement cmdlet is unavailable' {
-        $result = Get-PlacementScores -SkuNames @('Standard_D4s_v5') -Regions @('eastus')
+        $result = Get-PlacementScores -SkuNames @('Standard_D4s_v5') -Regions @('eastus') -MaxRetries 0 -Caches $script:TestCaches
 
         $result | Should -BeOfType 'hashtable'
         $result.Count | Should -Be 0
@@ -45,7 +42,7 @@ Describe 'Get-PlacementScores' {
             )
         }
 
-        $result = Get-PlacementScores -SkuNames @('Standard_D4s_v5') -Regions @('eastus') -DesiredCount 2
+        $result = Get-PlacementScores -SkuNames @('Standard_D4s_v5') -Regions @('eastus') -DesiredCount 2 -MaxRetries 0 -Caches $script:TestCaches
 
         $result.ContainsKey('Standard_D4s_v5|eastus') | Should -BeTrue
         $result['Standard_D4s_v5|eastus'].Score | Should -Be 'High'
@@ -70,7 +67,7 @@ Describe 'Get-PlacementScores' {
         $skuNames = @('s1','s2','s3','s4','s5','s6')
         $regions = @('eastus','westus','centralus','eastus2','westus2','northcentralus','southcentralus','northeurope','westeurope')
 
-        $null = Get-PlacementScores -SkuNames $skuNames -Regions $regions -DesiredCount 7 -IncludeAvailabilityZone
+        $null = Get-PlacementScores -SkuNames $skuNames -Regions $regions -DesiredCount 7 -IncludeAvailabilityZone -MaxRetries 0 -Caches $script:TestCaches
 
         $script:CapturedPlacementArgs.Sku.Count | Should -Be 5
         $script:CapturedPlacementArgs.Location.Count | Should -Be 8
@@ -86,8 +83,8 @@ Describe 'Get-PlacementScores' {
             throw '403 Forbidden'
         }
 
-        $first = Get-PlacementScores -SkuNames @('Standard_D4s_v5') -Regions @('eastus')
-        $second = Get-PlacementScores -SkuNames @('Standard_D4s_v5') -Regions @('eastus')
+        $first = Get-PlacementScores -SkuNames @('Standard_D4s_v5') -Regions @('eastus') -MaxRetries 0 -Caches $script:TestCaches
+        $second = Get-PlacementScores -SkuNames @('Standard_D4s_v5') -Regions @('eastus') -MaxRetries 0 -Caches $script:TestCaches
 
         $first.Count | Should -Be 0
         $second.Count | Should -Be 0

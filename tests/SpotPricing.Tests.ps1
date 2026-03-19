@@ -13,16 +13,11 @@ BeforeAll {
 Describe 'Get-AzVMPricing spot/regular data model' {
 
     BeforeEach {
-        $script:MaxRetries = 0
-        $script:HoursPerMonth = 730
-        $script:TargetEnvironment = 'AzureCloud'
-        $script:AzureEndpoints = [pscustomobject]@{
+        $script:TestEndpoints = @{
             PricingApiUrl = 'https://example.test/api/prices'
         }
-        $script:RunContext = [pscustomobject]@{
-            Caches = [ordered]@{
-                Pricing = @{}
-            }
+        $script:TestCaches = [ordered]@{
+            Pricing = @{}
         }
 
         function Invoke-WithRetry {
@@ -56,7 +51,7 @@ Describe 'Get-AzVMPricing spot/regular data model' {
             }
         }
 
-        $result = Get-AzVMPricing -Region 'eastus'
+        $result = Get-AzVMPricing -Region 'eastus' -MaxRetries 0 -HoursPerMonth 730 -AzureEndpoints $script:TestEndpoints -Caches $script:TestCaches
 
         @($result.Keys) | Should -Contain 'Regular'
         @($result.Keys) | Should -Contain 'Spot'
@@ -67,7 +62,7 @@ Describe 'Get-AzVMPricing spot/regular data model' {
     It 'Returns empty Regular and Spot maps on failure' {
         Mock Invoke-RestMethod { throw 'network failed' }
 
-        $result = Get-AzVMPricing -Region 'eastus'
+        $result = Get-AzVMPricing -Region 'eastus' -MaxRetries 0 -HoursPerMonth 730 -AzureEndpoints $script:TestEndpoints -Caches $script:TestCaches
 
         $result.Regular.Count | Should -Be 0
         $result.Spot.Count | Should -Be 0

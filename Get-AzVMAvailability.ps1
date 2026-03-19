@@ -906,10 +906,14 @@ function Get-ValidAzureRegions {
         Caches result at script scope to avoid repeated calls.
     #>
     [OutputType([string[]])]
-    param()
+    param(
+        [int]$MaxRetries = 3,
+        [hashtable]$AzureEndpoints,
+        [System.Collections.IDictionary]$Caches = @{}
+    )
 
     # Return cached result if available
-    $cachedRegions = if ($script:RunContext -and $script:RunContext.Caches) { $script:RunContext.Caches.ValidRegions } else { $script:CachedValidRegions }
+    $cachedRegions = $Caches.ValidRegions
     if ($cachedRegions) {
         Write-Verbose "Using cached region list ($($cachedRegions.Count) regions)"
         return $cachedRegions
@@ -927,7 +931,7 @@ function Get-ValidAzureRegions {
         $subId = $ctx.Subscription.Id
 
         # Use environment-aware ARM URL (supports sovereign clouds)
-        $armUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
+        $armUrl = if ($AzureEndpoints) { $AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
         $armUrl = $armUrl.TrimEnd('/')
 
         $token = (Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop).Token
@@ -960,10 +964,7 @@ function Get-ValidAzureRegions {
         }
 
         Write-Verbose "Fetched $($validRegions.Count) regions via REST API"
-        $script:CachedValidRegions = @($validRegions)
-        if ($script:RunContext -and $script:RunContext.Caches) {
-            $script:RunContext.Caches.ValidRegions = @($validRegions)
-        }
+        $Caches.ValidRegions = @($validRegions)
         return @($validRegions)
     }
     catch {
@@ -981,10 +982,7 @@ function Get-ValidAzureRegions {
             }
 
             Write-Verbose "Fetched $($validRegions.Count) regions via Get-AzLocation"
-            $script:CachedValidRegions = @($validRegions)
-            if ($script:RunContext -and $script:RunContext.Caches) {
-                $script:RunContext.Caches.ValidRegions = @($validRegions)
-            }
+            $Caches.ValidRegions = @($validRegions)
             return @($validRegions)
         }
         catch {
@@ -2004,7 +2002,7 @@ function Invoke-RecommendMode {
     Select-Object -First $TopN
 
     if ($ShowPlacement) {
-        $placementScores = Get-PlacementScores -SkuNames @($ranked | Select-Object -ExpandProperty SKU) -Regions @($ranked | Select-Object -ExpandProperty Region) -DesiredCount $DesiredCount
+        $placementScores = Get-PlacementScores -SkuNames @($ranked | Select-Object -ExpandProperty SKU) -Regions @($ranked | Select-Object -ExpandProperty Region) -DesiredCount $DesiredCount -MaxRetries $MaxRetries -Caches $script:RunContext.Caches
         $ranked = @($ranked | ForEach-Object {
                 $item = $_
                 $key = "{0}|{1}" -f $item.SKU, $item.Region.ToLower()
@@ -2264,16 +2262,26 @@ function Get-AzVMPricing {
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Region
+        [string]$Region,
+
+        [int]$MaxRetries = 3,
+
+        [int]$HoursPerMonth = 730,
+
+        [hashtable]$AzureEndpoints,
+
+        [string]$TargetEnvironment = 'AzureCloud',
+
+        [System.Collections.IDictionary]$Caches = @{}
     )
 
-    if (-not $script:RunContext.Caches.Pricing) {
-        $script:RunContext.Caches.Pricing = @{}
+    if (-not $Caches.Pricing) {
+        $Caches.Pricing = @{}
     }
 
     # Get environment-specific endpoints (supports sovereign clouds)
-    if (-not $script:AzureEndpoints) {
-        $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
+    if (-not $AzureEndpoints) {
+        $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
     }
 
     $armLocation = $Region.ToLower() -replace '\s', ''
@@ -2283,7 +2291,7 @@ function Get-AzVMPricing {
 
     $regularPrices = @{}
     $spotPrices = @{}
-    $apiUrl = "$($script:AzureEndpoints.PricingApiUrl)?`$filter=$([uri]::EscapeDataString($filter))"
+    $apiUrl = "$($AzureEndpoints.PricingApiUrl)?`$filter=$([uri]::EscapeDataString($filter))"
 
     try {
         $nextLink = $apiUrl
@@ -2330,7 +2338,7 @@ function Get-AzVMPricing {
             Spot    = $spotPrices
         }
 
-        $script:RunContext.Caches.Pricing[$armLocation] = $result
+        $Caches.Pricing[$armLocation] = $result
 
         return $result
     }
@@ -2406,7 +2414,11 @@ function Get-PlacementScores {
         [ValidateRange(1, 1000)]
         [int]$DesiredCount = 1,
 
-        [switch]$IncludeAvailabilityZone
+        [switch]$IncludeAvailabilityZone,
+
+        [int]$MaxRetries = 3,
+
+        [System.Collections.IDictionary]$Caches = @{}
     )
 
     $scores = @{}
@@ -2439,9 +2451,9 @@ function Get-PlacementScores {
         $errorText = $_.Exception.Message
         $isForbidden = $errorText -match '403|forbidden|authorization|not authorized|insufficient privileges'
         if ($isForbidden) {
-            if (-not $script:RunContext.Caches.PlacementWarned403) {
+            if (-not $Caches.PlacementWarned403) {
                 Write-Warning 'Placement score lookup skipped: missing permissions (Compute Recommendations Role).'
-                $script:RunContext.Caches.PlacementWarned403 = $true
+                $Caches.PlacementWarned403 = $true
             }
             return $scores
         }
@@ -2498,16 +2510,26 @@ function Get-AzActualPricing {
         [string]$SubscriptionId,
 
         [Parameter(Mandatory = $true)]
-        [string]$Region
+        [string]$Region,
+
+        [int]$MaxRetries = 3,
+
+        [int]$HoursPerMonth = 730,
+
+        [hashtable]$AzureEndpoints,
+
+        [string]$TargetEnvironment = 'AzureCloud',
+
+        [System.Collections.IDictionary]$Caches = @{}
     )
 
-    if (-not $script:RunContext.Caches.ActualPricing) {
-        $script:RunContext.Caches.ActualPricing = @{}
+    if (-not $Caches.ActualPricing) {
+        $Caches.ActualPricing = @{}
     }
     $cacheKey = "$SubscriptionId-$Region"
 
-    if ($script:RunContext.Caches.ActualPricing.ContainsKey($cacheKey)) {
-        return $script:RunContext.Caches.ActualPricing[$cacheKey]
+    if ($Caches.ActualPricing.ContainsKey($cacheKey)) {
+        return $Caches.ActualPricing[$cacheKey]
     }
 
     $armLocation = $Region.ToLower() -replace '\s', ''
@@ -2515,10 +2537,10 @@ function Get-AzActualPricing {
 
     try {
         # Get environment-specific endpoints (supports sovereign clouds)
-        if (-not $script:AzureEndpoints) {
-            $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
+        if (-not $AzureEndpoints) {
+            $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
         }
-        $armUrl = $script:AzureEndpoints.ResourceManagerUrl
+        $armUrl = $AzureEndpoints.ResourceManagerUrl
 
         # Get access token for Azure Resource Manager (uses environment-specific URL)
         $token = (Get-AzAccessToken -ResourceUrl $armUrl).Token
@@ -2570,7 +2592,7 @@ function Get-AzActualPricing {
             }
         }
 
-        $script:RunContext.Caches.ActualPricing[$cacheKey] = $allPrices
+        $Caches.ActualPricing[$cacheKey] = $allPrices
         return $allPrices
     }
     catch {
@@ -2722,7 +2744,7 @@ else {
 }
 
 # Validate regions against Azure's available regions
-$validRegions = if ($SkipRegionValidation) { $null } else { Get-ValidAzureRegions }
+$validRegions = if ($SkipRegionValidation) { $null } else { Get-ValidAzureRegions -MaxRetries $MaxRetries -AzureEndpoints $script:AzureEndpoints -Caches $script:RunContext.Caches }
 
 $invalidRegions = @()
 $validatedRegions = @()
@@ -3106,7 +3128,7 @@ if ($FetchPricing) {
 
     $actualPricingSuccess = $true
     foreach ($regionCode in $Regions) {
-        $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode
+        $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
         if ($actualPrices -and $actualPrices.Count -gt 0) {
             if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
             $script:RunContext.RegionPricing[$regionCode] = $actualPrices
@@ -3126,7 +3148,7 @@ if ($FetchPricing) {
         Write-Host "No negotiated rates found, using retail pricing..." -ForegroundColor DarkGray
         $script:RunContext.RegionPricing = @{}
         foreach ($regionCode in $Regions) {
-            $pricingResult = Get-AzVMPricing -Region $regionCode
+            $pricingResult = Get-AzVMPricing -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
             if ($pricingResult -is [array]) { $pricingResult = $pricingResult[0] }
             $script:RunContext.RegionPricing[$regionCode] = $pricingResult
         }
@@ -3594,7 +3616,7 @@ if ($ShowPlacement -and $SkuFilter -and $SkuFilter.Count -gt 0) {
         Write-Warning "Placement score lookup skipped in scan mode: filtered set contains $($filteredSkuNames.Count) SKUs (limit is 5). Refine -SkuFilter to 5 or fewer SKUs."
     }
     elseif ($filteredSkuNames.Count -gt 0) {
-        $scanPlacementScores = Get-PlacementScores -SkuNames $filteredSkuNames -Regions $Regions -DesiredCount $DesiredCount
+        $scanPlacementScores = Get-PlacementScores -SkuNames $filteredSkuNames -Regions $Regions -DesiredCount $DesiredCount -MaxRetries $MaxRetries -Caches $script:RunContext.Caches
         foreach ($detail in $familyDetails) {
             $allocKey = "{0}|{1}" -f $detail.SKU, $detail.Region.ToLower()
             $allocValue = if ($scanPlacementScores.ContainsKey($allocKey)) { [string]$scanPlacementScores[$allocKey].Score } else { 'N/A' }
