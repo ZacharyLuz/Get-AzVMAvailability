@@ -1,0 +1,223 @@
+name: Collect Traffic Data
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC (1-2 AM ET depending on DST)
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source branch (workflow + scripts)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Checkout traffic-data branch (publish target)
+        uses: actions/checkout@v4
+        with:
+          ref: traffic-data
+          path: traffic-data
+          fetch-depth: 1
+
+      - name: Ensure data directory exists
+        run: mkdir -p traffic-data/data
+
+      - name: Collect views
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/traffic/views > /tmp/views.json
+          echo "Views response collected"
+
+      - name: Collect clones
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/traffic/clones > /tmp/clones.json
+          echo "Clones response collected"
+
+      - name: Collect referrers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/traffic/popular/referrers > /tmp/referrers.json
+          echo "Referrers response collected"
+
+      - name: Collect popular paths
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/traffic/popular/paths > /tmp/paths.json
+          echo "Paths response collected"
+
+      - name: Collect stargazers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Paginate through all stargazers with timestamps
+          page=1
+          echo "[]" > /tmp/stars.json
+          while true; do
+            response=$(gh api "repos/${{ github.repository }}/stargazers?per_page=100&page=$page" \
+              -H "Accept: application/vnd.github.v3.star+json" 2>/dev/null || echo "[]")
+            count=$(echo "$response" | jq length)
+            if [ "$count" -eq 0 ]; then break; fi
+            # Merge into accumulated file
+            jq -s '.[0] + .[1]' /tmp/stars.json <(echo "$response") > /tmp/stars_merged.json
+            mv /tmp/stars_merged.json /tmp/stars.json
+            if [ "$count" -lt 100 ]; then break; fi
+            page=$((page + 1))
+          done
+          echo "Stars collected: $(jq length /tmp/stars.json) total"
+
+      - name: Collect repo stats
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }} > /tmp/repo.json
+          echo "Repo stats collected"
+
+      - name: Collect releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases?per_page=100" > /tmp/releases.json
+          echo "Release data collected"
+
+      - name: Merge into CSVs
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+
+          # ── Views ──
+          if [ -f traffic-data/data/views.csv ]; then
+            cp traffic-data/data/views.csv /tmp/views_existing.csv
+          else
+            echo "Date,TotalViews,UniqueViews" > /tmp/views_existing.csv
+          fi
+          jq -r '.views[] | [(.timestamp | split("T")[0]), .count, .uniques] | @csv' /tmp/views.json > /tmp/views_new.csv
+          # Merge: add only dates not already in existing
+          while IFS=, read -r date total unique; do
+            clean_date=$(echo "$date" | tr -d '"')
+            if ! grep -q "^\"*${clean_date}" /tmp/views_existing.csv 2>/dev/null; then
+              echo "${clean_date},${total},${unique}" >> /tmp/views_existing.csv
+            fi
+          done < /tmp/views_new.csv
+          # Sort by date (skip header)
+          head -1 /tmp/views_existing.csv > traffic-data/data/views.csv
+          tail -n +2 /tmp/views_existing.csv | sort -t, -k1 >> traffic-data/data/views.csv
+
+          # ── Clones ──
+          if [ -f traffic-data/data/clones.csv ]; then
+            cp traffic-data/data/clones.csv /tmp/clones_existing.csv
+          else
+            echo "Date,TotalClones,UniqueClones" > /tmp/clones_existing.csv
+          fi
+          jq -r '.clones[] | [(.timestamp | split("T")[0]), .count, .uniques] | @csv' /tmp/clones.json > /tmp/clones_new.csv
+          while IFS=, read -r date total unique; do
+            clean_date=$(echo "$date" | tr -d '"')
+            if ! grep -q "^\"*${clean_date}" /tmp/clones_existing.csv 2>/dev/null; then
+              echo "${clean_date},${total},${unique}" >> /tmp/clones_existing.csv
+            fi
+          done < /tmp/clones_new.csv
+          head -1 /tmp/clones_existing.csv > traffic-data/data/clones.csv
+          tail -n +2 /tmp/clones_existing.csv | sort -t, -k1 >> traffic-data/data/clones.csv
+
+          # ── Referrers (snapshot per collection date) ──
+          if [ -f traffic-data/data/referrers.csv ]; then
+            cp traffic-data/data/referrers.csv /tmp/refs_existing.csv
+          else
+            echo "CollectedDate,Referrer,TotalViews,UniqueVisitors" > /tmp/refs_existing.csv
+          fi
+          if ! grep -q "^\"*${TODAY}" /tmp/refs_existing.csv 2>/dev/null; then
+            jq -r --arg d "$TODAY" '.[] | [$d, .referrer, .count, .uniques] | @csv' /tmp/referrers.json >> /tmp/refs_existing.csv
+          fi
+          cp /tmp/refs_existing.csv traffic-data/data/referrers.csv
+
+          # ── Paths (snapshot per collection date) ──
+          if [ -f traffic-data/data/paths.csv ]; then
+            cp traffic-data/data/paths.csv /tmp/paths_existing.csv
+          else
+            echo "CollectedDate,Path,Title,TotalViews,UniqueVisitors" > /tmp/paths_existing.csv
+          fi
+          if ! grep -q "^\"*${TODAY}" /tmp/paths_existing.csv 2>/dev/null; then
+            jq -r --arg d "$TODAY" '.[] | [$d, .path, .title, .count, .uniques] | @csv' /tmp/paths.json >> /tmp/paths_existing.csv
+          fi
+          cp /tmp/paths_existing.csv traffic-data/data/paths.csv
+
+          # ── Stars ──
+          if [ -f traffic-data/data/stars.csv ]; then
+            cp traffic-data/data/stars.csv /tmp/stars_existing.csv
+          else
+            echo "Date,User,CumulativeStars" > /tmp/stars_existing.csv
+          fi
+          # Build full star list from API response
+          jq -r '.[] | [(.starred_at | split("T")[0]), .user.login] | @csv' /tmp/stars.json > /tmp/stars_all.csv
+          count=0
+          > /tmp/stars_rebuilt.csv
+          while IFS=, read -r date user; do
+            count=$((count + 1))
+            clean_date=$(echo "$date" | tr -d '"')
+            clean_user=$(echo "$user" | tr -d '"')
+            echo "${clean_date},${clean_user},${count}" >> /tmp/stars_rebuilt.csv
+          done < /tmp/stars_all.csv
+          echo "Date,User,CumulativeStars" > traffic-data/data/stars.csv
+          cat /tmp/stars_rebuilt.csv >> traffic-data/data/stars.csv
+
+          # ── Repo Stats (daily snapshot) ──
+          if [ -f traffic-data/data/repo-stats.csv ]; then
+            cp traffic-data/data/repo-stats.csv /tmp/stats_existing.csv
+          else
+            echo "Date,Stars,Forks,Watchers,OpenIssues,Size_KB" > /tmp/stats_existing.csv
+          fi
+          if ! grep -q "^\"*${TODAY}" /tmp/stats_existing.csv 2>/dev/null; then
+            jq -r --arg d "$TODAY" '[$d, .stargazers_count, .forks_count, .subscribers_count, .open_issues_count, .size] | @csv' /tmp/repo.json >> /tmp/stats_existing.csv
+          fi
+          cp /tmp/stats_existing.csv traffic-data/data/repo-stats.csv
+
+          # ── Release Downloads (daily snapshot) ──
+          if [ -f traffic-data/data/release-downloads.csv ]; then
+            cp traffic-data/data/release-downloads.csv /tmp/release_downloads_existing.csv
+          else
+            echo "Date,TotalReleaseDownloads,ReleaseCount,AssetCount" > /tmp/release_downloads_existing.csv
+          fi
+          release_count=$(jq 'length' /tmp/releases.json)
+          asset_count=$(jq '[.[].assets | length] | add // 0' /tmp/releases.json)
+          total_release_downloads=$(jq '[.[].assets[]?.download_count] | add // 0' /tmp/releases.json)
+          if ! grep -q "^\"*${TODAY}" /tmp/release_downloads_existing.csv 2>/dev/null; then
+            echo "${TODAY},${total_release_downloads},${release_count},${asset_count}" >> /tmp/release_downloads_existing.csv
+          fi
+          cp /tmp/release_downloads_existing.csv traffic-data/data/release-downloads.csv
+
+          echo "=== Collection Summary ==="
+          echo "Views:     $(tail -n +2 traffic-data/data/views.csv | wc -l) days"
+          echo "Clones:    $(tail -n +2 traffic-data/data/clones.csv | wc -l) days"
+          echo "Stars:     $(tail -n +2 traffic-data/data/stars.csv | wc -l) total"
+          echo "Referrers: $(tail -n +2 traffic-data/data/referrers.csv | wc -l) records"
+          echo "Paths:     $(tail -n +2 traffic-data/data/paths.csv | wc -l) records"
+          echo "Stats:     $(tail -n +2 traffic-data/data/repo-stats.csv | wc -l) days"
+          echo "Release Downloads Snapshots: $(tail -n +2 traffic-data/data/release-downloads.csv | wc -l) days"
+
+      - name: Generate dashboard HTML for GitHub Pages
+        shell: pwsh
+        run: |
+          ./tools/Generate-TrafficDashboard-Premium-v2.ps1 -InputDir "./traffic-data/data" -OutputFile "./traffic-data/dashboard.html"
+          Copy-Item "./traffic-data/dashboard.html" "./traffic-data/index.html" -Force
+
+      - name: Commit and push
+        working-directory: traffic-data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ dashboard.html index.html
+          if git diff --cached --quiet; then
+            echo "No new data to commit"
+          else
+            git commit -m "chore: collect traffic + dashboard $(date -u +%Y-%m-%d)"
+            git push
+          fi
