@@ -13,7 +13,7 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout source branch (workflow + scripts)
         uses: actions/checkout@v4
@@ -32,28 +32,28 @@ jobs:
 
       - name: Collect views
         env:
-          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || github.token }}
         run: |
           gh api repos/${{ github.repository }}/traffic/views > /tmp/views.json
           echo "Views response collected"
 
       - name: Collect clones
         env:
-          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || github.token }}
         run: |
           gh api repos/${{ github.repository }}/traffic/clones > /tmp/clones.json
           echo "Clones response collected"
 
       - name: Collect referrers
         env:
-          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || github.token }}
         run: |
           gh api repos/${{ github.repository }}/traffic/popular/referrers > /tmp/referrers.json
           echo "Referrers response collected"
 
       - name: Collect popular paths
         env:
-          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || github.token }}
         run: |
           gh api repos/${{ github.repository }}/traffic/popular/paths > /tmp/paths.json
           echo "Paths response collected"

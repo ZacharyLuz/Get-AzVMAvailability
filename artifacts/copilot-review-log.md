@@ -342,6 +342,16 @@ Date: 2026-03-12
 | 2 | .github/workflows/collect-traffic.yml (stargazers, repo stats, releases steps) | "Using TRAFFIC_TOKEN for non-traffic endpoints expands exposure of a higher-privilege PAT beyond what's needed to fix the traffic 403s." | **Agree** | Only `/traffic/*` endpoints need TRAFFIC_TOKEN (GITHUB_TOKEN returns 403 for traffic stats). Stargazers, repo stats, and releases are public endpoints that work with GITHUB_TOKEN. Principle of least privilege. | Fixed: TRAFFIC_TOKEN fallback scoped to only the 4 traffic API steps; other steps use job-level GITHUB_TOKEN. |
 
 ---
+## PR #84 — fix: scope TRAFFIC_TOKEN, relax release drift check for non-script changes
+**Date:** 2026-03-20 | **Branch:** fix/copilot-review-pr82-and-drift | **Commit:** 9d9e802
+
+| # | File:Line | Copilot Finding (quoted) | Assessment | Reasoning | Action |
+|---|-----------|-------------------------|------------|-----------|--------|
+| 1 | .github/workflows/release-on-main.yml:86 | "The new stagnation throw message is missing key guidance and appears to have a formatting regression vs the previous message (it no longer explicitly tells the user to bump $ScriptVersion in Get-AzVMAvailability.ps1 and add a CHANGELOG entry)." | **Agree** | The shortened error message dropped actionable remediation steps. Multiline here-string with explicit instructions is clearer. | Fixed: replaced single-line throw with multiline here-string including step-by-step resolution instructions. |
+| 2 | .github/workflows/collect-traffic.yml:16 | "This workflow sets GH_TOKEN from secrets.GITHUB_TOKEN, but other workflows in this repo consistently use github.token. Consider switching for consistency." | **Agree** | `github.token` is the idiomatic pattern used in release-on-main.yml and release-metadata-guard.yml. Consistency reduces confusion. | Fixed: changed job-level env and traffic fallbacks from `secrets.GITHUB_TOKEN` to `github.token`. |
+| 3 | artifacts/copilot-review-log.md:342 | "This review log is under artifacts/ which is gitignored — confusing since it's force-added. Consider adding a .gitignore exception." | **Partially Agree** | The file is intentionally tracked via `git add -f`, but a `.gitignore` exception makes this explicit and prevents accidental exclusion. Moving to `docs/` would mix process artifacts with user-facing documentation. | Fixed: added `!/artifacts/copilot-review-log.md` exception to `.gitignore`. |
+
+---
 ## PR #48 | branch: fix/phase-4-5-gemini-hardening | commit: 9f3f9b8
 **Date:** 2026-03-16 | **Reviews:** 2 (both from copilot-pull-request-reviewer) | **Inline comments:** 6 → 4 unique findings
 

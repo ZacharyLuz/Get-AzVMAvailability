@@ -83,7 +83,17 @@ jobs:
               # Check if the main script actually changed since the tag
               $scriptChanged = [bool](git diff --name-only "$tag..$headSha" -- 'Get-AzVMAvailability.ps1')
               if ($scriptChanged) {
-                throw "Version stagnation: ScriptVersion is $version but tag $tag already exists (from commit $shortTag). HEAD ($shortHead) is $commitsSinceTag commit(s) ahead and Get-AzVMAvailability.ps1 has changes. Bump `$ScriptVersion and add a CHANGELOG section."
+                throw @"
+Version stagnation detected.
+
+ScriptVersion in Get-AzVMAvailability.ps1 is $version but git tag $tag already exists (from commit $shortTag).
+HEAD ($shortHead) is $commitsSinceTag commit(s) ahead and Get-AzVMAvailability.ps1 has changes since that tag.
+
+To resolve this:
+- In Get-AzVMAvailability.ps1, bump the `$ScriptVersion value to a new version.
+- Add a corresponding entry for that version to CHANGELOG.md.
+- Commit the changes, push to main, and re-run this workflow.
+"@
               } else {
                 Write-Host "Tag $tag exists but only non-script files changed since ($commitsSinceTag commit(s)). No version bump required."
               }
