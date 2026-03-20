@@ -171,6 +171,9 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
                     $versionMismatches += "README.md sample output: v$readmeSampleVer"
                 }
             }
+            else {
+                $versionMismatches += "README.md: sample output version pattern not found"
+            }
         }
         catch {
             $versionMismatches += "README.md: failed to read — $($_.Exception.Message)"
@@ -231,9 +234,12 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
                     $versionMismatches += "demo/DEMO-GUIDE.md Version: $demoVer"
                 }
             }
+            else {
+                $versionMismatches += "demo/DEMO-GUIDE.md: Version header pattern not found"
+            }
         }
         catch {
-            Write-Verbose "demo/DEMO-GUIDE.md: failed to read — $($_.Exception.Message)"
+            $versionMismatches += "demo/DEMO-GUIDE.md: failed to read — $($_.Exception.Message)"
         }
     }
 
