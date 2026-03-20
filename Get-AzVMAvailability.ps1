@@ -1591,7 +1591,7 @@ function Write-RecommendOutputContract {
         [Parameter(Mandatory)][pscustomobject]$Contract,
         [Parameter(Mandatory)][hashtable]$Icons,
         [Parameter(Mandatory)][bool]$FetchPricing,
-        [hashtable]$FamilyInfo,
+        [Parameter(Mandatory)][hashtable]$FamilyInfo,
         [int]$OutputWidth = 122
     )
 
