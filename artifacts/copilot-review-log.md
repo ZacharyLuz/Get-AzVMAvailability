@@ -333,6 +333,15 @@ Date: 2026-03-12
 | 4 | Get-AzVMAvailability.ps1:3226 | "No regression test for $using: scriptblock pattern." | **Partially Agree** | An AST-based test would catch reintroduction, but the error is immediate and obvious at runtime. Low priority. | Deferred — may add in Phase 5. |
 
 ---
+## PR #82 — fix: traffic workflow token fallback
+**Date:** 2026-03-20 | **Branch:** fix/traffic-workflow-token-perms | **Commit:** 7baf47f
+
+| # | File:Line | Copilot Finding (quoted) | Assessment | Reasoning | Action |
+|---|-----------|-------------------------|------------|-----------|--------|
+| 1 | .github/workflows/collect-traffic.yml (multiple steps) | "GH_TOKEN expression is repeated across many steps; consider setting env.GH_TOKEN once at the job level to avoid drift." | **Agree** | DRY principle — 7 steps repeat the same expression. A single job-level env reduces drift risk and makes future token changes a one-line edit. | Fixed: set job-level `env.GH_TOKEN` for GITHUB_TOKEN, per-step override for traffic endpoints only. |
+| 2 | .github/workflows/collect-traffic.yml (stargazers, repo stats, releases steps) | "Using TRAFFIC_TOKEN for non-traffic endpoints expands exposure of a higher-privilege PAT beyond what's needed to fix the traffic 403s." | **Agree** | Only `/traffic/*` endpoints need TRAFFIC_TOKEN (GITHUB_TOKEN returns 403 for traffic stats). Stargazers, repo stats, and releases are public endpoints that work with GITHUB_TOKEN. Principle of least privilege. | Fixed: TRAFFIC_TOKEN fallback scoped to only the 4 traffic API steps; other steps use job-level GITHUB_TOKEN. |
+
+---
 ## PR #48 | branch: fix/phase-4-5-gemini-hardening | commit: 9f3f9b8
 **Date:** 2026-03-16 | **Reviews:** 2 (both from copilot-pull-request-reviewer) | **Inline comments:** 6 → 4 unique findings
 

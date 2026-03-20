@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Inlined parallel scan logic into `ForEach-Object -Parallel` scriptblock — PowerShell prohibits `$using:` references to ScriptBlock variables, causing runtime errors in multi-region scans (#53)
+- Fixed all parent-scope implicit dependencies in 9 functions — every function now takes explicit parameters instead of reading from parent scope (#72)
+- Scoped `TRAFFIC_TOKEN` in traffic workflow to only the 4 `/traffic/*` API steps; non-traffic endpoints (stargazers, repo stats, releases) use `GITHUB_TOKEN` (Copilot review, PR #82)
+- Set job-level `env.GH_TOKEN` in traffic workflow to reduce per-step duplication (Copilot review, PR #82)
 
 ## [1.12.1] - 2026-03-18
 

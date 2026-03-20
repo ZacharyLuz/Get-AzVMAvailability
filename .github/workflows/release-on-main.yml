@@ -70,7 +70,8 @@ jobs:
           "tag_exists=$tagExists" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
           # Guard: detect version stagnation — tag exists but HEAD has new commits since tag
-          # Every push to main MUST include a version bump so the release workflow creates a new tag/release.
+          # Only enforces a version bump when the main script changed since the last tag.
+          # CI workflows, tests, docs, and tooling can merge without a version bump.
           if ($tagExists -eq $true) {
             $tagSha = git rev-list -n 1 "$tag" 2>$null
             $headSha = "${{ github.sha }}"
@@ -78,7 +79,14 @@ jobs:
               $shortTag = if ($tagSha.Length -ge 7) { $tagSha.Substring(0,7) } else { $tagSha }
               $shortHead = if ($headSha.Length -ge 7) { $headSha.Substring(0,7) } else { $headSha }
               $commitsSinceTag = git rev-list --count "$tag..$headSha"
-              throw "Version stagnation: ScriptVersion is $version but tag $tag already exists (from commit $shortTag). HEAD ($shortHead) is $commitsSinceTag commit(s) ahead. Every merge to main requires a version bump. Bump `$ScriptVersion` in Get-AzVMAvailability.ps1 and add a CHANGELOG section."
+
+              # Check if the main script actually changed since the tag
+              $scriptChanged = [bool](git diff --name-only "$tag..$headSha" -- 'Get-AzVMAvailability.ps1')
+              if ($scriptChanged) {
+                throw "Version stagnation: ScriptVersion is $version but tag $tag already exists (from commit $shortTag). HEAD ($shortHead) is $commitsSinceTag commit(s) ahead and Get-AzVMAvailability.ps1 has changes. Bump `$ScriptVersion and add a CHANGELOG section."
+              } else {
+                Write-Host "Tag $tag exists but only non-script files changed since ($commitsSinceTag commit(s)). No version bump required."
+              }
             }
           }
 

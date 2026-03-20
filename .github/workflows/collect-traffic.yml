@@ -12,6 +12,8 @@ permissions:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout source branch (workflow + scripts)
         uses: actions/checkout@v4
@@ -57,8 +59,6 @@ jobs:
           echo "Paths response collected"
 
       - name: Collect stargazers
-        env:
-          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           # Paginate through all stargazers with timestamps
           page=1
@@ -77,15 +77,11 @@ jobs:
           echo "Stars collected: $(jq length /tmp/stars.json) total"
 
       - name: Collect repo stats
-        env:
-          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh api repos/${{ github.repository }} > /tmp/repo.json
           echo "Repo stats collected"
 
       - name: Collect releases
-        env:
-          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh api "repos/${{ github.repository }}/releases?per_page=100" > /tmp/releases.json
           echo "Release data collected"
