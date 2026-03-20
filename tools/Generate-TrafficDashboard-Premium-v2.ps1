@@ -772,6 +772,10 @@ function setRange(days, el) {
 #region Write and Open
 $html | Out-File -FilePath $OutputFile -Encoding UTF8
 Write-Host "`nDashboard generated: $OutputFile" -ForegroundColor Green
-Write-Host "Opening in browser..." -ForegroundColor Gray
-Start-Process $OutputFile
+if ($env:CI -ne 'true' -and $PSVersionTable.Platform -ne 'Unix') {
+  Write-Host "Opening in browser..." -ForegroundColor Gray
+  Start-Process $OutputFile
+} else {
+  Write-Host "Skipping browser launch in CI/non-Windows environment." -ForegroundColor Gray
+}
 #endregion
