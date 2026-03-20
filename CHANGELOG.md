@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Synced 4 stale version references to 1.12.2: README badge, README sample output, ROADMAP Current Release, demo/DEMO-GUIDE.md
+- Expanded `Validate-Script.ps1` Check 5 with 2 new validation points (README sample output, demo/DEMO-GUIDE.md) — now validates 7 locations for version drift
+
 ## [1.12.2] - 2026-03-20
 
 ### Changed

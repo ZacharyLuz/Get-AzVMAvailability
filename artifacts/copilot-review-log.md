@@ -352,6 +352,15 @@ Date: 2026-03-12
 | 3 | artifacts/copilot-review-log.md:342 | "This review log is under artifacts/ which is gitignored — confusing since it's force-added. Consider adding a .gitignore exception." | **Partially Agree** | The file is intentionally tracked via `git add -f`, but a `.gitignore` exception makes this explicit and prevents accidental exclusion. Moving to `docs/` would mix process artifacts with user-facing documentation. | Fixed: added `!/artifacts/copilot-review-log.md` exception to `.gitignore`. |
 
 ---
+## PR #88 — fix: sync stale version refs to 1.12.2, expand validation checks
+**Date:** 2026-03-20 | **Branch:** fix/version-drift-and-validation | **Commit:** 933d0cc
+
+| # | File:Line | Copilot Finding (quoted) | Assessment | Reasoning | Action |
+|---|-----------|-------------------------|------------|-----------|--------|
+| 1 | tools/Validate-Script.ps1:173 | "README sample-output version check silently passes if pattern not found. Add else branch with 'pattern not found' mismatch." | **Agree** | Silent pass on missing pattern defeats the purpose of the guardrail. Consistent with how README badge and ROADMAP checks already handle missing patterns. | Fixed: added else branch recording mismatch. |
+| 2 | tools/Validate-Script.ps1:238 | "Demo guide validation is silent on failure cases — no mismatch recorded if file can't be read or pattern not found." | **Agree** | Same principle — catch block only wrote Write-Verbose, and missing pattern was unhandled. All paths must record mismatches to fail CI reliably. | Fixed: added else branch for missing pattern, promoted catch to record mismatch. |
+
+---
 ## PR #48 | branch: fix/phase-4-5-gemini-hardening | commit: 9f3f9b8
 **Date:** 2026-03-16 | **Reviews:** 2 (both from copilot-pull-request-reviewer) | **Inline comments:** 6 → 4 unique findings
 
