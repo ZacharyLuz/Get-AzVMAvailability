@@ -30,35 +30,35 @@ jobs:
 
       - name: Collect views
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh api repos/${{ github.repository }}/traffic/views > /tmp/views.json
           echo "Views response collected"
 
       - name: Collect clones
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh api repos/${{ github.repository }}/traffic/clones > /tmp/clones.json
           echo "Clones response collected"
 
       - name: Collect referrers
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh api repos/${{ github.repository }}/traffic/popular/referrers > /tmp/referrers.json
           echo "Referrers response collected"
 
       - name: Collect popular paths
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh api repos/${{ github.repository }}/traffic/popular/paths > /tmp/paths.json
           echo "Paths response collected"
 
       - name: Collect stargazers
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           # Paginate through all stargazers with timestamps
           page=1
@@ -78,14 +78,14 @@ jobs:
 
       - name: Collect repo stats
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh api repos/${{ github.repository }} > /tmp/repo.json
           echo "Repo stats collected"
 
       - name: Collect releases
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh api "repos/${{ github.repository }}/releases?per_page=100" > /tmp/releases.json
           echo "Release data collected"
