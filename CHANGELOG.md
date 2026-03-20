@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.2] - 2026-03-20
+
 ### Changed
 - Replaced all 9 `exit` calls with `throw` (error paths) and `return` (user cancellation) for module safety — script no longer kills the caller's session when dot-sourced (#68)
 - Converted 3 hot-loop `+=` array accumulations to `[System.Collections.Generic.List[T]]` in `Get-RestrictionDetails`, `$rows`, and `$familyDetails` (#70)
