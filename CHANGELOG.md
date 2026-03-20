@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Converted 3 hot-loop `+=` array accumulations to `[System.Collections.Generic.List[T]]` in `Get-RestrictionDetails`, `$rows`, and `$familyDetails` (#70)
 - Archived 9 internal process documents to `docs/archive/` (gitignored) — removes remediation artifacts from public repo (#74)
 - Updated `copilot-instructions.md` with current metrics (4,442 lines, 34 functions, 349 Write-Host, 0 exit calls, 189 tests/11 files), line numbers, parent-scope dependency table, and module extraction order
+- Updated `.github/workflows/collect-traffic.yml` to dual-checkout source + `traffic-data`, generate `dashboard.html`/`index.html` from `data/*.csv`, and commit static site files for GitHub Pages publishing
+- Added daily release asset download snapshot collection (`data/release-downloads.csv`) and surfaced the metric in `Generate-TrafficDashboard-Premium-v2.ps1` dashboard cards
 
 ### Added
 - 19 Pester tests for `-FleetFile` CSV/JSON parsing: column name matching, duplicate detection, validation rules, normalization, and `-Fleet`/`-FleetFile` mutual exclusion (#62)
