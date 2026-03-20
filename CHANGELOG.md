@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docs/CI-CD-WORKFLOWS.md` — reference guide for all five GitHub Actions workflows: PowerShell Linting, Release Metadata Guard, Release Drift Check and Publish, Scheduled Tooling Health Check, and Collect Traffic Data
+
 ## [1.12.2] - 2026-03-20
 
 ### Changed
