@@ -163,6 +163,14 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
             else {
                 $versionMismatches += "README.md: version badge pattern not found"
             }
+
+            # Check README sample console output (e.g. GET-AZVMAVAILABILITY v1.12.2)
+            if ($readmeContent -match 'GET-AZVMAVAILABILITY v([\d.]+)') {
+                $readmeSampleVer = $matches[1]
+                if ($readmeSampleVer -ne $scriptVer) {
+                    $versionMismatches += "README.md sample output: v$readmeSampleVer"
+                }
+            }
         }
         catch {
             $versionMismatches += "README.md: failed to read — $($_.Exception.Message)"
@@ -210,6 +218,23 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
     }
     else {
         $versionMismatches += "ROADMAP.md: file not found"
+    }
+
+    # Check demo/DEMO-GUIDE.md version header
+    $demoGuidePath = Join-Path $repoRoot 'demo' 'DEMO-GUIDE.md'
+    if (Test-Path $demoGuidePath) {
+        try {
+            $demoContent = Get-Content $demoGuidePath -Raw -ErrorAction Stop
+            if ($demoContent -match '\*\*Version:\*\*\s*([\d.]+)') {
+                $demoVer = $matches[1]
+                if ($demoVer -ne $scriptVer) {
+                    $versionMismatches += "demo/DEMO-GUIDE.md Version: $demoVer"
+                }
+            }
+        }
+        catch {
+            Write-Verbose "demo/DEMO-GUIDE.md: failed to read — $($_.Exception.Message)"
+        }
     }
 
     # Scan git-tracked .md files under docs/ for backtick-wrapped version literals.
