@@ -102,10 +102,6 @@ $latestReleaseDownloads = if (@($releaseDownloads).Count -gt 0) { @($releaseDown
 $generatedAt    = (Get-Date).ToString('MMM d, yyyy \a\t h:mm tt')
 $dateRange      = if ($views.Count -gt 0) { "$($views[0].Date) — $($views[-1].Date)" } else { 'No data' }
 
-# Sparkline data for stat cards (last 7 days)
-$viewSparkline  = ($views  | Select-Object -Last 7 | ForEach-Object { [int]$_.TotalViews })  | ConvertTo-Json -Compress
-$cloneSparkline = ($clones | Select-Object -Last 7 | ForEach-Object { [int]$_.TotalClones }) | ConvertTo-Json -Compress
-
 # Day-over-day change
 $viewDelta = if ($views.Count -ge 2) {
     $prev = [int]$views[-2].TotalViews; $curr = [int]$views[-1].TotalViews
