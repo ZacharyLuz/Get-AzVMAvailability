@@ -1419,7 +1419,10 @@ function Test-ImportExcelModule {
         }
         return $false
     }
-    catch { return $false }
+    catch {
+        Write-Verbose "Failed to load ImportExcel module: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 function Test-SkuMatchesFilter {
@@ -2132,9 +2135,6 @@ function Invoke-RecommendMode {
 
     Write-RecommendOutputContract -Contract $RunContext.RecommendOutput -Icons $Icons -FetchPricing ([bool]$FetchPricing) -FamilyInfo $FamilyInfo -OutputWidth $OutputWidth
 }
-
-#endregion Helper Functions
-#region Image Compatibility Functions
 
 function Get-ImageRequirements {
     <#

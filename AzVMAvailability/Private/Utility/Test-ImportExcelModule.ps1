@@ -7,5 +7,8 @@ function Test-ImportExcelModule {
         }
         return $false
     }
-    catch { return $false }
+    catch {
+        Write-Verbose "Failed to load ImportExcel module: $($_.Exception.Message)"
+        return $false
+    }
 }
