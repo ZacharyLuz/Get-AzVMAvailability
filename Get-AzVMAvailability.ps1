@@ -125,7 +125,7 @@
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
     Created:        2026-01-21
-    Version:        1.12.2
+    Version:        1.12.3
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -456,7 +456,7 @@ if ($Fleet -and $Fleet.Count -gt 0) {
 }
 
 #region Configuration
-$ScriptVersion = "1.12.2"
+$ScriptVersion = "1.12.3"
 
 #region Constants
 $HoursPerMonth = 730
