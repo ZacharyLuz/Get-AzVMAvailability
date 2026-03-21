@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Restored inline function fallback so single-file downloads work without the AzVMAvailability/ module directory
+
 ## [1.12.3] - 2026-03-21
 
 ### Changed
