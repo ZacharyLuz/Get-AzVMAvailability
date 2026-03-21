@@ -475,3 +475,17 @@ Date: 2026-03-12
 **Reasoning:** Git history confirms the file was originally in ascending chronological order (PR #33 at top) from creation through 4 commits. PR #89 was the first to break convention by prepending. Initial reply incorrectly claimed reverse-chronological was the convention; verified via `git show` at each commit that this was wrong.
 **Action Taken:** Fixed -- restored ascending chronological order (PR #89/#90/#91 moved to end). Also removed 5 duplicate PR entries (#35, #36, #37, #38, #39) discovered during the reorder.
 
+### Comment 2
+**File:** `artifacts/copilot-review-log.md:476`
+**Copilot Finding:** "artifacts/copilot-review-log.md is documented as append-only (never overwrite/reorder). This PR records that PR #89/#90/#91 were moved and that duplicate PR entries were removed; both actions rewrite history."
+**Assessment:** Disagree
+**Reasoning:** The "append-only" convention means new entries are appended (not prepended) — it does not prohibit removing exact duplicate entries or restoring the original chronological order. The 5 removed entries were literal copy-paste duplicates (same PR number, same content, same commit SHA). Retaining duplicates degrades auditability. Reorder restored the ascending convention validated via `git show` at 6 historical commits.
+**Action Taken:** No code change. Reply posted on GitHub explaining rationale.
+
+### Comment 3
+**File:** `AzVMAvailability/AzVMAvailability.psd1:65`
+**Copilot Finding:** "ReleaseNotes in the module manifest mentions 'inline function fallback for standalone single-file downloads', which is behavior of Get-AzVMAvailability.ps1 rather than the AzVMAvailability module itself."
+**Assessment:** Partially Agree
+**Reasoning:** Valid point — the psd1 ReleaseNotes field should describe module-specific changes. However, the module is not published to PSGallery yet (local scaffold only). The ReleaseNotes provide useful context about the v1.12.4 release.
+**Action Taken:** Deferred to v2.0.0 when module ships to PSGallery. Reply posted on GitHub.
+
