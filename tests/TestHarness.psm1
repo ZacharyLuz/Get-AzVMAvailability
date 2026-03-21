@@ -19,6 +19,41 @@ function Get-MainScriptAst {
     return $ast
 }
 
+function Find-FunctionInModule {
+    <#
+    .SYNOPSIS
+        Searches the AzVMAvailability module Private/ directory for a function definition.
+    .DESCRIPTION
+        Scans all .ps1 files in AzVMAvailability/Private/ subdirectories for the named function.
+        Returns the function definition text if found, $null otherwise.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$FunctionName
+    )
+
+    $moduleRoot = Join-Path $PSScriptRoot '..\AzVMAvailability\Private'
+    if (-not (Test-Path $moduleRoot)) { return $null }
+
+    foreach ($file in (Get-ChildItem -Path $moduleRoot -Filter '*.ps1' -Recurse -File)) {
+        $tokens = $null
+        $parseErrors = $null
+        $fileAst = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$parseErrors)
+        $funcAst = $fileAst.Find(
+            {
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq $FunctionName
+            },
+            $true
+        )
+        if ($funcAst) {
+            return $funcAst.Extent.Text
+        }
+    }
+    return $null
+}
+
 function Import-MainScriptFunctions {
     param(
         [Parameter(Mandatory)]
@@ -30,6 +65,15 @@ function Import-MainScriptFunctions {
     $ast = Get-MainScriptAst -ScriptPath $ScriptPath
 
     foreach ($functionName in $FunctionNames) {
+        # Try module Private/ files first (v2.0.0+ layout)
+        $moduleDefinition = Find-FunctionInModule -FunctionName $functionName
+        if ($moduleDefinition) {
+            $globalDefinition = $moduleDefinition -replace ("function\s+" + [regex]::Escape($functionName) + "\b"), ("function global:" + $functionName)
+            . ([scriptblock]::Create($globalDefinition))
+            continue
+        }
+
+        # Fallback: AST extraction from main script
         $functionAst = $ast.Find(
             {
                 param($node)
@@ -40,7 +84,7 @@ function Import-MainScriptFunctions {
         )
 
         if (-not $functionAst) {
-            throw "Could not find function in main script: $functionName"
+            throw "Could not find function '$functionName' in module or main script"
         }
 
         $definition = $functionAst.Extent.Text
@@ -57,6 +101,13 @@ function Get-MainScriptFunctionDefinition {
         [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMAvailability.ps1')
     )
 
+    # Try module Private/ files first (v2.0.0+ layout)
+    $moduleDefinition = Find-FunctionInModule -FunctionName $FunctionName
+    if ($moduleDefinition) {
+        return $moduleDefinition
+    }
+
+    # Fallback: AST extraction from main script
     $ast = Get-MainScriptAst -ScriptPath $ScriptPath
     $functionAst = $ast.Find(
         {
@@ -68,7 +119,7 @@ function Get-MainScriptFunctionDefinition {
     )
 
     if (-not $functionAst) {
-        throw "Could not find function in main script: $FunctionName"
+        throw "Could not find function '$FunctionName' in module or main script"
     }
 
     return $functionAst.Extent.Text
@@ -133,4 +184,4 @@ function Get-MainScriptVariableAssignment {
     return ($assignmentAst.Extent.Text -replace ('^\$' + [regex]::Escape($VariableName)), ('$' + $ScopePrefix + ':' + $VariableName))
 }
 
-Export-ModuleMember -Function Import-MainScriptFunctions, Import-MainScriptVariables, Get-MainScriptFunctionDefinition, Get-MainScriptVariableAssignment
+Export-ModuleMember -Function Import-MainScriptFunctions, Import-MainScriptVariables, Get-MainScriptFunctionDefinition, Get-MainScriptVariableAssignment, Find-FunctionInModule
