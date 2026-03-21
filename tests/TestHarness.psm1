@@ -30,6 +30,7 @@ function Find-FunctionInModule {
         Parses all .ps1 files in AzVMAvailability/Private/ on first call, caches results,
         and returns cached definitions on subsequent calls. Throws on parse errors.
     #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'FunctionName', Justification = 'Used in cache lookup after cache-building block')]
     param(
         [Parameter(Mandatory)]
         [string]$FunctionName
