@@ -15,8 +15,9 @@
 /tools/logs/*
 !/tools/logs/.gitkeep
 
-# Session handoff docs (ephemeral AI session artifacts)
-docs/SESSION-HANDOFF-*.md
+# Session handoff docs (ephemeral AI session artifacts — any naming convention)
+docs/*handoff*
+docs/*session-notes*
 
 # Personal AI workflow files (local tooling, not project documentation)
 copilot-standing-rules.md
@@ -90,7 +91,6 @@ Protect_Main_Branch.json
 
 # AI workflow artifacts (local review docs, never commit)
 docs/Gemini*
-docs/SESSION-HANDOFF-*.md
 
 # Archived internal process artifacts (remediation, proposals, session handoffs)
 docs/archive/
