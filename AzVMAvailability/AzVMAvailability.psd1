@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AzVMAvailability.psm1'
-    ModuleVersion     = '2.0.0'
+    ModuleVersion     = '1.12.2'
     GUID              = 'a7f3b2c1-4d5e-6f78-9a0b-1c2d3e4f5a6b'
     Author            = 'Zachary Luz'
     CompanyName       = 'Community'
@@ -62,7 +62,7 @@
             Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
             LicenseUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability'
-            ReleaseNotes = 'v2.0.0: Module conversion — extracted 34 functions into Public/Private layout for PSGallery publishing.'
+            ReleaseNotes = 'Module scaffold — extracted 34 functions into Private/ layout. Not yet published to PSGallery.'
         }
     }
 }

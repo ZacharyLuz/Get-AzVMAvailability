@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-03-21
-
 ### Changed
 - **Module conversion:** Extracted all 34 functions from monolithic `Get-AzVMAvailability.ps1` into `AzVMAvailability/` module with Private/ subdirectory layout (#5)
 - Root script now imports `AzVMAvailability` module instead of defining functions inline (2,028 lines removed from main script)
