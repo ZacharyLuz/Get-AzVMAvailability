@@ -5,7 +5,7 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.12.3-brightgreen)
+![Version](https://img.shields.io/badge/Version-1.12.4-brightgreen)
 
 ## Disclosure & Disclaimer
 
@@ -399,7 +399,7 @@ SKUs that are available but **incompatible** with your image are shown in dark y
 ### Console Output (with Pricing)
 ```
 ====================================================================================
-GET-AZVMAVAILABILITY v1.12.3
+GET-AZVMAVAILABILITY v1.12.4
 ====================================================================================
 SKU Filter: Standard_D2s_v5 | Pricing: Enabled
 

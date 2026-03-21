@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.4] - 2026-03-21
+
 ### Fixed
 - Restored inline function fallback so single-file downloads work without the AzVMAvailability/ module directory
+- Added try/catch around Import-Module with graceful fallback to 34 inline function definitions
+- Fixed silent auth failure: Get-AzAccessToken now uses -ErrorAction Stop
+- Added cache check in Get-AzVMPricing to skip redundant API calls
+- Replaced silent catch in Test-ImportExcelModule with Write-Verbose
 
 ## [1.12.3] - 2026-03-21
 
