@@ -26,12 +26,17 @@ function Get-AzVMPricing {
         $Caches.Pricing = @{}
     }
 
+    $armLocation = $Region.ToLower() -replace '\s', ''
+
+    # Return cached pricing if already fetched this region
+    if ($Caches.Pricing.ContainsKey($armLocation) -and $Caches.Pricing[$armLocation]) {
+        return $Caches.Pricing[$armLocation]
+    }
+
     # Get environment-specific endpoints (supports sovereign clouds)
     if (-not $AzureEndpoints) {
         $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
     }
-
-    $armLocation = $Region.ToLower() -replace '\s', ''
 
     # Build filter for the API - get Linux consumption pricing
     $filter = "armRegionName eq '$armLocation' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'"
