@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- Reverted session docs committed without authorization (PR #94)
+
 ## [1.12.4] - 2026-03-21
 
 ### Fixed
