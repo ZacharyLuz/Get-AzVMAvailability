@@ -47,7 +47,7 @@ function Get-AzActualPricing {
         $armUrl = $AzureEndpoints.ResourceManagerUrl
 
         # Get access token for Azure Resource Manager (uses environment-specific URL)
-        $token = (Get-AzAccessToken -ResourceUrl $armUrl).Token
+        $token = (Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop).Token
         $headers = @{
             'Authorization' = "Bearer $token"
             'Content-Type'  = 'application/json'

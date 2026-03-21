@@ -622,11 +622,19 @@ if ($AutoExport -and -not $ExportPath) {
 #endregion Configuration
 #region Module Import / Inline Fallback
 $script:ModuleRoot = Join-Path $PSScriptRoot 'AzVMAvailability'
+$script:ModuleLoaded = $false
 if (Test-Path (Join-Path $script:ModuleRoot 'AzVMAvailability.psd1')) {
-    Import-Module $script:ModuleRoot -Force -DisableNameChecking -ErrorAction Stop
-    Write-Verbose "Loaded functions from AzVMAvailability module"
-} else {
-    Write-Verbose "AzVMAvailability module not found - using inline function definitions"
+    try {
+        Import-Module $script:ModuleRoot -Force -DisableNameChecking -ErrorAction Stop
+        $script:ModuleLoaded = $true
+        Write-Verbose "Loaded functions from AzVMAvailability module"
+    }
+    catch {
+        Write-Verbose "AzVMAvailability module failed to load: $($_.Exception.Message) - using inline function definitions"
+    }
+}
+if (-not $script:ModuleLoaded) {
+    Write-Verbose "Using inline function definitions"
 #region Inline Function Definitions
 
 function Get-SafeString {
@@ -2316,12 +2324,17 @@ function Get-AzVMPricing {
         $Caches.Pricing = @{}
     }
 
+    $armLocation = $Region.ToLower() -replace '\s', ''
+
+    # Return cached pricing if already fetched this region
+    if ($Caches.Pricing.ContainsKey($armLocation) -and $Caches.Pricing[$armLocation]) {
+        return $Caches.Pricing[$armLocation]
+    }
+
     # Get environment-specific endpoints (supports sovereign clouds)
     if (-not $AzureEndpoints) {
         $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
     }
-
-    $armLocation = $Region.ToLower() -replace '\s', ''
 
     # Build filter for the API - get Linux consumption pricing
     $filter = "armRegionName eq '$armLocation' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'"
@@ -2580,7 +2593,7 @@ function Get-AzActualPricing {
         $armUrl = $AzureEndpoints.ResourceManagerUrl
 
         # Get access token for Azure Resource Manager (uses environment-specific URL)
-        $token = (Get-AzAccessToken -ResourceUrl $armUrl).Token
+        $token = (Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop).Token
         $headers = @{
             'Authorization' = "Bearer $token"
             'Content-Type'  = 'application/json'
