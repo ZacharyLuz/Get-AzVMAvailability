@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Session notes and handoff prompt for PR #93 (docs only)
+
 ## [1.12.4] - 2026-03-21
 
 ### Fixed
