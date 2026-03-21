@@ -19,37 +19,53 @@ function Get-MainScriptAst {
     return $ast
 }
 
+# Module-level cache for parsed function definitions (populated once, reused across lookups)
+$script:ModuleFunctionCache = $null
+
 function Find-FunctionInModule {
     <#
     .SYNOPSIS
         Searches the AzVMAvailability module Private/ directory for a function definition.
     .DESCRIPTION
-        Scans all .ps1 files in AzVMAvailability/Private/ subdirectories for the named function.
-        Returns the function definition text if found, $null otherwise.
+        Parses all .ps1 files in AzVMAvailability/Private/ on first call, caches results,
+        and returns cached definitions on subsequent calls. Throws on parse errors.
     #>
     param(
         [Parameter(Mandatory)]
         [string]$FunctionName
     )
 
-    $moduleRoot = Join-Path $PSScriptRoot '..\AzVMAvailability\Private'
-    if (-not (Test-Path $moduleRoot)) { return $null }
+    # Build cache on first call
+    if ($null -eq $script:ModuleFunctionCache) {
+        $script:ModuleFunctionCache = @{}
+        $moduleRoot = Join-Path $PSScriptRoot '..\AzVMAvailability\Private'
+        if (-not (Test-Path $moduleRoot)) { return $null }
 
-    foreach ($file in (Get-ChildItem -Path $moduleRoot -Filter '*.ps1' -Recurse -File)) {
-        $tokens = $null
-        $parseErrors = $null
-        $fileAst = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$parseErrors)
-        $funcAst = $fileAst.Find(
-            {
-                param($node)
-                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-                $node.Name -eq $FunctionName
-            },
-            $true
-        )
-        if ($funcAst) {
-            return $funcAst.Extent.Text
+        foreach ($file in (Get-ChildItem -Path $moduleRoot -Filter '*.ps1' -Recurse -File)) {
+            $tokens = $null
+            $parseErrors = $null
+            $fileAst = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$parseErrors)
+
+            if ($parseErrors -and $parseErrors.Count -gt 0) {
+                $messages = ($parseErrors | ForEach-Object { $_.Message }) -join '; '
+                throw "Syntax error in module file '$($file.FullName)': $messages"
+            }
+
+            $functions = $fileAst.FindAll(
+                {
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+                },
+                $true
+            )
+            foreach ($funcAst in $functions) {
+                $script:ModuleFunctionCache[$funcAst.Name] = $funcAst.Extent.Text
+            }
         }
+    }
+
+    if ($script:ModuleFunctionCache.ContainsKey($FunctionName)) {
+        return $script:ModuleFunctionCache[$FunctionName]
     }
     return $null
 }

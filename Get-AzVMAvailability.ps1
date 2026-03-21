@@ -125,7 +125,7 @@
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
     Created:        2026-01-21
-    Version:        1.12.2
+    Version:        2.0.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -456,7 +456,7 @@ if ($Fleet -and $Fleet.Count -gt 0) {
 }
 
 #region Configuration
-$ScriptVersion = "1.12.2"
+$ScriptVersion = "2.0.0"
 
 #region Constants
 $HoursPerMonth = 730
@@ -623,7 +623,7 @@ if ($AutoExport -and -not $ExportPath) {
 #region Module Import
 $script:ModuleRoot = Join-Path $PSScriptRoot 'AzVMAvailability'
 if (Test-Path (Join-Path $script:ModuleRoot 'AzVMAvailability.psd1')) {
-    Import-Module $script:ModuleRoot -Force -DisableNameChecking
+    Import-Module $script:ModuleRoot -Force -DisableNameChecking -ErrorAction Stop
 } else {
     throw "AzVMAvailability module not found at $script:ModuleRoot. Ensure the AzVMAvailability/ directory exists."
 }
