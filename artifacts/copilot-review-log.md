@@ -1,6 +1,61 @@
 # Copilot Review Log
 
 ---
+## PR #89 — feat: module scaffold — extract 34 functions into AzVMAvailability/ module
+**Date:** 2026-03-21 | **Branch:** feature/module-scaffold | **Commit:** ab28069
+
+### Round 2 (post-fix re-review, commit 908e2d8)
+
+### Comment 5
+**File:** `CHANGELOG.md:25`
+**Copilot Finding:** "The 2.0.0 changelog entry says the version references were synced to 1.12.2, but this PR bumps those references to 2.0.0. Update this line so the release notes accurately describe what changed in 2.0.0."
+**Assessment:** Agree
+**Reasoning:** The two `### Fixed` entries described 1.12.2 work carried over from `[Unreleased]` — they don't belong under the `[2.0.0]` heading.
+**Action Taken:** Fixed — Moved the two Fixed entries back under `[1.12.2]` where they belong.
+
+### Comment 6
+**File:** `AzVMAvailability/AzVMAvailability.psm1:2`
+**Copilot Finding:** "The header comment claims this loader dot-sources both private and public function files, but the implementation only dot-sources Private/* directories."
+**Assessment:** Agree
+**Reasoning:** No `Public/` folder exists yet. Comment should match reality.
+**Action Taken:** Fixed — Updated comment to "Dot-sources all private function files in dependency order".
+
+### Comment 7
+**File:** `AzVMAvailability/Private/Format/Invoke-RecommendMode.ps1:42`
+**Copilot Finding:** "`Invoke-RecommendMode` declares `MinScore` as `[Nullable[int]]` with no default, but later passes it to `New-RecommendOutputContract -MinScore` where the parameter type is `[int]`. If `-MinScore` is omitted, `$null` will be coerced to `0`."
+**Assessment:** Disagree
+**Reasoning:** `[Nullable[int]]` is intentional — it distinguishes "user didn't set MinScore" from "user explicitly set -MinScore 0" (show all candidates). The caller (`Get-AzVMAvailability.ps1`) applies the project default (50) via `$MinRecommendationScoreDefault` before invoking this function. Changing to `[int] = 0` would make it impossible to distinguish these two cases, breaking the documented `-MinScore 0` workflow. The null-to-0 coercion at the contract level is acceptable because by that point, filtering has already occurred.
+**Action Taken:** No change — existing behavior is correct by design.
+
+### Comment 1
+**File:** `Get-AzVMAvailability.ps1:629`
+**Copilot Finding:** "This PR describes a v2.0.0 module scaffold, and the module manifest is set to `ModuleVersion = '2.0.0'`, but the main script still declares `Version: 1.12.2` in `.NOTES` and `$ScriptVersion = "1.12.2"`. With the script now depending on the module, these versions should be aligned (or the PR description adjusted) to avoid confusing releases and version-consistency checks."
+**Assessment:** Agree
+**Reasoning:** Module manifest at 2.0.0 with script at 1.12.2 creates version drift. All 7 Validate-Script version locations must be consistent.
+**Action Taken:** Fixed — Bumped `$ScriptVersion`, `.NOTES Version`, README badge, README sample output, ROADMAP, demo/DEMO-GUIDE.md to 2.0.0. Added CHANGELOG [2.0.0] entry.
+
+### Comment 2
+**File:** `tests/TestHarness.psm1:52`
+**Copilot Finding:** "`Find-FunctionInModule` ignores `$parseErrors` from `Parser::ParseFile`. If a module file has a syntax error, this helper may silently return `$null` (or a partial AST) and tests will fall back to the main script, masking the real failure. Consider checking `$parseErrors` and throwing with a helpful message that includes the file path and error text."
+**Assessment:** Agree
+**Reasoning:** Silent fallback on parse errors would mask real syntax problems in extracted module files — tests would pass using stale main-script AST while module files are broken.
+**Action Taken:** Fixed — Added `$parseErrors` check after `ParseFile` that throws with file path and error messages.
+
+### Comment 3
+**File:** `tests/TestHarness.psm1:41`
+**Copilot Finding:** "`Find-FunctionInModule` reparses every `AzVMAvailability/Private/**/*.ps1` file on every lookup. Several test suites call `Get-MainScriptFunctionDefinition` in a loop (10+ functions), which makes this O(functions × files) parsing and can noticeably slow down the Pester run. Consider building a one-time cache (e.g., a hashtable mapping function name → definition text) the first time this helper is called and reusing it for subsequent lookups."
+**Assessment:** Agree
+**Reasoning:** With 34 module files and 10+ function lookups per test suite, re-parsing is wasteful. Module files don't change during test execution.
+**Action Taken:** Fixed — Added `$script:ModuleFunctionCache` hashtable populated on first call. All 34 files parsed once, subsequent lookups served from cache. O(files) once vs O(functions × files) per suite.
+
+### Comment 4
+**File:** `Get-AzVMAvailability.ps1:627`
+**Copilot Finding:** "`Import-Module` is invoked without `-ErrorAction Stop`. If the module import fails (parse error, missing dependency, etc.), PowerShell will emit a non-terminating error and this script will continue until it later fails with 'cmdlet not found'. Consider adding `-ErrorAction Stop`."
+**Assessment:** Agree
+**Reasoning:** Non-terminating error on module load would cascade into confusing downstream failures. Fail-fast is the correct behavior.
+**Action Taken:** Fixed — Added `-ErrorAction Stop` to `Import-Module` call.
+
+---
 ## PR #33 — feat: v1.11.0 — placement scores, spot pricing, interactive prompts
 **Date:** 2026-03-12 | **Branch:** feature/placement-score-phase1 | **Commit:** c3004ae
 

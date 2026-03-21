@@ -7,11 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-03-21
+
+### Changed
+- **Module conversion:** Extracted all 34 functions from monolithic `Get-AzVMAvailability.ps1` into `AzVMAvailability/` module with Private/ subdirectory layout (#5)
+- Root script now imports `AzVMAvailability` module instead of defining functions inline (2,028 lines removed from main script)
+- Removed dead `$script:CachedValidRegions` variable
+
+### Added
+- `AzVMAvailability/AzVMAvailability.psd1` — module manifest (PSGallery-ready, declares Az module dependencies)
+- `AzVMAvailability/AzVMAvailability.psm1` — dependency-ordered dot-source loader
+- 34 function files across `Private/Azure/`, `Private/SKU/`, `Private/Image/`, `Private/Fleet/`, `Private/Format/`, `Private/Utility/`
+- `Find-FunctionInModule` in TestHarness.psm1 — module-aware function discovery with AST caching and parse error checking
+
+## [1.12.2] - 2026-03-20
+
 ### Fixed
 - Synced 4 stale version references to 1.12.2: README badge, README sample output, ROADMAP Current Release, demo/DEMO-GUIDE.md
 - Expanded `Validate-Script.ps1` Check 5 with 2 new validation points (README sample output, demo/DEMO-GUIDE.md) — now validates 7 locations for version drift
-
-## [1.12.2] - 2026-03-20
 
 ### Changed
 - Replaced all 9 `exit` calls with `throw` (error paths) and `return` (user cancellation) for module safety — script no longer kills the caller's session when dot-sourced (#68)
