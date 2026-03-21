@@ -1,5 +1,5 @@
 # AzVMAvailability Module Loader
-# Dot-sources all private and public function files
+# Dot-sources all private function files in dependency order
 
 $ModuleRoot = $PSScriptRoot
 

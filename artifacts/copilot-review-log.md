@@ -4,6 +4,29 @@
 ## PR #89 — feat: module scaffold — extract 34 functions into AzVMAvailability/ module
 **Date:** 2026-03-21 | **Branch:** feature/module-scaffold | **Commit:** ab28069
 
+### Round 2 (post-fix re-review, commit 908e2d8)
+
+### Comment 5
+**File:** `CHANGELOG.md:25`
+**Copilot Finding:** "The 2.0.0 changelog entry says the version references were synced to 1.12.2, but this PR bumps those references to 2.0.0. Update this line so the release notes accurately describe what changed in 2.0.0."
+**Assessment:** Agree
+**Reasoning:** The two `### Fixed` entries described 1.12.2 work carried over from `[Unreleased]` — they don't belong under the `[2.0.0]` heading.
+**Action Taken:** Fixed — Moved the two Fixed entries back under `[1.12.2]` where they belong.
+
+### Comment 6
+**File:** `AzVMAvailability/AzVMAvailability.psm1:2`
+**Copilot Finding:** "The header comment claims this loader dot-sources both private and public function files, but the implementation only dot-sources Private/* directories."
+**Assessment:** Agree
+**Reasoning:** No `Public/` folder exists yet. Comment should match reality.
+**Action Taken:** Fixed — Updated comment to "Dot-sources all private function files in dependency order".
+
+### Comment 7
+**File:** `AzVMAvailability/Private/Format/Invoke-RecommendMode.ps1:42`
+**Copilot Finding:** "`Invoke-RecommendMode` declares `MinScore` as `[Nullable[int]]` with no default, but later passes it to `New-RecommendOutputContract -MinScore` where the parameter type is `[int]`. If `-MinScore` is omitted, `$null` will be coerced to `0`."
+**Assessment:** Disagree
+**Reasoning:** `[Nullable[int]]` is intentional — it distinguishes "user didn't set MinScore" from "user explicitly set -MinScore 0" (show all candidates). The caller (`Get-AzVMAvailability.ps1`) applies the project default (50) via `$MinRecommendationScoreDefault` before invoking this function. Changing to `[int] = 0` would make it impossible to distinguish these two cases, breaking the documented `-MinScore 0` workflow. The null-to-0 coercion at the contract level is acceptable because by that point, filtering has already occurred.
+**Action Taken:** No change — existing behavior is correct by design.
+
 ### Comment 1
 **File:** `Get-AzVMAvailability.ps1:629`
 **Copilot Finding:** "This PR describes a v2.0.0 module scaffold, and the module manifest is set to `ModuleVersion = '2.0.0'`, but the main script still declares `Version: 1.12.2` in `.NOTES` and `$ScriptVersion = "1.12.2"`. With the script now depending on the module, these versions should be aligned (or the PR description adjusted) to avoid confusing releases and version-consistency checks."

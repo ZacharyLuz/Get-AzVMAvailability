@@ -20,11 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 34 function files across `Private/Azure/`, `Private/SKU/`, `Private/Image/`, `Private/Fleet/`, `Private/Format/`, `Private/Utility/`
 - `Find-FunctionInModule` in TestHarness.psm1 — module-aware function discovery with AST caching and parse error checking
 
+## [1.12.2] - 2026-03-20
+
 ### Fixed
 - Synced 4 stale version references to 1.12.2: README badge, README sample output, ROADMAP Current Release, demo/DEMO-GUIDE.md
 - Expanded `Validate-Script.ps1` Check 5 with 2 new validation points (README sample output, demo/DEMO-GUIDE.md) — now validates 7 locations for version drift
-
-## [1.12.2] - 2026-03-20
 
 ### Changed
 - Replaced all 9 `exit` calls with `throw` (error paths) and `return` (user cancellation) for module safety — script no longer kills the caller's session when dot-sourced (#68)
