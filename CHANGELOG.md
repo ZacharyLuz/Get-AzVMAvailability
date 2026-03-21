@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Added `edited` trigger type to `release-metadata-guard.yml` so PR body checkbox changes re-run the guard without needing an empty commit workaround
+
 ### Changed
 - Broadened `.gitignore` patterns for session/handoff docs (`docs/*handoff*`, `docs/*session-notes*`)
 - Removed accidentally committed session docs from tracking (local copies preserved in `docs/archive/`)
