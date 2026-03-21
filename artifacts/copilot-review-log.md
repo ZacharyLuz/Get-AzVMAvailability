@@ -1,130 +1,6 @@
 # Copilot Review Log
 
 ---
-## PR #91 -- fix: restore inline function fallback for single-file downloads
-**Date:** 2026-03-21 | **Branch:** fix/inline-function-fallback | **Commit:** e15f670..b9f3382
-
-### Comment 1
-**File:** `Get-AzVMAvailability.ps1:1422`
-**Copilot Finding:** "Test-ImportExcelModule uses a silent catch. Add Write-Verbose."
-**Assessment:** Agree
-**Action Taken:** Fixed in both inline and module copies.
-
-### Comment 2
-**File:** `Get-AzVMAvailability.ps1:2138`
-**Copilot Finding:** "Orphan #endregion Helper Functions and unclosed #region Image Compatibility Functions."
-**Assessment:** Agree
-**Action Taken:** Removed orphan markers from inline fallback block.
-
-### Comment 3
-**File:** `Get-AzVMAvailability.ps1:629`
-**Copilot Finding:** "Import-Module failure should fall back to inline instead of throwing."
-**Assessment:** Agree
-**Action Taken:** Wrapped Import-Module in try/catch with Write-Verbose on failure, falls through to inline definitions.
-
-### Comment 4
-**File:** `Get-AzVMAvailability.ps1:2583`
-**Copilot Finding:** "Get-AzAccessToken missing -ErrorAction Stop in Get-AzActualPricing."
-**Assessment:** Agree
-**Action Taken:** Added -ErrorAction Stop. Fixed in both inline and module copies.
-
-### Comment 5
-**File:** `Get-AzVMAvailability.ps1:2325`
-**Copilot Finding:** "Get-AzVMPricing doesn't check cache before calling Retail Prices API."
-**Assessment:** Agree
-**Action Taken:** Added early cache return. Fixed in both inline and module copies.
-
-### Comment 6
-**File:** `Get-AzVMAvailability.ps1:633`
-**Copilot Finding:** "No test to detect drift between module and inline function copies."
-**Assessment:** Defer
-**Reasoning:** Valid concern. Adding a drift-detection Pester test is a separate follow-up PR.
-**Action Taken:** Logged for follow-up.
-
----
-## PR #90 -- fix: revert premature v2.0.0 version bump -- set to 1.12.3
-**Date:** 2026-03-21 | **Branch:** fix/revert-version-bump | **Commit:** 0385d39..f2b4a5e
-
-### Comment 1
-**File:** `Get-AzVMAvailability.ps1:459`
-**Copilot Finding:** "Reverting to 1.12.2 will break release automation (tag already exists)."
-**Assessment:** Agree
-**Action Taken:** Bumped to 1.12.3 instead.
-
-### Comment 2
-**File:** `AzVMAvailability/AzVMAvailability.psd1:3`
-**Copilot Finding:** "Rolling ModuleVersion back to 1.12.2 reuses already-released version."
-**Assessment:** Agree
-**Action Taken:** Set to 1.12.3 to keep versioning monotonic.
-
-### Comment 3
-**File:** `Get-AzVMAvailability.ps1:460`
-**Copilot Finding:** "PR says 1.12.2 but code is 1.12.3; auto-release will create v1.12.3 tag."
-**Assessment:** Agree (stale PR description)
-**Action Taken:** Updated PR description before merge.
-
-### Comment 4
-**File:** `CHANGELOG.md:11`
-**Copilot Finding:** "PR says entries moved to [Unreleased] but diff shows [1.12.3] section."
-**Assessment:** Agree (stale PR description)
-**Action Taken:** Updated PR description before merge.
-
----
-## PR #89 -- feat: module scaffold -- extract 34 functions into AzVMAvailability/ module
-**Date:** 2026-03-21 | **Branch:** feature/module-scaffold | **Commit:** ab28069
-
-### Round 2 (post-fix re-review, commit 908e2d8)
-
-### Comment 5
-**File:** `CHANGELOG.md:25`
-**Copilot Finding:** "The 2.0.0 changelog entry says the version references were synced to 1.12.2, but this PR bumps those references to 2.0.0. Update this line so the release notes accurately describe what changed in 2.0.0."
-**Assessment:** Agree
-**Reasoning:** The two `### Fixed` entries described 1.12.2 work carried over from `[Unreleased]` — they don't belong under the `[2.0.0]` heading.
-**Action Taken:** Fixed — Moved the two Fixed entries back under `[1.12.2]` where they belong.
-
-### Comment 6
-**File:** `AzVMAvailability/AzVMAvailability.psm1:2`
-**Copilot Finding:** "The header comment claims this loader dot-sources both private and public function files, but the implementation only dot-sources Private/* directories."
-**Assessment:** Agree
-**Reasoning:** No `Public/` folder exists yet. Comment should match reality.
-**Action Taken:** Fixed — Updated comment to "Dot-sources all private function files in dependency order".
-
-### Comment 7
-**File:** `AzVMAvailability/Private/Format/Invoke-RecommendMode.ps1:42`
-**Copilot Finding:** "`Invoke-RecommendMode` declares `MinScore` as `[Nullable[int]]` with no default, but later passes it to `New-RecommendOutputContract -MinScore` where the parameter type is `[int]`. If `-MinScore` is omitted, `$null` will be coerced to `0`."
-**Assessment:** Disagree
-**Reasoning:** `[Nullable[int]]` is intentional — it distinguishes "user didn't set MinScore" from "user explicitly set -MinScore 0" (show all candidates). The caller (`Get-AzVMAvailability.ps1`) applies the project default (50) via `$MinRecommendationScoreDefault` before invoking this function. Changing to `[int] = 0` would make it impossible to distinguish these two cases, breaking the documented `-MinScore 0` workflow. The null-to-0 coercion at the contract level is acceptable because by that point, filtering has already occurred.
-**Action Taken:** No change — existing behavior is correct by design.
-
-### Comment 1
-**File:** `Get-AzVMAvailability.ps1:629`
-**Copilot Finding:** "This PR describes a v2.0.0 module scaffold, and the module manifest is set to `ModuleVersion = '2.0.0'`, but the main script still declares `Version: 1.12.2` in `.NOTES` and `$ScriptVersion = "1.12.2"`. With the script now depending on the module, these versions should be aligned (or the PR description adjusted) to avoid confusing releases and version-consistency checks."
-**Assessment:** Agree
-**Reasoning:** Module manifest at 2.0.0 with script at 1.12.2 creates version drift. All 7 Validate-Script version locations must be consistent.
-**Action Taken:** Fixed — Bumped `$ScriptVersion`, `.NOTES Version`, README badge, README sample output, ROADMAP, demo/DEMO-GUIDE.md to 2.0.0. Added CHANGELOG [2.0.0] entry.
-
-### Comment 2
-**File:** `tests/TestHarness.psm1:52`
-**Copilot Finding:** "`Find-FunctionInModule` ignores `$parseErrors` from `Parser::ParseFile`. If a module file has a syntax error, this helper may silently return `$null` (or a partial AST) and tests will fall back to the main script, masking the real failure. Consider checking `$parseErrors` and throwing with a helpful message that includes the file path and error text."
-**Assessment:** Agree
-**Reasoning:** Silent fallback on parse errors would mask real syntax problems in extracted module files — tests would pass using stale main-script AST while module files are broken.
-**Action Taken:** Fixed — Added `$parseErrors` check after `ParseFile` that throws with file path and error messages.
-
-### Comment 3
-**File:** `tests/TestHarness.psm1:41`
-**Copilot Finding:** "`Find-FunctionInModule` reparses every `AzVMAvailability/Private/**/*.ps1` file on every lookup. Several test suites call `Get-MainScriptFunctionDefinition` in a loop (10+ functions), which makes this O(functions × files) parsing and can noticeably slow down the Pester run. Consider building a one-time cache (e.g., a hashtable mapping function name → definition text) the first time this helper is called and reusing it for subsequent lookups."
-**Assessment:** Agree
-**Reasoning:** With 34 module files and 10+ function lookups per test suite, re-parsing is wasteful. Module files don't change during test execution.
-**Action Taken:** Fixed — Added `$script:ModuleFunctionCache` hashtable populated on first call. All 34 files parsed once, subsequent lookups served from cache. O(files) once vs O(functions × files) per suite.
-
-### Comment 4
-**File:** `Get-AzVMAvailability.ps1:627`
-**Copilot Finding:** "`Import-Module` is invoked without `-ErrorAction Stop`. If the module import fails (parse error, missing dependency, etc.), PowerShell will emit a non-terminating error and this script will continue until it later fails with 'cmdlet not found'. Consider adding `-ErrorAction Stop`."
-**Assessment:** Agree
-**Reasoning:** Non-terminating error on module load would cascade into confusing downstream failures. Fail-fast is the correct behavior.
-**Action Taken:** Fixed — Added `-ErrorAction Stop` to `Import-Module` call.
-
----
 ## PR #33 — feat: v1.11.0 — placement scores, spot pricing, interactive prompts
 **Date:** 2026-03-12 | **Branch:** feature/placement-score-phase1 | **Commit:** c3004ae
 
@@ -213,96 +89,6 @@ Date: 2026-03-12
 - **Assessment:** Agree
 - **Reasoning:** The workflow fires post-merge via `push` trigger. Telling the engineer to fix something "before merging" after it has already merged is confusing and describes the wrong remediation point.
 - **Action taken:** Reworded to "A version bump is required; ScriptVersion must not be lower than the latest tag."
-
----
-## PR #35 — feat(skill): add azure-vm-availability Copilot skill
-**Date:** 2026-03-12 | **Branch:** feat/copilot-skill | **Commit:** (merged)
-
-### Comment 1
-**File:** `.github/skills/azure-vm-availability/SKILL.md:7`
-**Copilot Finding:** "Version `"1.1.0"` appears to be a typo — the script version is `"1.11.0"`. Should be `"1.11.0"` to match the script."
-**Assessment:** Disagree
-**Reasoning:** Line 7 includes an explicit inline comment `# Skill version (independent of script version 1.11.0)`. The skill has its own semver lifecycle independent of the script. The "typo" is intentional versioning.
-**Action:** No change. Inline comment in source already suppresses this concern.
-
-### Comment 2
-**File:** `.github/skills/azure-vm-availability/SKILL.md:328`
-**Copilot Finding:** "JSON schema example is missing fields: `purpose`, `gen`, `arch`, `cpu`, `disk`, `tempDiskGB`, `accelNet`, `TempDiskGB`, `AccelNet`."
-**Assessment:** Disagree
-**Reasoning:** Lines 332-336 of SKILL.md contain an explicit "Note:" block stating "The examples above show key fields for brevity. In actual output, each `recommendations` object also includes `purpose`, `gen`, `arch`, `cpu`, `disk`, `tempDiskGB`, and `accelNet`." The omission is intentional and documented.
-**Action:** No change.
-
-### Comment 3
-**File:** `README.md:433`
-**Copilot Finding:** "The claim that skills are automatically discovered when placed in `~/.agents/skills/` is not accurate for VS Code Copilot — there is no such auto-discovery mechanism."
-**Assessment:** Disagree
-**Reasoning:** The user has a real personal skill system at `C:\Users\zaluz\.agents\skills\` with 20+ skills loaded via a custom MCP server (not VS Code built-in). The README is accurately describing the user's actual system, not claiming a VS Code built-in feature.
-**Action:** No change.
-
-### Comment 4
-**File:** `README.md:411`
-**Copilot Finding:** "New Copilot skill should be documented in CHANGELOG.md under `[Unreleased]`."
-**Assessment:** Disagree
-**Reasoning:** CHANGELOG.md line 27 already contains the entry: "Copilot skill (`.github/skills/azure-vm-availability/SKILL.md`) for AI agent integration" in the `[1.11.1]` section. Entry was added in a subsequent commit before the release cut.
-**Action:** No change.
-
----
-## PR #36 — chore(release): v1.11.1 — Copilot skill for agent-driven VM availability scans
-**Date:** 2026-03-12 | **Branch:** release/v1.11.1 | **Commit:** (merged)
-
-### Comment 1
-**File:** `CHANGELOG.md:14`
-**Copilot Finding:** "PR checklist says 'Tag v1.11.1 already pushed' but repo guardrails require tagging after merge so the tag points at the merge commit."
-**Assessment:** Partially Agree
-**Reasoning:** The tag was pushed before the PR was merged, which violates the release guardrail ("Tag and release only after PR merge — never tag before merging"). Historical — already released. The release-process-guardrails skill documents this explicitly. Cannot retroactively fix the tag provenance.
-**Action:** Historical note only. No code change possible. This reinforces the importance of the release guardrail CI enforcement.
-
----
-## PR #37 — chore(tools): expand pre-commit lint to tools/*.ps1, exclude PSUseBOMForUnicodeEncodedFile
-**Date:** 2026-03-12 | **Branch:** chore/expand-lint-coverage | **Commit:** (merged)
-
-### Comment 1
-**File:** `tools/Validate-Script.ps1:64`
-**Copilot Finding:** "`$relPath` computation assumes Windows-style path separators (`$repoRoot + '\'`). Consider using `[System.IO.Path]::GetRelativePath()` (PowerShell 7+)."
-**Assessment:** Disagree
-**Reasoning:** Current code at line 64 already reads `[System.IO.Path]::GetRelativePath($repoRoot, $issue.ScriptPath)`. Copilot reviewed an earlier version of the file before the fix was in the PR. The suggestion is already implemented.
-**Action:** No change.
-
----
-## PR #38 — test: add coverage for 4 untested helper functions (142 to 182 tests)
-**Date:** 2026-03-12 | **Branch:** test/expand-helper-coverage | **Commit:** (merged)
-
-### Comment 1
-**File:** `tests/HelperFunctions.Tests.ps1:25`
-**Copilot Finding:** "`$MBPerGB` is hardcoded to 1024 — consider importing via `Get-MainScriptVariableAssignment` instead."
-**Assessment:** Disagree
-**Reasoning:** Line 24 includes an explicit comment: "Get-SkuCapabilities reads $MBPerGB from parent scope (known tech debt)". The value 1024 is a universal constant (bytes-per-GB) that has not and will not change. The hardcoded approach is an intentional workaround documented in copilot-instructions.md under "Parent-Scope Implicit Dependencies". Using `Get-MainScriptVariableAssignment` for a universal constant adds fragility without benefit.
-**Action:** No change.
-
-### Comment 2
-**File:** `tests/ImageCompatibility.Tests.ps1:3`
-**Copilot Finding:** "Header comment suggests `-Output Detailed` without log file redirect. Repo guidance recommends `*> artifacts/test-run.log` to avoid terminal freezes."
-**Assessment:** Agree
-**Reasoning:** Consistent with the pester-log-first-validation-pattern skill and existing test file patterns. Trivial fix.
-**Action:** Fixed — updated header comment to `Invoke-Pester .\tests\ImageCompatibility.Tests.ps1 -Output Detailed *> artifacts/test-run.log`.
-
-### Comment 3
-**File:** `tests/ImageCompatibility.Tests.ps1:57`
-**Copilot Finding:** "`aarch64` sets `Arch=ARM64` but leaves `Gen=Gen1` because `aarch64` isn't in the Gen detection regex. Inconsistent with `arm64` which correctly sets Gen2."
-**Assessment:** Agree
-**Reasoning:** In `Get-ImageRequirements` (main script line 1765), the Gen2 regex matches `arm64` but not `aarch64`. The Arch regex at line 1778 matches both. Since all Azure ARM64 (Ampere Altra) VMs require Gen2 UEFI, `aarch64` should also trigger Gen2 detection. The inconsistency would cause `aarch64`-keyed SKUs to incorrectly pass Gen1-only VMs as compatible.
-**Action:** Fixed — added `aarch64` to Gen2 regex in `Get-AzVMAvailability.ps1` line 1765. Added `$result.Gen | Should -Be 'Gen2'` assertion to the `aarch64` test in `ImageCompatibility.Tests.ps1`.
-
----
-## PR #39 — chore: add scheduled tooling health check + PR template coverage gate
-**Date:** 2026-03-12 | **Branch:** chore/scheduled-health-check | **Commit:** (merged)
-
-### Comment 1
-**File:** `.github/workflows/scheduled-health-check.yml:54`
-**Copilot Finding:** "Deduplication guard can incorrectly treat literal string 'null' as an existing issue. Update jq filter to use `.[0].number // empty`."
-**Assessment:** Disagree
-**Reasoning:** The current code at line 49 already uses `--jq '.[0].number // empty'`. The `// empty` jq alternative was already included in the PR. Copilot reviewed an earlier commit of the PR before the fix was added. The guard correctly uses `[string]::IsNullOrWhiteSpace($existing)` on the output of `// empty`.
-**Action:** No change.
 
 ---
 ## PR #35 — feat(skill): add azure-vm-availability Copilot skill
@@ -554,3 +340,127 @@ Date: 2026-03-12
 | 3 | Get-AzVMAvailability.ps1:1856 | "[Nullable[int]]$MinScore with no default could cause issues when passed to [int]$MinScore in New-RecommendOutputContract." | **Disagree** | MinScore is intentionally nullable: null = no minimum filter (skip filtering), 0 = keep all with score >= 0. Both callers pass the script param value which has a default. Null->0 coercion in the contract is correct (0 = no filter in JSON). | No action — intentional design. |
 | 4 | Get-AzVMAvailability.ps1:2214 | "Bare 1024 is a magic number — reintroduced when $MBPerGB was removed." | **Agree** | Should be self-documenting. | Fixed in fdd2efe: local constant $MiBPerGiB = 1024. |
 | 5 | tests/Get-ValidAzureRegions.Tests.ps1:18 | "$script:TestAzureEndpoints is initialized but never used — dead test setup state." | **Agree** | Leftover from refactoring. | Fixed in fdd2efe: removed. |
+---
+## PR #89 -- feat: module scaffold -- extract 34 functions into AzVMAvailability/ module
+**Date:** 2026-03-21 | **Branch:** feature/module-scaffold | **Commit:** ab28069
+
+### Round 2 (post-fix re-review, commit 908e2d8)
+
+### Comment 5
+**File:** `CHANGELOG.md:25`
+**Copilot Finding:** "The 2.0.0 changelog entry says the version references were synced to 1.12.2, but this PR bumps those references to 2.0.0. Update this line so the release notes accurately describe what changed in 2.0.0."
+**Assessment:** Agree
+**Reasoning:** The two `### Fixed` entries described 1.12.2 work carried over from `[Unreleased]` — they don't belong under the `[2.0.0]` heading.
+**Action Taken:** Fixed — Moved the two Fixed entries back under `[1.12.2]` where they belong.
+
+### Comment 6
+**File:** `AzVMAvailability/AzVMAvailability.psm1:2`
+**Copilot Finding:** "The header comment claims this loader dot-sources both private and public function files, but the implementation only dot-sources Private/* directories."
+**Assessment:** Agree
+**Reasoning:** No `Public/` folder exists yet. Comment should match reality.
+**Action Taken:** Fixed — Updated comment to "Dot-sources all private function files in dependency order".
+
+### Comment 7
+**File:** `AzVMAvailability/Private/Format/Invoke-RecommendMode.ps1:42`
+**Copilot Finding:** "`Invoke-RecommendMode` declares `MinScore` as `[Nullable[int]]` with no default, but later passes it to `New-RecommendOutputContract -MinScore` where the parameter type is `[int]`. If `-MinScore` is omitted, `$null` will be coerced to `0`."
+**Assessment:** Disagree
+**Reasoning:** `[Nullable[int]]` is intentional — it distinguishes "user didn't set MinScore" from "user explicitly set -MinScore 0" (show all candidates). The caller (`Get-AzVMAvailability.ps1`) applies the project default (50) via `$MinRecommendationScoreDefault` before invoking this function. Changing to `[int] = 0` would make it impossible to distinguish these two cases, breaking the documented `-MinScore 0` workflow. The null-to-0 coercion at the contract level is acceptable because by that point, filtering has already occurred.
+**Action Taken:** No change — existing behavior is correct by design.
+
+### Comment 1
+**File:** `Get-AzVMAvailability.ps1:629`
+**Copilot Finding:** "This PR describes a v2.0.0 module scaffold, and the module manifest is set to `ModuleVersion = '2.0.0'`, but the main script still declares `Version: 1.12.2` in `.NOTES` and `$ScriptVersion = "1.12.2"`. With the script now depending on the module, these versions should be aligned (or the PR description adjusted) to avoid confusing releases and version-consistency checks."
+**Assessment:** Agree
+**Reasoning:** Module manifest at 2.0.0 with script at 1.12.2 creates version drift. All 7 Validate-Script version locations must be consistent.
+**Action Taken:** Fixed — Bumped `$ScriptVersion`, `.NOTES Version`, README badge, README sample output, ROADMAP, demo/DEMO-GUIDE.md to 2.0.0. Added CHANGELOG [2.0.0] entry.
+
+### Comment 2
+**File:** `tests/TestHarness.psm1:52`
+**Copilot Finding:** "`Find-FunctionInModule` ignores `$parseErrors` from `Parser::ParseFile`. If a module file has a syntax error, this helper may silently return `$null` (or a partial AST) and tests will fall back to the main script, masking the real failure. Consider checking `$parseErrors` and throwing with a helpful message that includes the file path and error text."
+**Assessment:** Agree
+**Reasoning:** Silent fallback on parse errors would mask real syntax problems in extracted module files — tests would pass using stale main-script AST while module files are broken.
+**Action Taken:** Fixed — Added `$parseErrors` check after `ParseFile` that throws with file path and error messages.
+
+### Comment 3
+**File:** `tests/TestHarness.psm1:41`
+**Copilot Finding:** "`Find-FunctionInModule` reparses every `AzVMAvailability/Private/**/*.ps1` file on every lookup. Several test suites call `Get-MainScriptFunctionDefinition` in a loop (10+ functions), which makes this O(functions × files) parsing and can noticeably slow down the Pester run. Consider building a one-time cache (e.g., a hashtable mapping function name → definition text) the first time this helper is called and reusing it for subsequent lookups."
+**Assessment:** Agree
+**Reasoning:** With 34 module files and 10+ function lookups per test suite, re-parsing is wasteful. Module files don't change during test execution.
+**Action Taken:** Fixed — Added `$script:ModuleFunctionCache` hashtable populated on first call. All 34 files parsed once, subsequent lookups served from cache. O(files) once vs O(functions × files) per suite.
+
+### Comment 4
+**File:** `Get-AzVMAvailability.ps1:627`
+**Copilot Finding:** "`Import-Module` is invoked without `-ErrorAction Stop`. If the module import fails (parse error, missing dependency, etc.), PowerShell will emit a non-terminating error and this script will continue until it later fails with 'cmdlet not found'. Consider adding `-ErrorAction Stop`."
+**Assessment:** Agree
+**Reasoning:** Non-terminating error on module load would cascade into confusing downstream failures. Fail-fast is the correct behavior.
+**Action Taken:** Fixed — Added `-ErrorAction Stop` to `Import-Module` call.
+
+---
+## PR #90 -- fix: revert premature v2.0.0 version bump -- set to 1.12.3
+**Date:** 2026-03-21 | **Branch:** fix/revert-version-bump | **Commit:** 0385d39..f2b4a5e
+
+### Comment 1
+**File:** `Get-AzVMAvailability.ps1:459`
+**Copilot Finding:** "Reverting to 1.12.2 will break release automation (tag already exists)."
+**Assessment:** Agree
+**Action Taken:** Bumped to 1.12.3 instead.
+
+### Comment 2
+**File:** `AzVMAvailability/AzVMAvailability.psd1:3`
+**Copilot Finding:** "Rolling ModuleVersion back to 1.12.2 reuses already-released version."
+**Assessment:** Agree
+**Action Taken:** Set to 1.12.3 to keep versioning monotonic.
+
+### Comment 3
+**File:** `Get-AzVMAvailability.ps1:460`
+**Copilot Finding:** "PR says 1.12.2 but code is 1.12.3; auto-release will create v1.12.3 tag."
+**Assessment:** Agree (stale PR description)
+**Action Taken:** Updated PR description before merge.
+
+### Comment 4
+**File:** `CHANGELOG.md:11`
+**Copilot Finding:** "PR says entries moved to [Unreleased] but diff shows [1.12.3] section."
+**Assessment:** Agree (stale PR description)
+**Action Taken:** Updated PR description before merge.
+
+---
+## PR #91 -- fix: restore inline function fallback for single-file downloads
+**Date:** 2026-03-21 | **Branch:** fix/inline-function-fallback | **Commit:** e15f670..b9f3382
+
+### Comment 1
+**File:** `Get-AzVMAvailability.ps1:1422`
+**Copilot Finding:** "Test-ImportExcelModule uses a silent catch. Add Write-Verbose."
+**Assessment:** Agree
+**Action Taken:** Fixed in both inline and module copies.
+
+### Comment 2
+**File:** `Get-AzVMAvailability.ps1:2138`
+**Copilot Finding:** "Orphan #endregion Helper Functions and unclosed #region Image Compatibility Functions."
+**Assessment:** Agree
+**Action Taken:** Removed orphan markers from inline fallback block.
+
+### Comment 3
+**File:** `Get-AzVMAvailability.ps1:629`
+**Copilot Finding:** "Import-Module failure should fall back to inline instead of throwing."
+**Assessment:** Agree
+**Action Taken:** Wrapped Import-Module in try/catch with Write-Verbose on failure, falls through to inline definitions.
+
+### Comment 4
+**File:** `Get-AzVMAvailability.ps1:2583`
+**Copilot Finding:** "Get-AzAccessToken missing -ErrorAction Stop in Get-AzActualPricing."
+**Assessment:** Agree
+**Action Taken:** Added -ErrorAction Stop. Fixed in both inline and module copies.
+
+### Comment 5
+**File:** `Get-AzVMAvailability.ps1:2325`
+**Copilot Finding:** "Get-AzVMPricing doesn't check cache before calling Retail Prices API."
+**Assessment:** Agree
+**Action Taken:** Added early cache return. Fixed in both inline and module copies.
+
+### Comment 6
+**File:** `Get-AzVMAvailability.ps1:633`
+**Copilot Finding:** "No test to detect drift between module and inline function copies."
+**Assessment:** Defer
+**Reasoning:** Valid concern. Adding a drift-detection Pester test is a separate follow-up PR.
+**Action Taken:** Logged for follow-up.
+
