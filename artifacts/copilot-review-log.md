@@ -464,3 +464,14 @@ Date: 2026-03-12
 **Reasoning:** Valid concern. Adding a drift-detection Pester test is a separate follow-up PR.
 **Action Taken:** Logged for follow-up.
 
+---
+## PR #93 -- chore: bump version to 1.12.4 -- release inline fallback fix
+**Date:** 2026-03-21 | **Branch:** release/v1.12.4 | **Commit:** 689351e..65055e3
+
+### Comment 1
+**File:** `artifacts/copilot-review-log.md:6`
+**Copilot Finding:** "This change inserts new PR sections at the top, which reorders the existing log history. Move new entries to the end of the file to preserve existing ordering."
+**Assessment:** Agree
+**Reasoning:** Git history confirms the file was originally in ascending chronological order (PR #33 at top) from creation through 4 commits. PR #89 was the first to break convention by prepending. Initial reply incorrectly claimed reverse-chronological was the convention; verified via `git show` at each commit that this was wrong.
+**Action Taken:** Fixed -- restored ascending chronological order (PR #89/#90/#91 moved to end). Also removed 5 duplicate PR entries (#35, #36, #37, #38, #39) discovered during the reorder.
+
