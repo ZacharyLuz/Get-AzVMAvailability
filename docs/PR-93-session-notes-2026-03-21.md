@@ -1,6 +1,6 @@
 # PR #93 Session Notes — v1.12.4 Release
 
-> **Storage location:** `docs/PR-93-session-notes-2026-03-21.md` in the repository root.
+> **Storage location:** `docs/PR-93-session-notes-2026-03-21.md` (in `docs/` at the repository root).
 > This file documents the full work session for PR #93.
 
 ---
@@ -31,7 +31,7 @@ v1.12.4 ships that fix.
 |----------|-----------|
 | Release v1.12.4 (not re-tag v1.12.3) | Re-tagging an existing release confuses package managers and users who already pulled v1.12.3. A new patch version is the correct semver approach. |
 | Squash merge | PR had 5 commits (version bump, review log fixes, CI trigger, findings log). Squash keeps main history clean. |
-| Disagree with Copilot "append-only" finding | Removing exact duplicates and restoring original chronological order is data hygiene, not history rewriting. Validated via `git show` at 6 historical commits. |
+| Treat Copilot-review-log dedupe as one-off exception | For PR #93 only, removed exact duplicate lines and restored chronological order in `artifacts/copilot-review-log.md` to repair a prior bad edit; this is documented as a one-time exception, and the standard "never overwrite — always append" policy (no reordering/deletion) remains in force going forward. |
 | Defer psd1 ReleaseNotes fix to v2.0.0 | Module not published to PSGallery yet — the notes provide useful v1.12.4 context for now. |
 | Empty commit to trigger CI | PR body edits don't trigger `pull_request` events (only `synchronize`). The `release-metadata-guard.yml` workflow needs `edited` added to its event types — noted as tech debt. |
 
@@ -83,8 +83,8 @@ v1.12.4 ships that fix.
 
 | # | File | Finding | Assessment | Action |
 |---|------|---------|------------|--------|
-| 1 | `copilot-review-log.md:6` | Inserting at top reorders log history | Agree | Restored ascending order |
-| 2 | `copilot-review-log.md:476` | Append-only means no reorder/delete | Disagree | Reply posted; dedup is hygiene |
+| 1 | `artifacts/copilot-review-log.md:6` | Inserting at top reorders log history | Agree | Restored ascending order |
+| 2 | `artifacts/copilot-review-log.md:476` | Append-only means no reorder/delete | Disagree | Reply posted; dedup is hygiene |
 | 3 | `AzVMAvailability.psd1:65` | ReleaseNotes describes script, not module | Partially Agree | Deferred to v2.0.0 |
 
 ---
