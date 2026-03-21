@@ -29,3 +29,13 @@
 "2026-03-20","/ZacharyLuz/Get-AzVMAvailability/graphs/traffic","Traffic · ZacharyLuz/Get-AzVMAvailability",8,1
 "2026-03-20","/ZacharyLuz/Get-AzVMAvailability/issues/31","Clear up multi-subscription selection reporting · Issue #31 · ZacharyLuz/Get-...",7,4
 "2026-03-20","/ZacharyLuz/Get-AzVMAvailability/pull/49","fix: address post-merge Copilot PR #48 comments — git ls-files docs scan + Re...",7,1
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability","ZacharyLuz/Get-AzVMAvailability: A comprehensive PowerShell tool for checking...",213,99
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability/pulls","Pull requests · ZacharyLuz/Get-AzVMAvailability",38,1
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability/blob/main/Get-AzVMAvailability.ps1","Get-AzVMAvailability/Get-AzVMAvailability.ps1 at main · ZacharyLuz/Get-AzVMAv...",34,13
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability/issues","GitHub · Where software is built",20,6
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability/pull/79","fix: inline parallel scan logic to fix ForEach-Object -Parallel scriptblock e...",14,1
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability/releases","Releases · ZacharyLuz/Get-AzVMAvailability",12,7
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability/issues/28","[FEATURE] Create an MCP server interface for use with automated deployments ·...",10,2
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability/pull/33","feat: v1.11.0 — placement scores, spot pricing, interactive prompts by Zachar...",10,1
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability/graphs/traffic","Traffic · ZacharyLuz/Get-AzVMAvailability",9,1
+"2026-03-21","/ZacharyLuz/Get-AzVMAvailability/pull/77","chore: v2.0.0 prep — exit→throw, List[T] perf, archive internal docs (#68, #7...",9,1
