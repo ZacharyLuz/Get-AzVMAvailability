@@ -1,7 +1,76 @@
 # Copilot Review Log
 
 ---
-## PR #89 — feat: module scaffold — extract 34 functions into AzVMAvailability/ module
+## PR #91 -- fix: restore inline function fallback for single-file downloads
+**Date:** 2026-03-21 | **Branch:** fix/inline-function-fallback | **Commit:** e15f670..b9f3382
+
+### Comment 1
+**File:** `Get-AzVMAvailability.ps1:1422`
+**Copilot Finding:** "Test-ImportExcelModule uses a silent catch. Add Write-Verbose."
+**Assessment:** Agree
+**Action Taken:** Fixed in both inline and module copies.
+
+### Comment 2
+**File:** `Get-AzVMAvailability.ps1:2138`
+**Copilot Finding:** "Orphan #endregion Helper Functions and unclosed #region Image Compatibility Functions."
+**Assessment:** Agree
+**Action Taken:** Removed orphan markers from inline fallback block.
+
+### Comment 3
+**File:** `Get-AzVMAvailability.ps1:629`
+**Copilot Finding:** "Import-Module failure should fall back to inline instead of throwing."
+**Assessment:** Agree
+**Action Taken:** Wrapped Import-Module in try/catch with Write-Verbose on failure, falls through to inline definitions.
+
+### Comment 4
+**File:** `Get-AzVMAvailability.ps1:2583`
+**Copilot Finding:** "Get-AzAccessToken missing -ErrorAction Stop in Get-AzActualPricing."
+**Assessment:** Agree
+**Action Taken:** Added -ErrorAction Stop. Fixed in both inline and module copies.
+
+### Comment 5
+**File:** `Get-AzVMAvailability.ps1:2325`
+**Copilot Finding:** "Get-AzVMPricing doesn't check cache before calling Retail Prices API."
+**Assessment:** Agree
+**Action Taken:** Added early cache return. Fixed in both inline and module copies.
+
+### Comment 6
+**File:** `Get-AzVMAvailability.ps1:633`
+**Copilot Finding:** "No test to detect drift between module and inline function copies."
+**Assessment:** Defer
+**Reasoning:** Valid concern. Adding a drift-detection Pester test is a separate follow-up PR.
+**Action Taken:** Logged for follow-up.
+
+---
+## PR #90 -- fix: revert premature v2.0.0 version bump -- set to 1.12.3
+**Date:** 2026-03-21 | **Branch:** fix/revert-version-bump | **Commit:** 0385d39..f2b4a5e
+
+### Comment 1
+**File:** `Get-AzVMAvailability.ps1:459`
+**Copilot Finding:** "Reverting to 1.12.2 will break release automation (tag already exists)."
+**Assessment:** Agree
+**Action Taken:** Bumped to 1.12.3 instead.
+
+### Comment 2
+**File:** `AzVMAvailability/AzVMAvailability.psd1:3`
+**Copilot Finding:** "Rolling ModuleVersion back to 1.12.2 reuses already-released version."
+**Assessment:** Agree
+**Action Taken:** Set to 1.12.3 to keep versioning monotonic.
+
+### Comment 3
+**File:** `Get-AzVMAvailability.ps1:460`
+**Copilot Finding:** "PR says 1.12.2 but code is 1.12.3; auto-release will create v1.12.3 tag."
+**Assessment:** Agree (stale PR description)
+**Action Taken:** Updated PR description before merge.
+
+### Comment 4
+**File:** `CHANGELOG.md:11`
+**Copilot Finding:** "PR says entries moved to [Unreleased] but diff shows [1.12.3] section."
+**Assessment:** Agree (stale PR description)
+**Action Taken:** Updated PR description before merge.
+
+---
+## PR #89 -- feat: module scaffold -- extract 34 functions into AzVMAvailability/ module
 **Date:** 2026-03-21 | **Branch:** feature/module-scaffold | **Commit:** ab28069
 
 ### Round 2 (post-fix re-review, commit 908e2d8)
