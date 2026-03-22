@@ -39,3 +39,13 @@
 "2026-03-21","/ZacharyLuz/Get-AzVMAvailability/pull/33","feat: v1.11.0 — placement scores, spot pricing, interactive prompts by Zachar...",10,1
 "2026-03-21","/ZacharyLuz/Get-AzVMAvailability/graphs/traffic","Traffic · ZacharyLuz/Get-AzVMAvailability",9,1
 "2026-03-21","/ZacharyLuz/Get-AzVMAvailability/pull/77","chore: v2.0.0 prep — exit→throw, List[T] perf, archive internal docs (#68, #7...",9,1
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability","ZacharyLuz/Get-AzVMAvailability: A comprehensive PowerShell tool for checking...",209,93
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability/pulls","Pull requests · ZacharyLuz/Get-AzVMAvailability",49,1
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability/blob/main/Get-AzVMAvailability.ps1","Get-AzVMAvailability/Get-AzVMAvailability.ps1 at main · ZacharyLuz/Get-AzVMAv...",35,12
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability/issues","GitHub · Where software is built",19,5
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability/pull/79","fix: inline parallel scan logic to fix ForEach-Object -Parallel scriptblock e...",14,1
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability/releases","Releases · ZacharyLuz/Get-AzVMAvailability",10,6
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability/issues/28","[FEATURE] Create an MCP server interface for use with automated deployments ·...",10,2
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability/pull/33","feat: v1.11.0 — placement scores, spot pricing, interactive prompts by Zachar...",10,1
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability/tree/main","Get-AzVMAvailability/Get-AzVMAvailability.ps1 at main · ZacharyLuz/Get-AzVMAv...",9,3
+"2026-03-22","/ZacharyLuz/Get-AzVMAvailability/graphs/traffic","Traffic · ZacharyLuz/Get-AzVMAvailability",9,1
