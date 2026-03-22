@@ -4,6 +4,13 @@
 #           zone/restriction/pricing columns, and status key/legend output.
 # DO NOT execute this file directly — it is a documentation reference only.
 # The authoritative source is Get-AzVMAvailability.ps1.
+#
+# NOTE: This file begins mid-block. Lines 2960-3061 of the main script (preceding
+# this section) contain the image URN interactive selection logic, including an
+# outer if/else structure for publisher/offer/SKU drill-down. The `else` block
+# at the start of this file is the continuation of that image selection block
+# from InputHandler.ps1, and immediately resolves before the main output loop begins.
+# The main scan rendering loop starts shortly after line 3062.
                             else {
                                 # Publisher selected - show offers
                                 $offers = Get-AzVMImageOffer -Location $Regions[0] -PublisherName $selected.Publisher -ErrorAction SilentlyContinue |

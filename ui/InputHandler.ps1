@@ -4,6 +4,15 @@
 #           image URN selection, and drill-down mode prompts.
 # DO NOT execute this file directly — it is a documentation reference only.
 # The authoritative source is Get-AzVMAvailability.ps1.
+#
+# NOTE: This file begins at the end of the module-import/inline-fallback block.
+# Lines 621-2664 of the main script (preceding this section) contain:
+#   - Module import logic (AzVMAvailability module or inline function fallback)
+#   - All 34 function definitions (Get-SafeString through Get-AzActualPricing)
+#   - Azure endpoint initialization
+#   - Subscription and region prompt scaffolding
+# The closing markers below (#endregion Inline Function Definitions, }) close
+# the inline fallback block that began at line ~623 of the main script.
 
 #endregion Inline Function Definitions
 }

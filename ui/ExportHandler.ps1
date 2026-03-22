@@ -4,6 +4,12 @@
 #           and final export summary output.
 # DO NOT execute this file directly — it is a documentation reference only.
 # The authoritative source is Get-AzVMAvailability.ps1.
+#
+# NOTE: This file begins mid-block. Lines 3700-4046 of the main script (preceding
+# this section) contain the interactive drill-down family/SKU selection and the
+# recommend-mode entry prompt. The variables used near the start of this file
+# ($families, $r, $allFamilyStats) are populated during the scan results
+# rendering loop in OutputFormatter.ps1 (lines 3062-3700).
         if ($families.Count -gt 0) {
             Write-Host "  $r`:" -ForegroundColor Green -NoNewline
             Write-Host " $($families -join ', ')" -ForegroundColor White
