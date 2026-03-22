@@ -1,0 +1,24 @@
+# Get-SpotPricingMap.ps1
+# Extracted from Get-AzVMAvailability.ps1 (line 2425)
+# Builds a region→SKU→price hashtable for Spot VM pricing
+# DO NOT execute this file directly — it is a documentation reference only.
+function Get-SpotPricingMap {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$PricingContainer
+    )
+
+    if ($null -eq $PricingContainer) {
+        return @{}
+    }
+
+    if ($PricingContainer -is [array]) {
+        $PricingContainer = $PricingContainer[0]
+    }
+
+    if ($PricingContainer -is [System.Collections.IDictionary] -and $PricingContainer.Contains('Spot')) {
+        return $PricingContainer.Spot
+    }
+
+    return @{}
+}
