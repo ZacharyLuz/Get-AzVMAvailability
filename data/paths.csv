@@ -59,3 +59,13 @@
 "2026-03-23","/ZacharyLuz/Get-AzVMAvailability/tree/main","Get-AzVMAvailability/Get-AzVMAvailability.ps1 at main · ZacharyLuz/Get-AzVMAv...",10,3
 "2026-03-23","/ZacharyLuz/Get-AzVMAvailability/issues/28","[FEATURE] Create an MCP server interface for use with automated deployments ·...",10,2
 "2026-03-23","/ZacharyLuz/Get-AzVMAvailability/pull/33","feat: v1.11.0 — placement scores, spot pricing, interactive prompts by Zachar...",10,1
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability","ZacharyLuz/Get-AzVMAvailability: A comprehensive PowerShell tool for checking...",213,89
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability/pulls","Pull requests · ZacharyLuz/Get-AzVMAvailability",61,1
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability/blob/main/Get-AzVMAvailability.ps1","Get-AzVMAvailability/Get-AzVMAvailability.ps1 at main · ZacharyLuz/Get-AzVMAv...",41,12
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability/issues","GitHub · Where software is built",19,5
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability/pull/79","fix: inline parallel scan logic to fix ForEach-Object -Parallel scriptblock e...",14,1
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability/tree/main","Get-AzVMAvailability/Get-AzVMAvailability.ps1 at main · ZacharyLuz/Get-AzVMAv...",13,3
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability/pull/89","feat: module scaffold — extract 34 functions into AzVMAvailability/ module by...",12,1
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability/releases","Releases · ZacharyLuz/Get-AzVMAvailability",11,5
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability/issues/28","[FEATURE] Create an MCP server interface for use with automated deployments ·...",10,2
+"2026-03-24","/ZacharyLuz/Get-AzVMAvailability/pull/33","feat: v1.11.0 — placement scores, spot pricing, interactive prompts by Zachar...",10,1
