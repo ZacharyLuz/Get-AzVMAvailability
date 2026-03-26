@@ -158,7 +158,7 @@
 
 ---
 ## PR #99 — Round 3 (post-fix re-review)
-**Date:** 2026-03-26 | **Branch:** main | **Commit:** (pending)
+**Date:** 2026-03-26 | **Branch:** main | **Commit:** ac59ea8
 
 ### Comment 14
 **File:** `data/UpgradePath.md:7`
