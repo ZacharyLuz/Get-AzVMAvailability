@@ -4,7 +4,7 @@ function Test-SkuCompatibility {
         Tests whether a candidate SKU can fully replace a target SKU.
     .DESCRIPTION
         Performs hard compatibility checks across critical VM dimensions: vCPU, memory,
-        data disks, NICs, accelerated networking, premium IO, disk interface (NVMe/SCSI),
+        NICs, accelerated networking, premium IO, disk interface (NVMe/SCSI),
         ephemeral OS disk, and Ultra SSD. Returns pass/fail with a list of failures.
         This is a pre-filter before similarity scoring — only candidates that pass all
         checks should be scored and recommended.

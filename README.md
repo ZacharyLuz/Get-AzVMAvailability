@@ -31,7 +31,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 - **Multi-Region Matrix** - Color-coded comparison view
 - **Interactive Drill-Down** - Explore specific families and SKUs
 - **Export Options** - CSV and styled XLSX with conditional formatting
-- **Compatibility-Validated Recommendations** - Alternatives are guaranteed to meet or exceed the target SKU's data disks, NICs, IOPS, accelerated networking, premium IO, disk interface, ephemeral OS disk, and Ultra SSD requirements
+- **Compatibility-Validated Recommendations** - Alternatives are validated to meet or exceed the target SKU's NICs, accelerated networking, premium IO, disk interface, ephemeral OS disk, and Ultra SSD requirements. Data disks and IOPS are scored as soft dimensions
 
 ## Quick Comparison
 

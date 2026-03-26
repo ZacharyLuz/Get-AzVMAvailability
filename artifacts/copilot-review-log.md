@@ -116,6 +116,46 @@
 **Assessment:** Partially Agree
 **Reasoning:** Same issue as Comments 3 and 6. The test correctly validates the intentional design (soft dimension), but the README was inaccurate. Docs were the problem, not the test.
 **Action Taken:** Fixed via README update in Comment 3's fix. Test unchanged — it correctly validates the intended behavior. Commit 8d24603.
+
+---
+## PR #99 — Round 2 (post-fix re-review)
+**Date:** 2026-03-26 | **Branch:** main | **Commit:** pending
+
+### Comment 9
+**File:** `data/UpgradePath.json:572`
+**Copilot Finding:** "NCasT4v3 is an NVIDIA T4-based series, but this entry lists `\"AMD GPU drivers\"` in requirements. This should reference NVIDIA GPU drivers."
+**Assessment:** Agree
+**Reasoning:** Leftover from the original NCv4/AMD Radeon MI25 entry. When we fixed the `series` and `reason` in Round 1 (commit 8d24603), the `requirements` array was missed. NCas_T4_v3 uses NVIDIA Tesla T4 GPUs, not AMD.
+**Action Taken:** Fixed — changed `"AMD GPU drivers"` to `"NVIDIA GPU drivers (T4)"` in `requirements` array.
+
+### Comment 10
+**File:** `AzVMAvailability/Private/SKU/Test-SkuCompatibility.ps1:10`
+**Copilot Finding:** "The comment-based help says this performs hard checks for 'data disks', but the function never evaluates `MaxDataDiskCount`."
+**Assessment:** Partially Agree
+**Reasoning:** Same root cause as Round 1 Comments 3/6/8 — the `.DESCRIPTION` help text lists "data disks" as a hard gate but the implementation intentionally treats it as a soft scoring dimension. The README gate table was already fixed in Round 1; the function's help text also needs updating for consistency.
+**Action Taken:** Fixed — removed "data disks" from the `.DESCRIPTION` hard gate list in `Test-SkuCompatibility`.
+
+### Comment 11
+**File:** `README.md:34`
+**Copilot Finding:** "This bullet claims recommendations are 'guaranteed' to meet/exceed data disks and IOPS, but the current compatibility gate doesn't enforce either as hard requirements."
+**Assessment:** Agree
+**Reasoning:** The Features section bullet was missed when we fixed the Compatibility Gate table in Round 1. Data disks and IOPS are both soft scoring dimensions (7 pts and 8 pts respectively), not hard gates. The word "guaranteed" is inaccurate for these two dimensions.
+**Action Taken:** Fixed — updated Features bullet to list only the actual hard-gate dimensions (NICs, accelerated networking, premium IO, disk interface, ephemeral OS disk, Ultra SSD).
+
+### Comment 12
+**File:** `AzVMAvailability/Private/SKU/Get-SkuRetirementInfo.ps1:21`
+**Copilot Finding:** "The Dv3 retirement regex misses DSv3 SKUs like `Standard_DS2_v3` / `Standard_DS3_v3`."
+**Assessment:** Disagree
+**Reasoning:** `Standard_DS2_v3` and `Standard_DS3_v3` do not exist in Azure. Copilot is confusing v1-era naming (`Standard_DS*` = D-series premium storage v1) with v3 naming. In the v3 generation, the premium storage suffix is lowercase `s` after the size number: `Standard_D2s_v3`, `Standard_D4s_v3`, etc. The existing regex `^Standard_D\d+s?_v3$` correctly matches both `Standard_D2_v3` (no premium) and `Standard_D2s_v3` (with premium). There is no `Standard_DS2_v3` in any Azure region — run `Get-AzComputeResourceSku | Where-Object { $_.Name -match 'DS\d+_v3' }` to verify empty results.
+**Action Taken:** No change — regexes are correct. Same false positive as Round 1 Comment 7.
+
+### Comment 13
+**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:43`
+**Copilot Finding:** "`Get-AzVMPricing` now returns additional maps (SavingsPlan*/Reservation*) and no longer filters by `priceType eq 'Consumption'`, but the help text still says 'Retrieves pay-as-you-go Linux pricing'."
+**Assessment:** Agree
+**Reasoning:** The function was expanded to fetch consumption, savings plan, reservation, and spot pricing in a single API call (no `priceType` filter). The `.DESCRIPTION` help text is stale — it only mentions pay-as-you-go.
+**Action Taken:** Fixed — updated `.DESCRIPTION` to document all pricing types returned (PAYG, Spot, Savings Plan 1yr/3yr, Reserved Instance 1yr/3yr).
+
 ---
 
 ---

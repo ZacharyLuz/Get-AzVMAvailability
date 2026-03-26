@@ -569,7 +569,7 @@
         "family": "NC",
         "series": "NCasT4v3",
         "reason": "NVIDIA T4 GPU — lower cost for GPU inference and light compute",
-        "requirements": ["AMD GPU drivers"],
+        "requirements": ["NVIDIA GPU drivers (T4)"],
         "sizeMap": {
           "6": "Standard_NC4as_T4_v3",
           "12": "Standard_NC8as_T4_v3",
