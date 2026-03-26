@@ -127,6 +127,7 @@ function Invoke-RecommendMode {
                         vCPU                     = [int](Get-CapValue $sku 'vCPUs')
                         MemoryGB                 = [int](Get-CapValue $sku 'MemoryGB')
                         Family                   = Get-SkuFamily $sku.Name
+                        FamilyVersion            = Get-SkuFamilyVersion $sku.Name
                         Generation               = $caps.HyperVGenerations
                         Architecture             = $caps.CpuArchitecture
                         PremiumIO                = (Get-CapValue $sku 'PremiumIO') -eq 'True'
