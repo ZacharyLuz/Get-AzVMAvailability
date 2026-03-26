@@ -235,9 +235,8 @@ Recommendations are **compatibility-validated** before scoring. A candidate SKU 
 
 | Dimension | Rule |
 |-----------|------|
-| vCPU | Candidate ≥ Target |
+| vCPU | Candidate ≥ Target (and ≤ 2× to avoid licensing risk) |
 | Memory (GiB) | Candidate ≥ Target |
-| Max data disks | Candidate ≥ Target |
 | Max NICs | Candidate ≥ Target (when target uses multi-NIC) |
 | Accelerated networking | Required if target has it |
 | Premium IO | Required if target has it |
@@ -252,7 +251,7 @@ After passing the compatibility gate, candidates are ranked by an 8-dimension si
 | vCPU closeness | 20 pts |
 | Memory closeness | 20 pts |
 | Family match | 18 pts |
-| Generation overlap | 12 pts |
+| Family version newness | 12 pts |
 | Architecture match | 10 pts |
 | Disk IOPS closeness | 8 pts |
 | Data disk count closeness | 7 pts |
