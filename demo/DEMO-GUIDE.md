@@ -177,7 +177,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 - "`-ShowPlacement` adds a High / Medium / Low allocation likelihood column from the Azure Placement Scores API."
 - "Capacity status says whether a SKU is restricted or constrained. Placement says: *if you submit the deployment request right now, how likely is Azure to fulfill it?*"
 - "High = confident allocation capacity. Medium = probably works. Low = consider a different region or SKU."
-- "`-DesiredCount 5` means we want five VMs simultaneously — great for fleet planning where a partial allocation is worthless."
+- "`-DesiredCount 5` means we want five VMs simultaneously — great for inventory planning where a partial allocation is worthless."
 - "The score is live data from the API Azure uses for its own capacity planning."
 
 **What to highlight on screen:**
@@ -297,7 +297,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 - Alternatives ranked by score with pricing comparison
 - Capacity status of each alternative in each region
 
-**Part B — ARM64 candidates with fleet safety:**
+**Part B — ARM64 candidates with compatibility warnings:**
 
 ```powershell
 .\Get-AzVMAvailability.ps1 -Recommend "Standard_D4s_v3" -Region "eastus" -AllowMixedArch -ShowPricing -TopN 10 -NoPrompt
@@ -306,7 +306,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **Part B talking points:**
 - "By default, the recommender filters to the same CPU architecture as the target — so x64 targets only see x64 alternatives."
 - "`-AllowMixedArch` opens it up to include ARM64 Ampere SKUs — often lower price, but a code recompile is needed."
-- "When mixed architectures appear together, fleet safety warnings fire automatically to prevent accidental x64/ARM64 fleet mixing."
+- "When mixed architectures appear together, compatibility warnings fire automatically to prevent accidental x64/ARM64 inventory mixing."
 
 **Transition:**
 > "Everything we've seen outputs to the terminal. But what about automation pipelines and executive reports?"
@@ -380,7 +380,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 | Spot vs. on-demand | `-Recommend "SKU" -ShowPricing -ShowSpot` (recommend mode; side-by-side cost delta) |
 | Image compatibility | `-ImageURN` with drill-down |
 | SKU recommendations | `-Recommend "SKU_Name"` with scoring |
-| Arch filtering | `-AllowMixedArch` for ARM64 candidates + fleet safety |
+| Arch filtering | `-AllowMixedArch` for ARM64 candidates + compatibility warnings |
 | JSON automation | `-JsonOutput` for pipelines |
 | Excel export | `-AutoExport -OutputFormat XLSX` for stakeholders |
 | Sovereign cloud | `-RegionPreset USGov` or `-Environment AzureUSGovernment` |
@@ -408,7 +408,7 @@ Common questions and how to answer them:
 | "Is this safe to run in production?" | It's read-only — no resource modifications, only API reads. |
 | "What's the placement score for a SKU?" | Use `-ShowPlacement`. Requires Compute Recommendations RBAC role. |
 | "Can I see Spot prices?" | Use `-Recommend "SKU" -ShowPricing -ShowSpot` — Spot pricing is available in recommend mode when `-ShowPricing` is also enabled. |
-| "Can I include ARM64 alternatives?" | Use `-AllowMixedArch` with `-Recommend`. Fleet safety warnings fire when mixed arch appears. |
+| "Can I include ARM64 alternatives?" | Use `-AllowMixedArch` with `-Recommend`. Compatibility warnings fire when mixed arch appears. |
 
 ### Project Links
 

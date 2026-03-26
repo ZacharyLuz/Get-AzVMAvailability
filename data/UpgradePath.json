@@ -1,0 +1,1187 @@
+{
+  "_metadata": {
+    "description": "Azure VM SKU family upgrade paths based on Microsoft official migration guidance",
+    "version": "1.1.0",
+    "lastUpdated": "2026-07-21",
+    "source": "https://learn.microsoft.com/azure/virtual-machines/sizes/migration-guides",
+    "usage": "Keyed by SKU family+version (e.g., 'Dv2'). Each entry provides 3 upgrade recommendations: dropIn (lowest risk), futurePoof (latest gen), costOptimized (AMD/alternative). The 'sizeMap' translates vCPU counts to specific SKU names for each path."
+  },
+  "upgradePaths": {
+    "Av1": {
+      "family": "A",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2024-08-31",
+      "summary": "Original A-series (A0-A11, Basic_A) retired. No direct successor; workloads should move to B-series (burstable) or D-series (general purpose).",
+      "dropIn": {
+        "family": "B",
+        "series": "Bsv2",
+        "reason": "Closest burstable replacement for entry-level/test workloads with low baseline CPU",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_B1s_v2",
+          "2": "Standard_B2s_v2",
+          "4": "Standard_B4s_v2",
+          "8": "Standard_B8s_v2"
+        }
+      },
+      "futureProof": {
+        "family": "D",
+        "series": "Dsv5",
+        "reason": "General-purpose v5 provides consistent performance without burstable model; better for production workloads graduating from A-series",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_D2s_v5",
+          "2": "Standard_D2s_v5",
+          "4": "Standard_D4s_v5",
+          "8": "Standard_D8s_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "B",
+        "series": "Basv2",
+        "reason": "AMD-based burstable series for lowest cost on dev/test workloads",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_B1as_v2",
+          "2": "Standard_B2as_v2",
+          "4": "Standard_B4as_v2",
+          "8": "Standard_B8as_v2"
+        }
+      }
+    },
+    "Dv1": {
+      "family": "D",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2024-08-31",
+      "summary": "Original D-series (D1-D14, DS1-DS14) retired. Microsoft recommends Dsv5 as drop-in, Dsv6 for future-proofing.",
+      "dropIn": {
+        "family": "D",
+        "series": "Dsv5",
+        "reason": "Same family, Premium SSD support, SCSI disk controller, Gen1+Gen2 OS support — minimal migration risk",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_D2s_v5",
+          "2": "Standard_D2s_v5",
+          "4": "Standard_D4s_v5",
+          "8": "Standard_D8s_v5",
+          "16": "Standard_D16s_v5"
+        }
+      },
+      "futureProof": {
+        "family": "D",
+        "series": "Dsv6",
+        "reason": "Latest gen D-series with NVMe disk controller, higher IOPS/throughput, Emerald Rapids CPUs",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver"],
+        "sizeMap": {
+          "2": "Standard_D2s_v6",
+          "4": "Standard_D4s_v6",
+          "8": "Standard_D8s_v6",
+          "16": "Standard_D16s_v6"
+        }
+      },
+      "costOptimized": {
+        "family": "D",
+        "series": "Dasv5",
+        "reason": "AMD EPYC-based D-series, typically lower cost for same vCPU/memory; good for stateless or non-CPU-sensitive workloads",
+        "requirements": [],
+        "sizeMap": {
+          "2": "Standard_D2as_v5",
+          "4": "Standard_D4as_v5",
+          "8": "Standard_D8as_v5",
+          "16": "Standard_D16as_v5"
+        }
+      }
+    },
+    "Dv2": {
+      "family": "D",
+      "version": 2,
+      "status": "Retiring",
+      "retireDate": "2027-03-31",
+      "summary": "Dv2/DSv2 series retiring March 2027. Microsoft recommends Dsv5 as primary replacement, Dsv6 for modernization.",
+      "dropIn": {
+        "family": "D",
+        "series": "Dsv5",
+        "reason": "Same family, same vCPU/memory ratios, SCSI disk controller, supports Gen1+Gen2 — safest migration from Dv2",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_D2s_v5",
+          "2": "Standard_D2s_v5",
+          "4": "Standard_D4s_v5",
+          "8": "Standard_D8s_v5",
+          "16": "Standard_D16s_v5",
+          "20": "Standard_D32s_v5"
+        }
+      },
+      "futureProof": {
+        "family": "D",
+        "series": "Dsv6",
+        "reason": "Latest D-series with NVMe, higher storage IOPS, higher network bandwidth — best long-term investment",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver"],
+        "sizeMap": {
+          "2": "Standard_D2s_v6",
+          "4": "Standard_D4s_v6",
+          "8": "Standard_D8s_v6",
+          "16": "Standard_D16s_v6",
+          "32": "Standard_D32s_v6"
+        }
+      },
+      "costOptimized": {
+        "family": "D",
+        "series": "Dasv5",
+        "reason": "AMD EPYC processors, often 5-15% lower cost than Intel equivalents for same vCPU/memory",
+        "requirements": [],
+        "sizeMap": {
+          "2": "Standard_D2as_v5",
+          "4": "Standard_D4as_v5",
+          "8": "Standard_D8as_v5",
+          "16": "Standard_D16as_v5",
+          "32": "Standard_D32as_v5"
+        }
+      }
+    },
+    "Dv3": {
+      "family": "D",
+      "version": 3,
+      "status": "Retiring",
+      "retireDate": "2027-09-30",
+      "summary": "Dv3/Dsv3 series retiring September 2027. Move to Dsv5 (safe) or Dsv6 (modern).",
+      "dropIn": {
+        "family": "D",
+        "series": "Dsv5",
+        "reason": "Direct successor with same vCPU/memory ratios, SCSI disk controller, Gen1+Gen2 support",
+        "requirements": [],
+        "sizeMap": {
+          "2": "Standard_D2s_v5",
+          "4": "Standard_D4s_v5",
+          "8": "Standard_D8s_v5",
+          "16": "Standard_D16s_v5",
+          "32": "Standard_D32s_v5",
+          "48": "Standard_D48s_v5",
+          "64": "Standard_D64s_v5"
+        }
+      },
+      "futureProof": {
+        "family": "D",
+        "series": "Dsv6",
+        "reason": "NVMe disk controller, Emerald Rapids, significantly higher storage and network throughput",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver"],
+        "sizeMap": {
+          "2": "Standard_D2s_v6",
+          "4": "Standard_D4s_v6",
+          "8": "Standard_D8s_v6",
+          "16": "Standard_D16s_v6",
+          "32": "Standard_D32s_v6",
+          "48": "Standard_D48s_v6",
+          "64": "Standard_D64s_v6"
+        }
+      },
+      "costOptimized": {
+        "family": "D",
+        "series": "Dasv6",
+        "reason": "AMD Genoa-based v6, latest AMD with NVMe, lower cost than Intel v6",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver"],
+        "sizeMap": {
+          "2": "Standard_D2as_v6",
+          "4": "Standard_D4as_v6",
+          "8": "Standard_D8as_v6",
+          "16": "Standard_D16as_v6",
+          "32": "Standard_D32as_v6",
+          "48": "Standard_D48as_v6",
+          "64": "Standard_D64as_v6"
+        }
+      }
+    },
+    "Ev3": {
+      "family": "E",
+      "version": 3,
+      "status": "Retiring",
+      "retireDate": "2027-09-30",
+      "summary": "Ev3/Esv3 series retiring September 2027. Memory-optimized workloads should move to Esv5 or Esv6.",
+      "dropIn": {
+        "family": "E",
+        "series": "Esv5",
+        "reason": "Same memory-optimized ratios (8 GiB/vCPU), SCSI disk controller, Gen1+Gen2 — safest E-series migration",
+        "requirements": [],
+        "sizeMap": {
+          "2": "Standard_E2s_v5",
+          "4": "Standard_E4s_v5",
+          "8": "Standard_E8s_v5",
+          "16": "Standard_E16s_v5",
+          "20": "Standard_E20s_v5",
+          "32": "Standard_E32s_v5",
+          "48": "Standard_E48s_v5",
+          "64": "Standard_E64s_v5"
+        }
+      },
+      "futureProof": {
+        "family": "E",
+        "series": "Esv6",
+        "reason": "Latest E-series with NVMe, higher IOPS, Emerald Rapids — best for database and in-memory workloads long-term",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver"],
+        "sizeMap": {
+          "2": "Standard_E2s_v6",
+          "4": "Standard_E4s_v6",
+          "8": "Standard_E8s_v6",
+          "16": "Standard_E16s_v6",
+          "32": "Standard_E32s_v6",
+          "48": "Standard_E48s_v6",
+          "64": "Standard_E64s_v6"
+        }
+      },
+      "costOptimized": {
+        "family": "E",
+        "series": "Easv5",
+        "reason": "AMD-based memory-optimized, lower cost for databases and in-memory caching that are not CPU-sensitive",
+        "requirements": [],
+        "sizeMap": {
+          "2": "Standard_E2as_v5",
+          "4": "Standard_E4as_v5",
+          "8": "Standard_E8as_v5",
+          "16": "Standard_E16as_v5",
+          "20": "Standard_E20as_v5",
+          "32": "Standard_E32as_v5",
+          "48": "Standard_E48as_v5",
+          "64": "Standard_E64as_v5"
+        }
+      }
+    },
+    "Fv1": {
+      "family": "F",
+      "version": 1,
+      "status": "Retiring",
+      "retireDate": "2027-09-30",
+      "summary": "Fs-series (compute-optimized v1 with Premium SSD) retiring September 2027. Move to Fsv2 (already current) or Fasv6.",
+      "dropIn": {
+        "family": "F",
+        "series": "Fsv2",
+        "reason": "Direct compute-optimized successor, higher clock speed, well-established in all regions",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_F2s_v2",
+          "2": "Standard_F2s_v2",
+          "4": "Standard_F4s_v2",
+          "8": "Standard_F8s_v2",
+          "16": "Standard_F16s_v2",
+          "32": "Standard_F32s_v2",
+          "48": "Standard_F48s_v2",
+          "72": "Standard_F72s_v2"
+        }
+      },
+      "futureProof": {
+        "family": "F",
+        "series": "Fasv6",
+        "reason": "AMD Genoa compute-optimized v6, strong single-thread performance at lower cost; Intel Fsv6 does not exist — Fasv6 is the only v6 F-series",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver"],
+        "sizeMap": {
+          "2": "Standard_F2as_v6",
+          "4": "Standard_F4as_v6",
+          "8": "Standard_F8as_v6",
+          "16": "Standard_F16as_v6",
+          "32": "Standard_F32as_v6",
+          "48": "Standard_F48as_v6"
+        }
+      }
+    },
+    "Gv1": {
+      "family": "G",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2025-03-31",
+      "summary": "G/GS-series (memory+storage optimized) retired. Workloads should move to E-series (memory) or M-series (large memory/SAP).",
+      "dropIn": {
+        "family": "E",
+        "series": "Esv5",
+        "reason": "E-series provides equivalent memory-optimized ratios; closest replacement for G-series memory workloads",
+        "requirements": [],
+        "sizeMap": {
+          "2": "Standard_E2s_v5",
+          "4": "Standard_E4s_v5",
+          "8": "Standard_E8s_v5",
+          "16": "Standard_E16s_v5",
+          "32": "Standard_E32s_v5"
+        }
+      },
+      "futureProof": {
+        "family": "E",
+        "series": "Esv6",
+        "reason": "Latest memory-optimized with NVMe for long-term workload placement",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver"],
+        "sizeMap": {
+          "2": "Standard_E2s_v6",
+          "4": "Standard_E4s_v6",
+          "8": "Standard_E8s_v6",
+          "16": "Standard_E16s_v6",
+          "32": "Standard_E32s_v6"
+        }
+      },
+      "costOptimized": {
+        "family": "E",
+        "series": "Easv5",
+        "reason": "AMD-based E-series for memory workloads at lower cost",
+        "requirements": [],
+        "sizeMap": {
+          "2": "Standard_E2as_v5",
+          "4": "Standard_E4as_v5",
+          "8": "Standard_E8as_v5",
+          "16": "Standard_E16as_v5",
+          "32": "Standard_E32as_v5"
+        }
+      }
+    },
+    "Hv1": {
+      "family": "H",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2024-09-28",
+      "summary": "Original H-series (H8-H16r) retired. HPC workloads should move to HBv4 or HXv4.",
+      "dropIn": {
+        "family": "HB",
+        "series": "HBv4",
+        "reason": "HBv4 is the current HPC workhorse with AMD EPYC Genoa, InfiniBand NDR200, massive memory bandwidth",
+        "requirements": ["HPC-optimized OS image", "InfiniBand drivers if using RDMA"],
+        "sizeMap": {
+          "8": "Standard_HB176rs_v4",
+          "16": "Standard_HB176rs_v4"
+        }
+      },
+      "futureProof": {
+        "family": "HX",
+        "series": "HXv4",
+        "reason": "Large-memory HPC variant for workloads needing >200 GiB RAM with InfiniBand",
+        "requirements": ["HPC-optimized OS image", "InfiniBand drivers"],
+        "sizeMap": {
+          "8": "Standard_HX176rs",
+          "16": "Standard_HX176rs"
+        }
+      },
+      "costOptimized": {
+        "family": "HB",
+        "series": "HBv3",
+        "reason": "HBv3 still widely available and lower cost than v4 for HPC workloads that don't need NDR200",
+        "requirements": ["HPC-optimized OS image"],
+        "sizeMap": {
+          "8": "Standard_HB120rs_v3",
+          "16": "Standard_HB120rs_v3"
+        }
+      }
+    },
+    "HBv1": {
+      "family": "HB",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2024-09-28",
+      "summary": "HBv1 (HB60rs) retired. Move to HBv4 for modern HPC.",
+      "dropIn": {
+        "family": "HB",
+        "series": "HBv3",
+        "reason": "HBv3 with 120 cores is the established HPC replacement with broad region availability",
+        "requirements": ["HPC-optimized OS image"],
+        "sizeMap": {
+          "60": "Standard_HB120rs_v3"
+        }
+      },
+      "futureProof": {
+        "family": "HB",
+        "series": "HBv4",
+        "reason": "Latest HPC with AMD Genoa, NDR200 InfiniBand, highest memory bandwidth",
+        "requirements": ["HPC-optimized OS image", "InfiniBand NDR200 drivers"],
+        "sizeMap": {
+          "60": "Standard_HB176rs_v4"
+        }
+      },
+      "costOptimized": {
+        "family": "HB",
+        "series": "HBv3",
+        "reason": "HBv3 offers strong HPC performance at lower cost than v4",
+        "requirements": ["HPC-optimized OS image"],
+        "sizeMap": {
+          "60": "Standard_HB120rs_v3"
+        }
+      }
+    },
+    "HCv1": {
+      "family": "HC",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2024-09-28",
+      "summary": "HC44rs retired. Intel-based HPC workloads should consider HBv4 (AMD) or wait for HC-successor.",
+      "dropIn": {
+        "family": "HB",
+        "series": "HBv3",
+        "reason": "HBv3 provides comparable HPC capability; validation needed for Intel-specific HPC codes",
+        "requirements": ["HPC-optimized OS image", "Validate Intel-specific optimizations"],
+        "sizeMap": {
+          "44": "Standard_HB120rs_v3"
+        }
+      },
+      "futureProof": {
+        "family": "HB",
+        "series": "HBv4",
+        "reason": "Latest HPC generation, AMD Genoa with NDR200 InfiniBand",
+        "requirements": ["HPC-optimized OS image", "InfiniBand NDR200 drivers"],
+        "sizeMap": {
+          "44": "Standard_HB176rs_v4"
+        }
+      },
+      "costOptimized": {
+        "family": "HB",
+        "series": "HBv3",
+        "reason": "HBv3 is the most cost-effective current HPC option",
+        "requirements": ["HPC-optimized OS image"],
+        "sizeMap": {
+          "44": "Standard_HB120rs_v3"
+        }
+      }
+    },
+    "Lv1": {
+      "family": "L",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2024-08-31",
+      "summary": "Ls-series (storage-optimized v1) retired. Move to Lsv3 or Lasv3.",
+      "dropIn": {
+        "family": "L",
+        "series": "Lsv3",
+        "reason": "Direct storage-optimized successor with NVMe local disks, higher IOPS and throughput",
+        "requirements": [],
+        "sizeMap": {
+          "8": "Standard_L8s_v3",
+          "16": "Standard_L16s_v3",
+          "32": "Standard_L32s_v3",
+          "48": "Standard_L48s_v3",
+          "64": "Standard_L64s_v3",
+          "80": "Standard_L80s_v3"
+        }
+      },
+      "futureProof": {
+        "family": "L",
+        "series": "Lsv3",
+        "reason": "Lsv3 is currently the latest storage-optimized generation available",
+        "requirements": [],
+        "sizeMap": {
+          "8": "Standard_L8s_v3",
+          "16": "Standard_L16s_v3",
+          "32": "Standard_L32s_v3",
+          "48": "Standard_L48s_v3",
+          "64": "Standard_L64s_v3",
+          "80": "Standard_L80s_v3"
+        }
+      },
+      "costOptimized": {
+        "family": "L",
+        "series": "Lasv3",
+        "reason": "AMD-based storage-optimized, lower cost for storage-heavy workloads",
+        "requirements": [],
+        "sizeMap": {
+          "8": "Standard_L8as_v3",
+          "16": "Standard_L16as_v3",
+          "32": "Standard_L32as_v3",
+          "48": "Standard_L48as_v3",
+          "64": "Standard_L64as_v3",
+          "80": "Standard_L80as_v3"
+        }
+      }
+    },
+    "Mv1": {
+      "family": "M",
+      "version": 1,
+      "status": "Retiring",
+      "retireDate": "2027-08-31",
+      "summary": "M-series v1 (large memory for SAP HANA) retiring August 2027. Move to Msv2/Mdsv2 or Msv3.",
+      "dropIn": {
+        "family": "M",
+        "series": "Msv2",
+        "reason": "Msv2/Mdsv2 medium memory provides SAP-certified large-memory VMs with improved performance",
+        "requirements": ["SAP workload validation", "Gen2 OS image for larger sizes"],
+        "sizeMap": {
+          "8": "Standard_M8-4ms_v2",
+          "16": "Standard_M16-8ms_v2",
+          "32": "Standard_M32ms_v2",
+          "64": "Standard_M64ms_v2",
+          "128": "Standard_M128ms_v2",
+          "192": "Standard_M192ms_v2"
+        }
+      },
+      "futureProof": {
+        "family": "M",
+        "series": "Msv3",
+        "reason": "Latest M-series with NVMe, Sapphire Rapids, highest memory bandwidth for SAP HANA and large databases",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver", "SAP workload validation"],
+        "sizeMap": {
+          "2": "Standard_M2s_v3",
+          "4": "Standard_M4s_v3",
+          "8": "Standard_M8s_v3",
+          "16": "Standard_M16s_v3",
+          "32": "Standard_M32s_v3",
+          "64": "Standard_M64s_v3",
+          "128": "Standard_M128s_v3",
+          "176": "Standard_M176s_v3"
+        }
+      },
+      "costOptimized": {
+        "family": "M",
+        "series": "Masv3",
+        "reason": "AMD-based M-series v3 for large-memory workloads at lower cost where Intel is not required",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver"],
+        "sizeMap": {
+          "2": "Standard_M2as_v3",
+          "4": "Standard_M4as_v3",
+          "8": "Standard_M8as_v3",
+          "16": "Standard_M16as_v3",
+          "32": "Standard_M32as_v3",
+          "64": "Standard_M64as_v3",
+          "128": "Standard_M128as_v3",
+          "176": "Standard_M176as_v3"
+        }
+      }
+    },
+    "NCv1": {
+      "family": "NC",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2023-09-06",
+      "summary": "NCv1 (Tesla K80 GPU) retired. GPU compute workloads should move to NCv4 (AMD GPU) or NCadsA10v4.",
+      "dropIn": {
+        "family": "NC",
+        "series": "NCadsA10v4",
+        "reason": "A10 GPU provides strong inference and training capability as a modern replacement for K80",
+        "requirements": ["Updated GPU drivers (NVIDIA A10)", "Gen2 OS image recommended"],
+        "sizeMap": {
+          "6": "Standard_NC8ads_A10_v4",
+          "12": "Standard_NC16ads_A10_v4",
+          "24": "Standard_NC32ads_A10_v4"
+        }
+      },
+      "futureProof": {
+        "family": "NC",
+        "series": "NCadsH100v5",
+        "reason": "H100 GPU for AI/ML workloads — highest performance GPU compute available",
+        "requirements": ["H100 GPU drivers", "Gen2 OS image", "Check regional availability"],
+        "sizeMap": {
+          "6": "Standard_NC40ads_H100_v5",
+          "12": "Standard_NC40ads_H100_v5",
+          "24": "Standard_NC80adis_H100_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "NC",
+        "series": "NCv4",
+        "reason": "AMD Radeon MI25 GPU — lower cost for GPU visualization and light compute",
+        "requirements": ["AMD GPU drivers"],
+        "sizeMap": {
+          "6": "Standard_NC4as_T4_v3",
+          "12": "Standard_NC8as_T4_v3",
+          "24": "Standard_NC16as_T4_v3"
+        }
+      }
+    },
+    "NCv2": {
+      "family": "NC",
+      "version": 2,
+      "status": "Retired",
+      "retireDate": "2023-09-06",
+      "summary": "NCv2 (Tesla P100 GPU) retired. Move to NCadsA10v4 for inference or ND-series for training.",
+      "dropIn": {
+        "family": "NC",
+        "series": "NCadsA10v4",
+        "reason": "A10 GPU replaces P100 for both training and inference with better performance/watt",
+        "requirements": ["Updated GPU drivers (NVIDIA A10)", "Gen2 OS image recommended"],
+        "sizeMap": {
+          "6": "Standard_NC8ads_A10_v4",
+          "12": "Standard_NC16ads_A10_v4",
+          "24": "Standard_NC32ads_A10_v4"
+        }
+      },
+      "futureProof": {
+        "family": "NC",
+        "series": "NCadsH100v5",
+        "reason": "H100 GPU — top-tier for AI/ML training and inference at scale",
+        "requirements": ["H100 GPU drivers", "Gen2 OS image", "Check regional availability"],
+        "sizeMap": {
+          "6": "Standard_NC40ads_H100_v5",
+          "12": "Standard_NC40ads_H100_v5",
+          "24": "Standard_NC80adis_H100_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "NC",
+        "series": "NCasT4v3",
+        "reason": "T4 GPU for cost-effective inference workloads",
+        "requirements": ["NVIDIA T4 drivers"],
+        "sizeMap": {
+          "6": "Standard_NC4as_T4_v3",
+          "12": "Standard_NC8as_T4_v3",
+          "24": "Standard_NC16as_T4_v3"
+        }
+      }
+    },
+    "NCv3": {
+      "family": "NC",
+      "version": 3,
+      "status": "Retiring",
+      "retireDate": "2025-09-30",
+      "summary": "NCv3 (Tesla V100 GPU) retiring September 2025. Move to NCadsA10v4 or H100-based for AI/ML.",
+      "dropIn": {
+        "family": "NC",
+        "series": "NCadsA10v4",
+        "reason": "A10 GPU provides comparable GPU memory and better inference throughput than V100",
+        "requirements": ["Updated GPU drivers (NVIDIA A10)", "Gen2 OS image"],
+        "sizeMap": {
+          "6": "Standard_NC8ads_A10_v4",
+          "12": "Standard_NC16ads_A10_v4",
+          "24": "Standard_NC32ads_A10_v4"
+        }
+      },
+      "futureProof": {
+        "family": "NC",
+        "series": "NCadsH100v5",
+        "reason": "H100 for heavy training workloads requiring maximum GPU compute",
+        "requirements": ["H100 GPU drivers", "Gen2 OS image", "Check regional availability"],
+        "sizeMap": {
+          "6": "Standard_NC40ads_H100_v5",
+          "12": "Standard_NC40ads_H100_v5",
+          "24": "Standard_NC80adis_H100_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "NC",
+        "series": "NCasT4v3",
+        "reason": "T4 GPU extremely cost-effective for inference, rendering, and light training",
+        "requirements": ["NVIDIA T4 drivers"],
+        "sizeMap": {
+          "6": "Standard_NC4as_T4_v3",
+          "12": "Standard_NC8as_T4_v3",
+          "24": "Standard_NC16as_T4_v3"
+        }
+      }
+    },
+    "NDv1": {
+      "family": "ND",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2023-09-06",
+      "summary": "NDv1 (Tesla P40 GPU) retired. AI training workloads should move to NDAMv4_A100 or NDv5 (H100).",
+      "dropIn": {
+        "family": "ND",
+        "series": "NDAMv4_A100",
+        "reason": "A100 GPU is the standard AI training replacement, 10x+ performance over P40",
+        "requirements": ["A100 GPU drivers", "Gen2 OS image", "InfiniBand drivers for multi-node"],
+        "sizeMap": {
+          "6": "Standard_ND96asr_v4",
+          "12": "Standard_ND96asr_v4",
+          "24": "Standard_ND96asr_v4"
+        }
+      },
+      "futureProof": {
+        "family": "ND",
+        "series": "NDv5",
+        "reason": "H100-based for latest AI/ML training at maximum scale",
+        "requirements": ["H100 GPU drivers", "Gen2 OS image", "InfiniBand NDR drivers"],
+        "sizeMap": {
+          "6": "Standard_ND96isr_H100_v5",
+          "12": "Standard_ND96isr_H100_v5",
+          "24": "Standard_ND96isr_H100_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "NC",
+        "series": "NCadsA10v4",
+        "reason": "A10 GPU for lighter AI training/inference at significantly lower cost than A100",
+        "requirements": ["NVIDIA A10 drivers", "Gen2 OS image"],
+        "sizeMap": {
+          "6": "Standard_NC8ads_A10_v4",
+          "12": "Standard_NC16ads_A10_v4",
+          "24": "Standard_NC32ads_A10_v4"
+        }
+      }
+    },
+    "NDv2": {
+      "family": "ND",
+      "version": 2,
+      "status": "Retiring",
+      "retireDate": "2025-09-30",
+      "summary": "NDv2 (V100 with NVLink) retiring September 2025. Move to NDAMv4_A100 or NDv5 (H100).",
+      "dropIn": {
+        "family": "ND",
+        "series": "NDAMv4_A100",
+        "reason": "A100 with NVLink successor, 3x training throughput over V100 per GPU",
+        "requirements": ["A100 GPU drivers", "Gen2 OS image", "InfiniBand drivers for multi-node"],
+        "sizeMap": {
+          "40": "Standard_ND96asr_v4"
+        }
+      },
+      "futureProof": {
+        "family": "ND",
+        "series": "NDv5",
+        "reason": "H100 NVLink for highest AI training performance, 6x over A100 for transformer models",
+        "requirements": ["H100 GPU drivers", "Gen2 OS image", "InfiniBand NDR drivers"],
+        "sizeMap": {
+          "40": "Standard_ND96isr_H100_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "ND",
+        "series": "NDAMv4_A100",
+        "reason": "A100 is most cost-effective for multi-GPU training when H100 budget is prohibitive",
+        "requirements": ["A100 GPU drivers", "Gen2 OS image"],
+        "sizeMap": {
+          "40": "Standard_ND96asr_v4"
+        }
+      }
+    },
+    "NVv1": {
+      "family": "NV",
+      "version": 1,
+      "status": "Retired",
+      "retireDate": "2023-09-06",
+      "summary": "NVv1 (Tesla M60 GPU) retired. GPU visualization workloads should move to NVadsA10v5 or NVv4.",
+      "dropIn": {
+        "family": "NV",
+        "series": "NVadsA10v5",
+        "reason": "A10 GPU for visualization with fractional GPU support, direct M60 replacement",
+        "requirements": ["NVIDIA A10 GRID drivers", "Gen2 OS image recommended"],
+        "sizeMap": {
+          "6": "Standard_NV6ads_A10_v5",
+          "12": "Standard_NV12ads_A10_v5",
+          "24": "Standard_NV36ads_A10_v5"
+        }
+      },
+      "futureProof": {
+        "family": "NV",
+        "series": "NVadsA10v5",
+        "reason": "NVadsA10v5 is the current latest visualization-class GPU series",
+        "requirements": ["NVIDIA A10 GRID drivers", "Gen2 OS image"],
+        "sizeMap": {
+          "6": "Standard_NV6ads_A10_v5",
+          "12": "Standard_NV12ads_A10_v5",
+          "24": "Standard_NV36ads_A10_v5",
+          "36": "Standard_NV72ads_A10_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "NV",
+        "series": "NVv4",
+        "reason": "AMD Radeon MI25 — lowest cost GPU visualization for VDI and remote desktop",
+        "requirements": ["AMD GPU drivers"],
+        "sizeMap": {
+          "4": "Standard_NV4as_v4",
+          "8": "Standard_NV8as_v4",
+          "16": "Standard_NV16as_v4",
+          "32": "Standard_NV32as_v4"
+        }
+      }
+    },
+    "NVv3": {
+      "family": "NV",
+      "version": 3,
+      "status": "Retiring",
+      "retireDate": "2025-09-30",
+      "summary": "NVv3 (Tesla M60 refresh) retiring September 2025. Move to NVadsA10v5.",
+      "dropIn": {
+        "family": "NV",
+        "series": "NVadsA10v5",
+        "reason": "A10 GPU replaces M60 for visualization with better performance and fractional GPU support",
+        "requirements": ["NVIDIA A10 GRID drivers", "Gen2 OS image"],
+        "sizeMap": {
+          "12": "Standard_NV6ads_A10_v5",
+          "24": "Standard_NV12ads_A10_v5",
+          "48": "Standard_NV36ads_A10_v5"
+        }
+      },
+      "futureProof": {
+        "family": "NV",
+        "series": "NVadsA10v5",
+        "reason": "NVadsA10v5 is the current latest NV-class series",
+        "requirements": ["NVIDIA A10 GRID drivers", "Gen2 OS image"],
+        "sizeMap": {
+          "12": "Standard_NV6ads_A10_v5",
+          "24": "Standard_NV12ads_A10_v5",
+          "48": "Standard_NV36ads_A10_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "NV",
+        "series": "NVv4",
+        "reason": "AMD Radeon MI25 for budget-friendly VDI and visualization",
+        "requirements": ["AMD GPU drivers"],
+        "sizeMap": {
+          "4": "Standard_NV4as_v4",
+          "8": "Standard_NV8as_v4",
+          "16": "Standard_NV16as_v4",
+          "32": "Standard_NV32as_v4"
+        }
+      }
+    },
+
+    "Av2": {
+      "family": "A",
+      "version": 2,
+      "status": "OldGen",
+      "summary": "A-series v2 is an older general-purpose family with no newer A-series successor. Workloads should migrate to D-series (general purpose) or B-series (burstable/dev-test).",
+      "dropIn": {
+        "family": "D",
+        "series": "Dsv5",
+        "reason": "General-purpose successor with consistent performance, Premium SSD, SCSI disk controller; safest migration from Av2",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_D2s_v5",
+          "2": "Standard_D2s_v5",
+          "4": "Standard_D4s_v5",
+          "8": "Standard_D8s_v5"
+        }
+      },
+      "futureProof": {
+        "family": "D",
+        "series": "Dsv6",
+        "reason": "Latest D-series with NVMe, Emerald Rapids CPUs, higher IOPS — best long-term general-purpose platform",
+        "requirements": ["Gen2 OS image", "NVMe-compatible OS driver"],
+        "sizeMap": {
+          "1": "Standard_D2s_v6",
+          "2": "Standard_D2s_v6",
+          "4": "Standard_D4s_v6",
+          "8": "Standard_D8s_v6"
+        }
+      },
+      "costOptimized": {
+        "family": "B",
+        "series": "Bsv2",
+        "reason": "Burstable v2 for dev/test workloads that don't need sustained CPU; lowest cost option for intermittent workloads",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_B2s_v2",
+          "2": "Standard_B2s_v2",
+          "4": "Standard_B4s_v2",
+          "8": "Standard_B8s_v2"
+        }
+      }
+    },
+
+    "Bv1": {
+      "family": "B",
+      "version": 1,
+      "status": "OldGen",
+      "summary": "Original B-series burstable VMs. Bsv2 offers better baseline performance, more size options, and AMD alternatives.",
+      "dropIn": {
+        "family": "B",
+        "series": "Bsv2",
+        "reason": "Direct burstable successor with same credit-based model, improved baseline performance, more granular size options",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_B2s_v2",
+          "2": "Standard_B2s_v2",
+          "4": "Standard_B4s_v2",
+          "8": "Standard_B8s_v2",
+          "12": "Standard_B16s_v2",
+          "16": "Standard_B16s_v2",
+          "20": "Standard_B32s_v2"
+        }
+      },
+      "futureProof": {
+        "family": "D",
+        "series": "Dsv5",
+        "reason": "General-purpose with consistent (non-burstable) performance for workloads that have outgrown burstable model",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_D2s_v5",
+          "2": "Standard_D2s_v5",
+          "4": "Standard_D4s_v5",
+          "8": "Standard_D8s_v5",
+          "12": "Standard_D16s_v5",
+          "16": "Standard_D16s_v5",
+          "20": "Standard_D32s_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "B",
+        "series": "Basv2",
+        "reason": "AMD-based burstable v2 for lowest cost; same credit model with AMD EPYC processors",
+        "requirements": [],
+        "sizeMap": {
+          "1": "Standard_B2as_v2",
+          "2": "Standard_B2as_v2",
+          "4": "Standard_B4as_v2",
+          "8": "Standard_B8as_v2",
+          "12": "Standard_B16as_v2",
+          "16": "Standard_B16as_v2",
+          "20": "Standard_B32as_v2"
+        }
+      }
+    },
+
+    "Fv2": {
+      "family": "F",
+      "version": 2,
+      "status": "OldGen",
+      "summary": "Fsv2 is the current compute-optimized workhorse family. While not yet retiring, Fsv6 offers higher single-thread performance and NVMe for future-proofing.",
+      "dropIn": {
+        "family": "F",
+        "series": "Fasv6",
+        "reason": "AMD Genoa compute-optimized v6; only v6 F-series available (Intel Fsv6 does not exist). Straightforward migration from Fsv2",
+        "requirements": [],
+        "sizeMap": {
+          "2": "Standard_F2as_v6",
+          "4": "Standard_F4as_v6",
+          "8": "Standard_F8as_v6",
+          "16": "Standard_F16as_v6",
+          "32": "Standard_F32as_v6",
+          "48": "Standard_F48as_v6",
+          "64": "Standard_F64as_v6"
+        }
+      }
+    },
+
+    "Lv2": {
+      "family": "L",
+      "version": 2,
+      "status": "OldGen",
+      "summary": "Lsv2 is the storage-optimized v2 family with NVMe local disks. Lsv3/Lasv3 offer more size options; Lsv4 is the latest generation.",
+      "dropIn": {
+        "family": "L",
+        "series": "Lsv3",
+        "reason": "Direct storage-optimized successor with NVMe local disks, more granular size options, improved throughput per vCPU",
+        "requirements": [],
+        "sizeMap": {
+          "8": "Standard_L8s_v3",
+          "16": "Standard_L16s_v3",
+          "32": "Standard_L32s_v3",
+          "48": "Standard_L48s_v3",
+          "64": "Standard_L64s_v3",
+          "80": "Standard_L80s_v3"
+        }
+      },
+      "futureProof": {
+        "family": "L",
+        "series": "Lsv4",
+        "reason": "Latest storage-optimized with higher NVMe throughput, more size options (down to 2 vCPU), best storage-to-compute ratio",
+        "requirements": ["Gen2 OS image"],
+        "sizeMap": {
+          "8": "Standard_L8s_v4",
+          "16": "Standard_L16s_v4",
+          "32": "Standard_L32s_v4",
+          "48": "Standard_L48s_v4",
+          "64": "Standard_L64s_v4",
+          "80": "Standard_L80s_v4"
+        }
+      },
+      "costOptimized": {
+        "family": "L",
+        "series": "Lasv3",
+        "reason": "AMD-based storage-optimized with NVMe; lower cost per vCPU for storage-intensive workloads not sensitive to CPU vendor",
+        "requirements": [],
+        "sizeMap": {
+          "8": "Standard_L8as_v3",
+          "16": "Standard_L16as_v3",
+          "32": "Standard_L32as_v3",
+          "48": "Standard_L48as_v3",
+          "64": "Standard_L64as_v3",
+          "80": "Standard_L80as_v3"
+        }
+      }
+    },
+
+    "Lv3": {
+      "family": "L",
+      "version": 3,
+      "status": "OldGen",
+      "summary": "Lsv3/Lasv3 storage-optimized v3. Lsv4 is the latest generation with broader size options and improved local storage performance.",
+      "dropIn": {
+        "family": "L",
+        "series": "Lsv4",
+        "reason": "Direct successor with same NVMe storage focus, broader size range (2-96 vCPU), improved per-vCPU throughput",
+        "requirements": ["Gen2 OS image"],
+        "sizeMap": {
+          "8": "Standard_L8s_v4",
+          "16": "Standard_L16s_v4",
+          "32": "Standard_L32s_v4",
+          "48": "Standard_L48s_v4",
+          "64": "Standard_L64s_v4",
+          "80": "Standard_L80s_v4"
+        }
+      },
+      "futureProof": {
+        "family": "L",
+        "series": "Lasv4",
+        "reason": "Latest AMD-based storage-optimized with NVMe, extended size range, best price-performance for high-throughput storage",
+        "requirements": ["Gen2 OS image"],
+        "sizeMap": {
+          "8": "Standard_L8as_v4",
+          "16": "Standard_L16as_v4",
+          "32": "Standard_L32as_v4",
+          "48": "Standard_L48as_v4",
+          "64": "Standard_L64as_v4",
+          "80": "Standard_L80as_v4"
+        }
+      }
+    },
+
+    "DCv2": {
+      "family": "DC",
+      "version": 2,
+      "status": "OldGen",
+      "summary": "DCsv2 confidential compute VMs with Intel SGX enclaves. DCdsv3/DCdsv5 offer larger sizes and improved TEE capabilities.",
+      "dropIn": {
+        "family": "DC",
+        "series": "DCdsv3",
+        "reason": "Next-gen confidential compute with Intel TDX, larger size range (1-48 vCPU), supports both SGX and TDX isolation",
+        "requirements": ["Confidential OS image"],
+        "sizeMap": {
+          "1": "Standard_DC1ds_v3",
+          "2": "Standard_DC2ds_v3",
+          "4": "Standard_DC4ds_v3"
+        }
+      },
+      "futureProof": {
+        "family": "DC",
+        "series": "DCadsv5",
+        "reason": "Latest confidential compute with AMD SEV-SNP, broadest size range (2-96 vCPU), AMD EPYC processors",
+        "requirements": ["Confidential OS image", "AMD SEV-SNP support"],
+        "sizeMap": {
+          "2": "Standard_DC2ads_v5",
+          "4": "Standard_DC4ads_v5"
+        }
+      }
+    },
+
+    "DCv3": {
+      "family": "DC",
+      "version": 3,
+      "status": "OldGen",
+      "summary": "DCdsv3 confidential compute with Intel TDX. DCadsv5 is the latest AMD-based option with broader size range.",
+      "dropIn": {
+        "family": "DC",
+        "series": "DCadsv5",
+        "reason": "Latest confidential compute with AMD SEV-SNP, extended size range (2-96 vCPU), competitive pricing",
+        "requirements": ["Confidential OS image", "AMD SEV-SNP support"],
+        "sizeMap": {
+          "1": "Standard_DC2ads_v5",
+          "2": "Standard_DC2ads_v5",
+          "4": "Standard_DC4ads_v5",
+          "8": "Standard_DC8ads_v5",
+          "16": "Standard_DC16ads_v5",
+          "24": "Standard_DC32ads_v5",
+          "32": "Standard_DC32ads_v5",
+          "48": "Standard_DC48ads_v5"
+        }
+      }
+    },
+
+    "NVv2": {
+      "family": "NV",
+      "version": 2,
+      "status": "OldGen",
+      "summary": "NVv2 GPU visualization VMs with NVIDIA Tesla M60. NVv4 (AMD Radeon) and NVv5 (NVIDIA A10/V710) are newer options.",
+      "dropIn": {
+        "family": "NV",
+        "series": "NVadsA10v5",
+        "reason": "NVIDIA A10 GPU for visualization, broader size range, better GPU-to-vCPU ratio than NVv2",
+        "requirements": ["NVIDIA GPU drivers"],
+        "sizeMap": {
+          "6": "Standard_NV6ads_A10_v5",
+          "12": "Standard_NV12ads_A10_v5",
+          "18": "Standard_NV18ads_A10_v5",
+          "24": "Standard_NV36ads_A10_v5",
+          "36": "Standard_NV36ads_A10_v5",
+          "72": "Standard_NV72ads_A10_v5"
+        }
+      },
+      "futureProof": {
+        "family": "NV",
+        "series": "NVadsV710v5",
+        "reason": "Latest NVIDIA V710 GPU for visualization, newest driver support, best long-term VDI platform",
+        "requirements": ["NVIDIA GPU drivers"],
+        "sizeMap": {
+          "4": "Standard_NV4ads_V710_v5",
+          "8": "Standard_NV8ads_V710_v5",
+          "12": "Standard_NV12ads_V710_v5",
+          "24": "Standard_NV24ads_V710_v5"
+        }
+      },
+      "costOptimized": {
+        "family": "NV",
+        "series": "NVasv4",
+        "reason": "AMD Radeon MI25 GPU for budget VDI — lower cost than NVIDIA options for standard visualization",
+        "requirements": ["AMD GPU drivers"],
+        "sizeMap": {
+          "4": "Standard_NV4as_v4",
+          "8": "Standard_NV8as_v4",
+          "16": "Standard_NV16as_v4",
+          "32": "Standard_NV32as_v4"
+        }
+      }
+    },
+
+    "HBv2": {
+      "family": "HB",
+      "version": 2,
+      "status": "OldGen",
+      "summary": "HBv2 HPC VMs with AMD EPYC 7V12. HBv3 offers improved interconnect; HBv4 is the latest with AMD EPYC Genoa.",
+      "dropIn": {
+        "family": "HB",
+        "series": "HBv3",
+        "reason": "Direct HPC successor with AMD EPYC Milan, improved InfiniBand bandwidth, same 120-vCPU SKU model",
+        "requirements": ["InfiniBand drivers", "HPC-optimized OS image"],
+        "sizeMap": {
+          "120": "Standard_HB120rs_v3"
+        }
+      },
+      "futureProof": {
+        "family": "HB",
+        "series": "HBv4",
+        "reason": "Latest HPC with AMD EPYC Genoa (176 vCPU), NDR InfiniBand 400 Gb/s, highest memory bandwidth in HB family",
+        "requirements": ["InfiniBand drivers", "HPC-optimized OS image"],
+        "sizeMap": {
+          "120": "Standard_HB176rs_v4",
+          "176": "Standard_HB176rs_v4"
+        }
+      }
+    },
+
+    "HBv3": {
+      "family": "HB",
+      "version": 3,
+      "status": "OldGen",
+      "summary": "HBv3 HPC VMs with AMD EPYC Milan. HBv4 is the latest generation with Genoa processors and NDR InfiniBand.",
+      "dropIn": {
+        "family": "HB",
+        "series": "HBv4",
+        "reason": "Latest HPC with AMD EPYC Genoa (176 vCPU), NDR InfiniBand 400 Gb/s, 50% more memory bandwidth than HBv3",
+        "requirements": ["InfiniBand drivers", "HPC-optimized OS image"],
+        "sizeMap": {
+          "120": "Standard_HB176rs_v4",
+          "176": "Standard_HB176rs_v4"
+        }
+      }
+    },
+
+    "Mv2": {
+      "family": "M",
+      "version": 2,
+      "status": "OldGen",
+      "summary": "Msv2/Mdsv2 memory-optimized VMs for large SAP HANA and in-memory databases. Mv3 offers broader size options and improved performance.",
+      "dropIn": {
+        "family": "M",
+        "series": "Mbdsv3",
+        "reason": "Latest memory-optimized with broader size range (16-416 vCPU), higher memory-to-vCPU ratio, NVMe support for SAP HANA and large databases",
+        "requirements": ["Gen2 OS image"],
+        "sizeMap": {
+          "128": "Standard_M128bds_v3",
+          "176": "Standard_M176bds_v3",
+          "192": "Standard_M176bds_v3"
+        }
+      },
+      "futureProof": {
+        "family": "M",
+        "series": "Mbsv3",
+        "reason": "Latest M-series without local temp disk for cost savings on memory-optimized workloads with remote storage",
+        "requirements": ["Gen2 OS image"],
+        "sizeMap": {
+          "128": "Standard_M128bs_v3",
+          "176": "Standard_M176bs_v3",
+          "192": "Standard_M176bs_v3"
+        }
+      }
+    }
+  }
+}

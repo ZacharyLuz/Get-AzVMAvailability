@@ -23,6 +23,7 @@
         # SKU analysis
         'Get-CapValue'
         'Get-SkuFamily'
+        'Get-SkuFamilyVersion'
         'Get-ProcessorVendor'
         'Get-DiskCode'
         'Get-SkuCapabilities'
@@ -33,9 +34,9 @@
         # Image
         'Get-ImageRequirements'
         'Test-ImageSkuCompatibility'
-        # Fleet
-        'Get-FleetReadiness'
-        'Write-FleetReadinessSummary'
+        # Inventory
+        'Get-InventoryReadiness'
+        'Write-InventoryReadinessSummary'
         # Format / Output
         'Get-StatusIcon'
         'Format-ZoneStatus'
@@ -48,11 +49,16 @@
         'Get-SafeString'
         'Get-GeoGroup'
         'Get-QuotaAvailable'
+        'ConvertTo-ExcelColumnLetter'
         'Use-SubscriptionContextSafely'
         'Restore-OriginalSubscriptionContext'
         'Test-ImportExcelModule'
         'Get-RegularPricingMap'
         'Get-SpotPricingMap'
+        'Get-SavingsPlanPricingMap'
+        'Get-ReservationPricingMap'
+        'Get-SkuRetirementInfo'
+        'Test-SkuCompatibility'
     )
     CmdletsToExport   = @()
     VariablesToExport  = @()

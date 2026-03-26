@@ -103,3 +103,6 @@ docs/archive/
 scratch/
 pr-body-temp.md
 fix-review-log.ps1
+
+# AI session replay logs
+.specstory/

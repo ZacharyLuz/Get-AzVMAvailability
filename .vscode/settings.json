@@ -1,5 +1,6 @@
 {
     // Run PSScriptAnalyzer on save using the repo's shared settings file
     "powershell.scriptAnalysis.enable": true,
-    "powershell.scriptAnalysis.settingsPath": "PSScriptAnalyzerSettings.psd1"
+    "powershell.scriptAnalysis.settingsPath": "PSScriptAnalyzerSettings.psd1",
+    "specstory.cloudSync.enabled": "never"
 }

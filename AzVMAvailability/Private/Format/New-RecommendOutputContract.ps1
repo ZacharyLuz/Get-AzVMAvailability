@@ -30,6 +30,9 @@ function New-RecommendOutputContract {
             disk       = $item.Disk
             tempDiskGB = $item.TempGB
             accelNet   = $item.AccelNet
+            maxDisks   = $item.MaxDisks
+            maxNICs    = $item.MaxNICs
+            iops       = $item.IOPS
             score      = $item.Score
             capacity   = $item.Capacity
             allocScore = $item.AllocScore

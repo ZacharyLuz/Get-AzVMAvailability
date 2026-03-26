@@ -151,7 +151,7 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
     -NoPrompt
 #endregion Scenario 7
 
-#region Scenario 7B — Fleet Readiness (BOM Validation) (~3 min)
+#region Scenario 7B — Inventory Readiness (BOM Validation) (~3 min)
 # Scale the problem up: not one VM, but a deployment BOM of 28 VMs across 5 SKUs.
 # PASS means every SKU in the plan has capacity and quota to deploy today.
 # FAIL surfaces exactly which SKU is blocking you — before the ARM template runs,
@@ -160,22 +160,22 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
 # Option A: Load from CSV — the right choice when the BOM lives in a spreadsheet.
 # Hand the fleet-bom.csv template to whoever owns the BOM; they fill in SKUs and quantities.
 .\Get-AzVMAvailability.ps1 `
-    -FleetFile .\examples\fleet-bom.csv `
+    -InventoryFile .\examples\fleet-bom.csv `
     -Region "eastus" `
     -NoPrompt
 
 # Option B: Inline hashtable — the right choice for scripting and CI gates. See Scenario 14.
 # .\Get-AzVMAvailability.ps1 `
-#     -Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5; 'Standard_D16ds_v5'=1; 'Standard_D16ls_v6'=1} `
+#     -Inventory @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5; 'Standard_D16ds_v5'=1; 'Standard_D16ls_v6'=1} `
 #     -Region "eastus" `
 #     -NoPrompt
 #endregion Scenario 7B
 
-#region Scenario 7C — Generate Fleet Template
+#region Scenario 7C — Generate Inventory Template
 # Hand this to the person who owns the deployment BOM — no PowerShell knowledge required.
 # Two output files: a CSV they open in Excel, and a JSON for automation consumers.
-# Fill in SKU names and quantities, feed it back with -FleetFile. No Azure login needed.
-.\Get-AzVMAvailability.ps1 -GenerateFleetTemplate
+# Fill in SKU names and quantities, feed it back with -InventoryFile. No Azure login needed.
+.\Get-AzVMAvailability.ps1 -GenerateInventoryTemplate
 #endregion Scenario 7C
 
 # ============================================================

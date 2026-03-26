@@ -220,22 +220,31 @@
     or storing scan results programmatically.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -FleetFile .\fleet.csv -Region "eastus" -NoPrompt
-    Load a fleet BOM from CSV file. The CSV needs SKU and Qty columns:
+    .\Get-AzVMAvailability.ps1 -InventoryFile .\inventory.csv -Region "eastus" -NoPrompt
+    Load an inventory BOM from CSV file. The CSV needs SKU and Qty columns:
     SKU,Qty
     Standard_D2s_v5,17
     Standard_D4s_v5,4
     Standard_D8s_v5,5
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
-    Inline fleet BOM using PowerShell hashtable syntax.
+    .\Get-AzVMAvailability.ps1 -Inventory @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
+    Inline inventory BOM using PowerShell hashtable syntax.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -GenerateFleetTemplate
-    Creates fleet-template.csv and fleet-template.json in the current directory.
+    .\Get-AzVMAvailability.ps1 -GenerateInventoryTemplate
+    Creates inventory-template.csv and inventory-template.json in the current directory.
     Edit the files with your VM SKUs and quantities, then run:
-    .\Get-AzVMAvailability.ps1 -FleetFile .\fleet-template.csv -Region "eastus" -NoPrompt
+    .\Get-AzVMAvailability.ps1 -InventoryFile .\inventory-template.csv -Region "eastus" -NoPrompt
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
+    Lifecycle analysis: loads a list of current VM SKUs, runs compatibility-validated
+    recommendations for each, and produces a consolidated risk summary identifying
+    old-generation SKUs, capacity-constrained SKUs, and recommended replacements.
+    The CSV supports optional columns: Region (deployed location) and Qty (VM count).
+    When Qty is provided, quota is checked against the required vCPUs (Qty x vCPU)
+    for both the current SKU and the recommended replacement.
 
 .EXAMPLE
     .\Get-AzVMAvailability.ps1
@@ -297,6 +306,9 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Skip all interactive prompts")]
     [switch]$NoPrompt,
 
+    [Parameter(Mandatory = $false, HelpMessage = "Skip quota checks (use when analyzing a customer extract without subscription access)")]
+    [switch]$NoQuota,
+
     [Parameter(Mandatory = $false, HelpMessage = "Export format: Auto, CSV, or XLSX")]
     [ValidateSet("Auto", "CSV", "XLSX")]
     [string]$OutputFormat = "Auto",
@@ -340,14 +352,36 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Skip validation of region names against Azure metadata")]
     [switch]$SkipRegionValidation,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Fleet BOM: hashtable of SKU=Quantity pairs for fleet readiness validation (e.g., @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4})")]
-    [hashtable]$Fleet,
+    [Parameter(Mandatory = $false, HelpMessage = "Inventory BOM: hashtable of SKU=Quantity pairs for inventory readiness validation (e.g., @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4})")]
+    [Alias('Fleet')]
+    [hashtable]$Inventory,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV or JSON fleet BOM file. CSV: columns SKU,Qty. JSON: array of {SKU:'...',Qty:N} objects. Duplicate SKUs are summed.")]
-    [string]$FleetFile,
+    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV or JSON inventory BOM file. CSV: columns SKU,Qty. JSON: array of {SKU:'...',Qty:N} objects. Duplicate SKUs are summed.")]
+    [Alias('FleetFile')]
+    [string]$InventoryFile,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Generate fleet-template.csv and fleet-template.json in the current directory, then exit. No Azure login required.")]
-    [switch]$GenerateFleetTemplate
+    [Parameter(Mandatory = $false, HelpMessage = "Generate inventory-template.csv and inventory-template.json in the current directory, then exit. No Azure login required.")]
+    [Alias('GenerateFleetTemplate')]
+    [switch]$GenerateInventoryTemplate,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Include Savings Plan and Reserved Instance pricing columns in lifecycle reports. Requires -ShowPricing. Without this flag, only PAYG pricing is shown.")]
+    [switch]$RateOptimization,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Runs compatibility-validated recommendations for each SKU and flags lifecycle risks. CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects. Qty column is optional. XLSX: supports native Azure portal VM exports (maps SIZE/LOCATION columns automatically).")]
+    [string]$LifecycleRecommendations,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Pull live VM inventory from Azure via Resource Graph for lifecycle analysis. Scopes to -SubscriptionId if specified; use -ManagementGroup or -ResourceGroup for further filtering.")]
+    [switch]$LifecycleScan,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Filter -LifecycleScan to specific management group(s). Requires Az.ResourceGraph module.")]
+    [string[]]$ManagementGroup,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Filter -LifecycleScan to specific resource group(s).")]
+    [string[]]$ResourceGroup,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Filter -LifecycleScan to VMs with specific tags. Hashtable of key=value pairs, e.g. @{Environment='prod'}. Use '*' as value to match any VM that has the tag key regardless of value.")]
+    [Alias("Tags")]
+    [hashtable]$Tag
 )
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
@@ -372,11 +406,11 @@ function Write-Host {
 }
 $script:SuppressConsole = $JsonOutput.IsPresent
 
-#region GenerateFleetTemplate
-if ($GenerateFleetTemplate) {
-    if ($JsonOutput) { throw "Cannot use -GenerateFleetTemplate with -JsonOutput. Template generation writes files to disk, not JSON to stdout." }
-    $csvPath = Join-Path $PWD 'fleet-template.csv'
-    $jsonPath = Join-Path $PWD 'fleet-template.json'
+#region GenerateInventoryTemplate
+if ($GenerateInventoryTemplate) {
+    if ($JsonOutput) { throw "Cannot use -GenerateInventoryTemplate with -JsonOutput. Template generation writes files to disk, not JSON to stdout." }
+    $csvPath = Join-Path $PWD 'inventory-template.csv'
+    $jsonPath = Join-Path $PWD 'inventory-template.json'
     $csvContent = @"
 SKU,Qty
 Standard_D2s_v5,10
@@ -396,16 +430,16 @@ Standard_E16s_v5,1
 "@
     Set-Content -Path $csvPath -Value $csvContent -Encoding utf8
     Set-Content -Path $jsonPath -Value $jsonContent -Encoding utf8
-    Write-Host "Created fleet templates:" -ForegroundColor Green
+    Write-Host "Created inventory templates:" -ForegroundColor Green
     Write-Host "  CSV: $csvPath" -ForegroundColor Cyan
     Write-Host "  JSON: $jsonPath" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Next steps:" -ForegroundColor Yellow
     Write-Host "  1. Edit the template with your VM SKUs and quantities"
-    Write-Host "  2. Run: .\Get-AzVMAvailability.ps1 -FleetFile .\fleet-template.csv -Region 'eastus' -NoPrompt"
+    Write-Host "  2. Run: .\Get-AzVMAvailability.ps1 -InventoryFile .\inventory-template.csv -Region 'eastus' -NoPrompt"
     return
 }
-#endregion GenerateFleetTemplate
+#endregion GenerateInventoryTemplate
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Warning "PowerShell 7+ is required to run Get-AzVMAvailability.ps1."
@@ -415,22 +449,27 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 # Normalize string[] params — pwsh -File passes comma-delimited values as a single string
-foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter')) {
+foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter', 'ManagementGroup', 'ResourceGroup')) {
     $val = Get-Variable -Name $paramName -ValueOnly -ErrorAction SilentlyContinue
     if ($val -and $val.Count -eq 1 -and $val[0] -match ',') {
         Set-Variable -Name $paramName -Value @($val[0] -split ',' | ForEach-Object { $_.Trim().Trim('"', "'") } | Where-Object { $_ })
     }
 }
 
-# FleetFile: load CSV/JSON into $Fleet hashtable
-if ($FleetFile) {
-    if ($Fleet) { throw "Cannot specify both -Fleet and -FleetFile. Use one or the other." }
-    if (-not (Test-Path -LiteralPath $FleetFile -PathType Leaf)) { throw "Fleet file not found or is not a file: $FleetFile" }
-    $ext = [System.IO.Path]::GetExtension($FleetFile).ToLower()
-    if ($ext -notin '.csv', '.json') { throw "Unsupported file type '$ext'. FleetFile must be .csv or .json" }
+# Guard: -ManagementGroup, -ResourceGroup, and -Tag only valid with -LifecycleScan
+if (($ManagementGroup -or $ResourceGroup -or $Tag) -and -not $LifecycleScan) {
+    throw "-ManagementGroup, -ResourceGroup, and -Tag require -LifecycleScan. Use -LifecycleScan to pull live VM inventory."
+}
+
+# InventoryFile: load CSV/JSON into $Inventory hashtable
+if ($InventoryFile) {
+    if ($Inventory) { throw "Cannot specify both -Inventory and -InventoryFile. Use one or the other." }
+    if (-not (Test-Path -LiteralPath $InventoryFile -PathType Leaf)) { throw "Inventory file not found or is not a file: $InventoryFile" }
+    $ext = [System.IO.Path]::GetExtension($InventoryFile).ToLower()
+    if ($ext -notin '.csv', '.json') { throw "Unsupported file type '$ext'. InventoryFile must be .csv or .json" }
     if ($ext -eq '.json') {
-        $jsonData = @(Get-Content -LiteralPath $FleetFile -Raw | ConvertFrom-Json)
-        $Fleet = @{}
+        $jsonData = @(Get-Content -LiteralPath $InventoryFile -Raw | ConvertFrom-Json)
+        $Inventory = @{}
         foreach ($item in $jsonData) {
             $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
@@ -438,14 +477,14 @@ if ($FleetFile) {
                 $skuClean = $skuProp.Trim()
                 $qtyInt = [int]$qtyProp
                 if ($qtyInt -le 0) { throw "Invalid quantity '$qtyProp' for SKU '$skuClean'. Qty must be a positive integer." }
-                if ($Fleet.ContainsKey($skuClean)) { $Fleet[$skuClean] += $qtyInt }
-                else { $Fleet[$skuClean] = $qtyInt }
+                if ($Inventory.ContainsKey($skuClean)) { $Inventory[$skuClean] += $qtyInt }
+                else { $Inventory[$skuClean] = $qtyInt }
             }
         }
     }
     else {
-        $csvData = Import-Csv -LiteralPath $FleetFile
-        $Fleet = @{}
+        $csvData = Import-Csv -LiteralPath $InventoryFile
+        $Inventory = @{}
         foreach ($row in $csvData) {
             $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
@@ -453,26 +492,228 @@ if ($FleetFile) {
                 $skuClean = $skuProp.Trim()
                 $qtyInt = [int]$qtyProp
                 if ($qtyInt -le 0) { throw "Invalid quantity '$qtyProp' for SKU '$skuClean'. Qty must be a positive integer." }
-                if ($Fleet.ContainsKey($skuClean)) { $Fleet[$skuClean] += $qtyInt }
-                else { $Fleet[$skuClean] = $qtyInt }
+                if ($Inventory.ContainsKey($skuClean)) { $Inventory[$skuClean] += $qtyInt }
+                else { $Inventory[$skuClean] = $qtyInt }
             }
         }
     }
-    if ($Fleet.Count -eq 0) { throw "No valid SKU/Qty rows found in $FleetFile. Expected columns: SKU (or Name/VmSize), Qty (or Quantity/Count)" }
-    if (-not $JsonOutput) { Write-Host "Loaded $($Fleet.Count) SKUs from $FleetFile" -ForegroundColor Cyan }
+    if ($Inventory.Count -eq 0) { throw "No valid SKU/Qty rows found in $InventoryFile. Expected columns: SKU (or Name/VmSize), Qty (or Quantity/Count)" }
+    if (-not $JsonOutput) { Write-Host "Loaded $($Inventory.Count) SKUs from $InventoryFile" -ForegroundColor Cyan }
 }
 
-# Fleet mode: normalize keys (strip double-prefix) and derive SkuFilter
-if ($Fleet -and $Fleet.Count -gt 0) {
-    $normalizedFleet = @{}
-    foreach ($key in @($Fleet.Keys)) {
+# Inventory mode: normalize keys (strip double-prefix) and derive SkuFilter
+if ($Inventory -and $Inventory.Count -gt 0) {
+    $normalizedInventory = @{}
+    foreach ($key in @($Inventory.Keys)) {
         $clean = $key -replace '^Standard_Standard_', 'Standard_'
         if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
-        $normalizedFleet[$clean] = $Fleet[$key]
+        $normalizedInventory[$clean] = $Inventory[$key]
     }
-    $Fleet = $normalizedFleet
-    $SkuFilter = @($Fleet.Keys)
-    Write-Verbose "Fleet mode: derived SkuFilter from $($Fleet.Count) Fleet SKUs"
+    $Inventory = $normalizedInventory
+    $SkuFilter = @($Inventory.Keys)
+    Write-Verbose "Inventory mode: derived SkuFilter from $($Inventory.Count) Inventory SKUs"
+}
+
+# LifecycleRecommendations: load CSV/JSON/XLSX into $lifecycleEntries list (SKU + optional Region)
+if ($LifecycleRecommendations) {
+    if ($LifecycleScan) { throw "Cannot specify both -LifecycleRecommendations and -LifecycleScan. Use one or the other." }
+    if ($Recommend) { throw "Cannot specify both -Recommend and -LifecycleRecommendations. Use one or the other." }
+    if ($Inventory -or $InventoryFile) { throw "Cannot specify both -LifecycleRecommendations and -Inventory/-InventoryFile. They are separate modes." }
+    if (-not (Test-Path -LiteralPath $LifecycleRecommendations -PathType Leaf)) { throw "Lifecycle file not found or is not a file: $LifecycleRecommendations" }
+    $ext = [System.IO.Path]::GetExtension($LifecycleRecommendations).ToLower()
+    if ($ext -notin '.csv', '.json', '.xlsx') { throw "Unsupported file type '$ext'. LifecycleRecommendations must be .csv, .json, or .xlsx" }
+    if ($ext -eq '.xlsx' -and -not (Get-Module -ListAvailable ImportExcel)) { throw "ImportExcel module required for .xlsx files. Install with: Install-Module ImportExcel -Scope CurrentUser" }
+    $lifecycleEntries = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $compositeKeys = @{}
+    $parseRow = {
+        param($item)
+        $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Size|VmSize)$' } | Select-Object -First 1).Value
+        if (-not $skuProp) { $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Name|Intel\.SKU)$' } | Select-Object -First 1).Value }
+        $regionProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Region|Location|AzureRegion)$' } | Select-Object -First 1).Value
+        $qtyProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
+        if ($skuProp) {
+            $clean = $skuProp.Trim() -replace '^Standard_Standard_', 'Standard_'
+            if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
+            $regionClean = if ($regionProp) { ($regionProp.Trim() -replace '\s', '').ToLower() } else { $null }
+            $qty = if ($qtyProp) { [int]$qtyProp } else { 1 }
+            if ($qty -le 0) { throw "Invalid quantity '$qtyProp' for SKU '$clean'. Qty must be a positive integer." }
+            $compositeKey = "$clean|$regionClean"
+            if ($compositeKeys.ContainsKey($compositeKey)) {
+                $existingIdx = $compositeKeys[$compositeKey]
+                $existing = $lifecycleEntries[$existingIdx]
+                $lifecycleEntries[$existingIdx] = [pscustomobject]@{ SKU = $clean; Region = $regionClean; Qty = $existing.Qty + $qty }
+            }
+            else {
+                $compositeKeys[$compositeKey] = $lifecycleEntries.Count
+                $lifecycleEntries.Add([pscustomobject]@{ SKU = $clean; Region = $regionClean; Qty = $qty })
+            }
+        }
+    }
+    if ($ext -eq '.json') {
+        $jsonData = @(Get-Content -LiteralPath $LifecycleRecommendations -Raw | ConvertFrom-Json)
+        foreach ($item in $jsonData) { & $parseRow $item }
+    }
+    elseif ($ext -eq '.xlsx') {
+        $xlsxData = Import-Excel -Path $LifecycleRecommendations
+        foreach ($row in $xlsxData) { & $parseRow $row }
+    }
+    else {
+        $csvData = Import-Csv -LiteralPath $LifecycleRecommendations
+        foreach ($row in $csvData) { & $parseRow $row }
+    }
+    if ($lifecycleEntries.Count -eq 0) { throw "No valid SKU rows found in $LifecycleRecommendations. Expected column: SKU, Size, or VmSize (falls back to Name)" }
+    $SkuFilter = @($lifecycleEntries | ForEach-Object { $_.SKU })
+
+    # Auto-merge per-SKU regions into the -Region parameter so all needed regions get scanned
+    $fileRegions = @($lifecycleEntries | Where-Object { $_.Region } | ForEach-Object { $_.Region } | Select-Object -Unique)
+    if ($fileRegions.Count -gt 0) {
+        if ($Region) {
+            $mergedRegions = @($Region) + @($fileRegions) | Select-Object -Unique
+            $Region = @($mergedRegions)
+        }
+        else {
+            $Region = @($fileRegions)
+        }
+        Write-Verbose "Lifecycle mode: merged $($fileRegions.Count) file region(s) into scan regions: $($Region -join ', ')"
+    }
+
+    $totalVMs = ($lifecycleEntries | Measure-Object -Property Qty -Sum).Sum
+    if (-not $JsonOutput) { Write-Host "Lifecycle analysis: loaded $($lifecycleEntries.Count) SKU entries ($totalVMs VMs) from $LifecycleRecommendations" -ForegroundColor Cyan }
+}
+
+# LifecycleScan: pull live VM inventory from Azure Resource Graph
+if ($LifecycleScan) {
+    if ($Recommend) { throw "Cannot specify both -Recommend and -LifecycleScan. Use one or the other." }
+    if ($Inventory -or $InventoryFile) { throw "Cannot specify both -LifecycleScan and -Inventory/-InventoryFile. They are separate modes." }
+    if ($ManagementGroup -and $SubscriptionId) { throw "Cannot specify both -ManagementGroup and -SubscriptionId for -LifecycleScan. Use one or the other." }
+    if (-not $ManagementGroup -and -not $SubscriptionId) {
+        $currentCtx = Get-AzContext -ErrorAction SilentlyContinue
+        if (-not $currentCtx -or -not $currentCtx.Subscription) { throw "No Azure context found. Run Connect-AzAccount first, or specify -SubscriptionId or -ManagementGroup." }
+    }
+    if (-not (Get-Module -ListAvailable Az.ResourceGraph)) { throw "Az.ResourceGraph module required for -LifecycleScan. Install with: Install-Module Az.ResourceGraph -Scope CurrentUser" }
+    Import-Module Az.ResourceGraph -ErrorAction Stop
+
+    # Build ARG query with optional resource group and tag filters
+    $argQuery = "Resources`n| where type =~ 'microsoft.compute/virtualmachines'"
+    if ($ResourceGroup) {
+        $rgFilter = ($ResourceGroup | ForEach-Object { "'$($_ -replace "'", "''")'" }) -join ', '
+        $argQuery += "`n| where resourceGroup in~ ($rgFilter)"
+    }
+    if ($Tag -and $Tag.Count -gt 0) {
+        foreach ($tagKey in $Tag.Keys) {
+            $safeKey = $tagKey -replace "'", "''"
+            $tagVal = $Tag[$tagKey]
+            if ($tagVal -eq '*') {
+                $argQuery += "`n| where isnotnull(tags['$safeKey'])"
+            }
+            else {
+                $safeVal = [string]$tagVal -replace "'", "''"
+                $argQuery += "`n| where tags['$safeKey'] =~ '$safeVal'"
+            }
+        }
+    }
+    $argQuery += "`n| extend vmSize = tostring(properties.hardwareProfile.vmSize)"
+    $argQuery += "`n| project vmSize, location, subscriptionId, resourceGroup"
+
+    if (-not $JsonOutput) { Write-Host "Querying Azure Resource Graph for live VM inventory..." -ForegroundColor Cyan }
+
+    # Execute ARG query with pagination
+    $argParams = @{ Query = $argQuery; First = 1000 }
+    if ($ManagementGroup) { $argParams['ManagementGroup'] = $ManagementGroup }
+    elseif ($SubscriptionId) { $argParams['Subscription'] = $SubscriptionId }
+
+    $allVMs = [System.Collections.Generic.List[PSCustomObject]]::new()
+    do {
+        $result = Search-AzGraph @argParams
+        if ($result) {
+            foreach ($vm in $result) { $allVMs.Add($vm) }
+            if ($result.SkipToken) { $argParams['SkipToken'] = $result.SkipToken }
+            else { break }
+        }
+        else { break }
+    } while ($true)
+
+    if ($allVMs.Count -eq 0) { throw "No VMs found matching the specified scope. Check your -SubscriptionId, -ManagementGroup, -ResourceGroup, or -Tag filters." }
+
+    # Aggregate into lifecycle entries (same format as file-based input)
+    $lifecycleEntries = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $compositeKeys = @{}
+    foreach ($vm in $allVMs) {
+        $clean = $vm.vmSize.Trim() -replace '^Standard_Standard_', 'Standard_'
+        if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
+        $regionClean = $vm.location.ToLower()
+        $compositeKey = "$clean|$regionClean"
+        if ($compositeKeys.ContainsKey($compositeKey)) {
+            $existingIdx = $compositeKeys[$compositeKey]
+            $existing = $lifecycleEntries[$existingIdx]
+            $lifecycleEntries[$existingIdx] = [pscustomobject]@{ SKU = $clean; Region = $regionClean; Qty = $existing.Qty + 1 }
+        }
+        else {
+            $compositeKeys[$compositeKey] = $lifecycleEntries.Count
+            $lifecycleEntries.Add([pscustomobject]@{ SKU = $clean; Region = $regionClean; Qty = 1 })
+        }
+    }
+    $SkuFilter = @($lifecycleEntries | ForEach-Object { $_.SKU })
+
+    # Auto-merge discovered regions into -Region parameter
+    $scanRegions = @($lifecycleEntries | ForEach-Object { $_.Region } | Select-Object -Unique)
+    if ($scanRegions.Count -gt 0) {
+        if ($Region) {
+            $mergedRegions = @($Region) + @($scanRegions) | Select-Object -Unique
+            $Region = @($mergedRegions)
+        }
+        else {
+            $Region = @($scanRegions)
+        }
+    }
+
+    $totalVMs = ($lifecycleEntries | Measure-Object -Property Qty -Sum).Sum
+    $scopeDesc = if ($ManagementGroup) { "management group(s): $($ManagementGroup -join ', ')" } elseif ($SubscriptionId) { "subscription(s): $($SubscriptionId -join ', ')" } else { "current subscription" }
+    if (-not $JsonOutput) { Write-Host "Lifecycle scan: found $($lifecycleEntries.Count) unique SKU+Region entries ($totalVMs VMs) across $($scanRegions.Count) region(s) from $scopeDesc" -ForegroundColor Cyan }
+}
+
+# Expand SKU filter to include upgrade path target SKUs so they get scanned
+if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
+    $upgradePathFile = Join-Path $PSScriptRoot 'data' 'UpgradePath.json'
+    if (Test-Path -LiteralPath $upgradePathFile) {
+        try {
+            $upData = Get-Content -LiteralPath $upgradePathFile -Raw | ConvertFrom-Json
+            $upgradeSkus = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $existingFilter = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($s in $SkuFilter) { [void]$existingFilter.Add($s) }
+
+            foreach ($entry in $lifecycleEntries) {
+                $skuName = $entry.SKU
+                # Extract family (inline logic matching Get-SkuFamily)
+                $fam = if ($skuName -match 'Standard_([A-Z]+[a-z]*)[\d]') { $Matches[1].ToUpper() } else { '' }
+                # Extract version (inline logic matching Get-SkuFamilyVersion)
+                $ver = if ($skuName -match '_v(\d+)$') { [int]$Matches[1] } else { 1 }
+                # Normalize family: DS→D, GS→G (Premium SSD suffix, same family)
+                $normFam = if ($fam -cmatch '^([A-Z]+)S$' -and $fam -notin 'NVS','NCS','NDS','HBS','HCS','HXS','FXS') { $Matches[1] } else { $fam }
+                $pathKey = "${normFam}v${ver}"
+                $path = $upData.upgradePaths.$pathKey
+                if (-not $path) { continue }
+
+                foreach ($pType in @('dropIn','futureProof','costOptimized')) {
+                    $pe = $path.$pType
+                    if (-not $pe -or -not $pe.sizeMap) { continue }
+                    foreach ($prop in $pe.sizeMap.PSObject.Properties) {
+                        if ($prop.Value -and -not $existingFilter.Contains($prop.Value)) {
+                            [void]$upgradeSkus.Add($prop.Value)
+                        }
+                    }
+                }
+            }
+
+            if ($upgradeSkus.Count -gt 0) {
+                $SkuFilter = @($SkuFilter) + @($upgradeSkus)
+                Write-Verbose "Lifecycle mode: expanded SKU filter with $($upgradeSkus.Count) upgrade path target SKUs for scanning"
+            }
+        }
+        catch {
+            Write-Verbose "Failed to expand SKU filter from UpgradePath.json: $_"
+        }
+    }
 }
 
 #region Configuration
@@ -481,10 +722,10 @@ $ScriptVersion = "1.13.0"
 #region Constants
 $HoursPerMonth = 730
 $ParallelThrottleLimit = 4
-$OutputWidthWithPricing = 140
+$OutputWidthWithPricing = 200
 $OutputWidthBase = 122
 $OutputWidthMin = 100
-$OutputWidthMax = 150
+$OutputWidthMax = 220
 
 # VM family purpose descriptions and category groupings
 $FamilyInfo = @{
@@ -914,6 +1155,51 @@ function Get-SkuFamily {
     return 'Unknown'
 }
 
+function Get-SkuFamilyVersion {
+    param([string]$SkuName)
+    if ($SkuName -match '_v(\d+)') {
+        return [int]$matches[1]
+    }
+    return 1
+}
+
+function Get-SkuRetirementInfo {
+    param([string]$SkuName)
+
+    # Azure VM series retirement data from official Microsoft announcements
+    # https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement
+    $retirementLookup = @(
+        # Already retired
+        @{ Pattern = '^(Basic_A\d+|Standard_A\d+)$';  Series = 'Av1';  RetireDate = '2024-08-31'; Status = 'Retired' }
+        @{ Pattern = '^Standard_DS?\d+$';              Series = 'Dv1';  RetireDate = '2024-08-31'; Status = 'Retired' }
+        @{ Pattern = '^Standard_GS?\d+$';              Series = 'G/GS'; RetireDate = '2025-03-31'; Status = 'Retired' }
+        @{ Pattern = '^Standard_H\d+[a-z]*$';          Series = 'H';    RetireDate = '2024-09-28'; Status = 'Retired' }
+        @{ Pattern = '^Standard_HB60rs$';              Series = 'HBv1'; RetireDate = '2024-09-28'; Status = 'Retired' }
+        @{ Pattern = '^Standard_HC44rs$';              Series = 'HC';   RetireDate = '2024-09-28'; Status = 'Retired' }
+        @{ Pattern = '^Standard_NC\d+r?$';             Series = 'NCv1'; RetireDate = '2023-09-06'; Status = 'Retired' }
+        @{ Pattern = '^Standard_NC\d+r?s_v2$';         Series = 'NCv2'; RetireDate = '2023-09-06'; Status = 'Retired' }
+        @{ Pattern = '^Standard_ND\d+r?s$';            Series = 'NDv1'; RetireDate = '2023-09-06'; Status = 'Retired' }
+        @{ Pattern = '^Standard_NV\d+$';               Series = 'NVv1'; RetireDate = '2023-09-06'; Status = 'Retired' }
+        @{ Pattern = '^Standard_L\d+s$';               Series = 'Lsv1'; RetireDate = '2024-08-31'; Status = 'Retired' }
+        # Scheduled for retirement
+        @{ Pattern = '^Standard_DS?\d+_v2(_Promo)?$';  Series = 'Dv2';  RetireDate = '2027-03-31'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_D\d+s?_v3$';           Series = 'Dv3';  RetireDate = '2027-09-30'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_E\d+i?s?_v3$';         Series = 'Ev3';  RetireDate = '2027-09-30'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_F\d+s$';               Series = 'Fsv1'; RetireDate = '2027-09-30'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_NC\d+r?s_v3$';         Series = 'NCv3'; RetireDate = '2025-09-30'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_ND\d+r?s_v2$';         Series = 'NDv2'; RetireDate = '2025-09-30'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_NV\d+s_v3$';           Series = 'NVv3'; RetireDate = '2025-09-30'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_M\d+(-\d+)?[a-z]*$';   Series = 'Mv1';  RetireDate = '2027-08-31'; Status = 'Retiring' }
+    )
+
+    foreach ($entry in $retirementLookup) {
+        if ($SkuName -match $entry.Pattern) {
+            return $entry
+        }
+    }
+    return $null
+}
+
 function Get-ProcessorVendor {
     param([string]$SkuName)
     $body = ($SkuName -replace '^Standard_', '') -replace '_v\d+$', ''
@@ -1178,19 +1464,21 @@ function Get-QuotaAvailable {
     }
 }
 
-function Get-FleetReadiness {
+function Get-InventoryReadiness {
+    [Alias('Get-FleetReadiness')]
     <#
     .SYNOPSIS
-        Validates a fleet BOM against scan data to produce per-SKU and per-quota-family readiness.
+        Validates an inventory BOM against scan data to produce per-SKU and per-quota-family readiness.
     .DESCRIPTION
-        Takes a Fleet hashtable (SKU=Qty) and scan data, then checks:
+        Takes an Inventory hashtable (SKU=Qty) and scan data, then checks:
         1. Does each SKU exist in the scanned regions?
         2. What is the capacity status for each SKU?
         3. Does the quota family have enough available vCPUs for the aggregated demand?
     #>
     param(
         [Parameter(Mandatory)]
-        [hashtable]$Fleet,
+        [Alias('Fleet')]
+        [hashtable]$Inventory,
 
         [Parameter(Mandatory)]
         [array]$SubscriptionData
@@ -1199,9 +1487,9 @@ function Get-FleetReadiness {
     $results = [System.Collections.Generic.List[PSCustomObject]]::new()
     $quotaDemandByFamily = @{}
 
-    foreach ($skuName in $Fleet.Keys) {
+    foreach ($skuName in $Inventory.Keys) {
         $normalizedSku = $skuName
-        $qty = [int]$Fleet[$skuName]
+        $qty = [int]$Inventory[$skuName]
 
         $foundInAnyRegion = $false
         $bestStatus = 'NOT FOUND'
@@ -1320,27 +1608,30 @@ function Get-FleetReadiness {
     }
 }
 
-function Write-FleetReadinessSummary {
+function Write-InventoryReadinessSummary {
+    [Alias('Write-FleetReadinessSummary')]
     <#
     .SYNOPSIS
-        Renders the fleet readiness summary to console with color-coded pass/fail.
+        Renders the inventory readiness summary to console with color-coded pass/fail.
     #>
     param(
         [Parameter(Mandatory)]
-        [hashtable]$FleetResult,
+        [Alias('FleetResult')]
+        [hashtable]$InventoryResult,
 
         [Parameter(Mandatory)]
-        [hashtable]$Fleet
+        [Alias('Fleet')]
+        [hashtable]$Inventory
     )
 
-    $totalVMs = ($Fleet.Values | Measure-Object -Sum).Sum
-    $totalvCPU = ($FleetResult.SKUs | Measure-Object -Property TotalvCPU -Sum).Sum
+    $totalVMs = ($Inventory.Values | Measure-Object -Sum).Sum
+    $totalvCPU = ($InventoryResult.SKUs | Measure-Object -Property TotalvCPU -Sum).Sum
 
     Write-Host ""
     Write-Host ("=" * 100) -ForegroundColor Gray
-    Write-Host "FLEET READINESS SUMMARY" -ForegroundColor Cyan
+    Write-Host "INVENTORY READINESS SUMMARY" -ForegroundColor Cyan
     Write-Host ("=" * 100) -ForegroundColor Gray
-    Write-Host "Fleet: $($Fleet.Count) SKUs | $totalVMs VMs | $totalvCPU vCPUs total" -ForegroundColor White
+    Write-Host "Inventory: $($Inventory.Count) SKUs | $totalVMs VMs | $totalvCPU vCPUs total" -ForegroundColor White
     Write-Host ""
 
     # Per-SKU table
@@ -1348,7 +1639,7 @@ function Write-FleetReadinessSummary {
     Write-Host ($headerFmt -f 'SKU', 'Qty', 'vCPU', 'Mem', 'Need', 'Capacity', 'Region') -ForegroundColor White
     Write-Host ("-" * 100) -ForegroundColor Gray
 
-    foreach ($row in $FleetResult.SKUs) {
+    foreach ($row in $InventoryResult.SKUs) {
         $capacityColor = switch ($row.Capacity) {
             'OK'                    { 'Green' }
             'LIMITED'               { 'Yellow' }
@@ -1370,7 +1661,7 @@ function Write-FleetReadinessSummary {
     Write-Host ("-" * 100) -ForegroundColor Gray
 
     $allPass = $true
-    foreach ($q in $FleetResult.Quotas) {
+    foreach ($q in $InventoryResult.Quotas) {
         $passStr = if ($null -eq $q.Pass) { '?' } elseif ($q.Pass) { 'YES' } else { 'NO' }
         $passColor = if ($null -eq $q.Pass) { 'Yellow' } elseif ($q.Pass) { 'Green' } else { 'Red' }
         if ($q.Pass -eq $false) { $allPass = $false }
@@ -1382,11 +1673,11 @@ function Write-FleetReadinessSummary {
 
     Write-Host ""
     if ($allPass) {
-        Write-Host "FLEET READINESS: PASS" -ForegroundColor Green -BackgroundColor Black
-        Write-Host "All SKUs have capacity and quota covers the fleet demand." -ForegroundColor Green
+        Write-Host "INVENTORY READINESS: PASS" -ForegroundColor Green -BackgroundColor Black
+        Write-Host "All SKUs have capacity and quota covers the inventory demand." -ForegroundColor Green
     }
     else {
-        Write-Host "FLEET READINESS: FAIL" -ForegroundColor Red -BackgroundColor Black
+        Write-Host "INVENTORY READINESS: FAIL" -ForegroundColor Red -BackgroundColor Black
         Write-Host "One or more SKUs have capacity issues or insufficient quota." -ForegroundColor Red
         Write-Host "Request quota increase: https://aka.ms/ProdportalCRP/?#create/Microsoft.Support/Parameters/" -ForegroundColor Yellow
     }
@@ -1493,13 +1784,92 @@ function Test-SkuMatchesFilter {
     return $false
 }
 
+function Test-SkuCompatibility {
+    <#
+    .SYNOPSIS
+        Tests whether a candidate SKU can fully replace a target SKU.
+    .DESCRIPTION
+        Performs hard compatibility checks across critical VM dimensions: vCPU, memory,
+        data disks, NICs, accelerated networking, premium IO, disk interface (NVMe/SCSI),
+        ephemeral OS disk, and Ultra SSD. Returns pass/fail with a list of failures.
+        This is a pre-filter before similarity scoring — only candidates that pass all
+        checks should be scored and recommended.
+    #>
+    param(
+        [Parameter(Mandatory)][hashtable]$Target,
+        [Parameter(Mandatory)][hashtable]$Candidate
+    )
+
+    $failures = [System.Collections.Generic.List[string]]::new()
+
+    # Category gate: burstable (B-series) candidates cannot replace non-burstable targets
+    $targetFamily = if ($Target.Family) { $Target.Family } elseif ($Target.Name) { if ($Target.Name -match 'Standard_([A-Z]+)\d') { $matches[1] } else { '' } } else { '' }
+    $candidateFamily = if ($Candidate.Family) { $Candidate.Family } elseif ($Candidate.Name) { if ($Candidate.Name -match 'Standard_([A-Z]+)\d') { $matches[1] } else { '' } } else { '' }
+    if ($candidateFamily -eq 'B' -and $targetFamily -ne 'B') {
+        $failures.Add("Category: burstable (B-series) cannot replace non-burstable ($targetFamily-series)")
+    }
+
+    # vCPU: candidate must meet or exceed target
+    if ($Candidate.vCPU -gt 0 -and $Target.vCPU -gt 0 -and $Candidate.vCPU -lt $Target.vCPU) {
+        $failures.Add("vCPU: candidate $($Candidate.vCPU) < target $($Target.vCPU)")
+    }
+
+    # vCPU ceiling: candidate must not exceed 2x target (prevents licensing-impacting core count jumps)
+    if ($Candidate.vCPU -gt 0 -and $Target.vCPU -gt 0 -and $Candidate.vCPU -gt ($Target.vCPU * 2)) {
+        $failures.Add("vCPU: candidate $($Candidate.vCPU) exceeds 2x target $($Target.vCPU) (licensing risk)")
+    }
+
+    # Memory: candidate must meet or exceed target
+    if ($Candidate.MemoryGB -gt 0 -and $Target.MemoryGB -gt 0 -and $Candidate.MemoryGB -lt $Target.MemoryGB) {
+        $failures.Add("MemoryGB: candidate $($Candidate.MemoryGB) < target $($Target.MemoryGB)")
+    }
+
+    # Max NICs: candidate must support at least as many
+    if ($Target.MaxNetworkInterfaces -gt 1 -and $Candidate.MaxNetworkInterfaces -lt $Target.MaxNetworkInterfaces) {
+        $failures.Add("MaxNICs: candidate $($Candidate.MaxNetworkInterfaces) < target $($Target.MaxNetworkInterfaces)")
+    }
+
+    # Accelerated networking: if target has it, candidate must too
+    if ($Target.AccelNet -eq $true -and $Candidate.AccelNet -ne $true) {
+        $failures.Add("AcceleratedNetworking: target requires it, candidate lacks it")
+    }
+
+    # Premium IO: if target requires premium, candidate must support it
+    if ($Target.PremiumIO -eq $true -and $Candidate.PremiumIO -ne $true) {
+        $failures.Add("PremiumIO: target requires it, candidate lacks it")
+    }
+
+    # Disk interface: NVMe target requires NVMe candidate
+    if ($Target.DiskCode -match 'NV' -and $Candidate.DiskCode -notmatch 'NV') {
+        $failures.Add("DiskInterface: target uses NVMe, candidate only has SCSI")
+    }
+
+    # Ephemeral OS disk: if target uses it, candidate must support it
+    if ($Target.EphemeralOSDiskSupported -eq $true -and $Candidate.EphemeralOSDiskSupported -ne $true) {
+        $failures.Add("EphemeralOSDisk: target requires it, candidate lacks it")
+    }
+
+    # Ultra SSD: if target uses it, candidate must support it
+    if ($Target.UltraSSDAvailable -eq $true -and $Candidate.UltraSSDAvailable -ne $true) {
+        $failures.Add("UltraSSD: target requires it, candidate lacks it")
+    }
+
+    return @{
+        Compatible = ($failures.Count -eq 0)
+        Failures   = @($failures)
+    }
+}
+
 function Get-SkuSimilarityScore {
     <#
     .SYNOPSIS
         Scores how similar a candidate SKU is to a target SKU profile.
     .DESCRIPTION
-        Weighted scoring across 6 dimensions: vCPU (25), memory (25), family (20),
-        generation (13), architecture (12), premium IO (5). Max 100.
+        Weighted scoring across 8 dimensions: vCPU (20), memory (20), family (18),
+        family version newness (12), architecture (10), premium IO (5), disk IOPS (8),
+        data disk count (7). Max 100.
+        Family version newness strongly rewards the latest SKU generations (_v7 > _v6 > _v5)
+        to prioritize lifecycle upgrades to the newest available hardware.
     #>
     param(
         [Parameter(Mandatory)][hashtable]$Target,
@@ -1509,23 +1879,23 @@ function Get-SkuSimilarityScore {
 
     $score = 0
 
-    # vCPU closeness (25 points)
+    # vCPU closeness (20 points)
     if ($Target.vCPU -gt 0 -and $Candidate.vCPU -gt 0) {
         $maxCpu = [math]::Max($Target.vCPU, $Candidate.vCPU)
         $cpuScore = 1 - ([math]::Abs($Target.vCPU - $Candidate.vCPU) / $maxCpu)
-        $score += [math]::Round($cpuScore * 25)
+        $score += [math]::Round($cpuScore * 20)
     }
 
-    # Memory closeness (25 points)
+    # Memory closeness (20 points)
     if ($Target.MemoryGB -gt 0 -and $Candidate.MemoryGB -gt 0) {
         $maxMem = [math]::Max($Target.MemoryGB, $Candidate.MemoryGB)
         $memScore = 1 - ([math]::Abs($Target.MemoryGB - $Candidate.MemoryGB) / $maxMem)
-        $score += [math]::Round($memScore * 25)
+        $score += [math]::Round($memScore * 20)
     }
 
-    # Family match (20 points) — exact = 20, same category = 15, same first letter = 10
+    # Family match (18 points) — exact = 18, same category = 13, same first letter = 9
     if ($Target.Family -eq $Candidate.Family) {
-        $score += 20
+        $score += 18
     }
     else {
         $targetInfo = if ($FamilyInfo) { $FamilyInfo[$Target.Family] } else { $null }
@@ -1533,25 +1903,52 @@ function Get-SkuSimilarityScore {
         $targetCat = if ($targetInfo) { $targetInfo.Category } else { 'Unknown' }
         $candidateCat = if ($candidateInfo) { $candidateInfo.Category } else { 'Unknown' }
         if ($targetCat -ne 'Unknown' -and $targetCat -eq $candidateCat) {
-            $score += 15
+            $score += 13
         }
         elseif ($Target.Family.Length -gt 0 -and $Candidate.Family.Length -gt 0 -and
             $Target.Family[0] -eq $Candidate.Family[0]) {
-            $score += 10
+            $score += 9
         }
     }
 
-    # Generation match (13 points)
-    if ($Target.Generation -and $Candidate.Generation) {
-        $targetGens = @($Target.Generation -split ',')
-        $candidateGens = @($Candidate.Generation -split ',')
-        $overlap = $targetGens | Where-Object { $_ -in $candidateGens }
-        if ($overlap) { $score += 13 }
+    # Family version newness (12 points) — strongly rewards latest SKU generations
+    $targetVer = if ($Target.FamilyVersion) { [int]$Target.FamilyVersion } else { 1 }
+    $candidateVer = if ($Candidate.FamilyVersion) { [int]$Candidate.FamilyVersion } else { 1 }
+
+    if ($Target.Family -eq $Candidate.Family) {
+        if ($candidateVer -gt $targetVer) {
+            # Upgrade: base 8 + bonus for how new the candidate is
+            $verBonus = switch ($candidateVer) {
+                { $_ -ge 7 } { 4; break }
+                { $_ -ge 6 } { 3; break }
+                { $_ -ge 5 } { 2; break }
+                default      { 1 }
+            }
+            $score += [math]::Min(8 + $verBonus, 12)
+        }
+        elseif ($candidateVer -eq $targetVer) {
+            $score += 5
+        }
+        else {
+            $score += 1
+        }
+    }
+    else {
+        # Cross-family: graduated by candidate version
+        $score += switch ($candidateVer) {
+            { $_ -ge 7 } { 10; break }
+            { $_ -ge 6 } { 9; break }
+            { $_ -ge 5 } { 7; break }
+            { $_ -ge 4 } { 5; break }
+            { $_ -ge 3 } { 3; break }
+            { $_ -ge 2 } { 1; break }
+            default      { 0 }
+        }
     }
 
-    # Architecture match (12 points)
+    # Architecture match (10 points)
     if ($Target.Architecture -eq $Candidate.Architecture) {
-        $score += 12
+        $score += 10
     }
 
     # Premium IO match (5 points) — if target needs premium, candidate must have it
@@ -1560,6 +1957,26 @@ function Get-SkuSimilarityScore {
     }
     elseif ($Target.PremiumIO -ne $true) {
         $score += 5
+    }
+
+    # Disk IOPS closeness (8 points) — uncached disk IO throughput
+    if ($Target.UncachedDiskIOPS -gt 0 -and $Candidate.UncachedDiskIOPS -gt 0) {
+        $maxIOPS = [math]::Max($Target.UncachedDiskIOPS, $Candidate.UncachedDiskIOPS)
+        $iopsScore = 1 - ([math]::Abs($Target.UncachedDiskIOPS - $Candidate.UncachedDiskIOPS) / $maxIOPS)
+        $score += [math]::Round($iopsScore * 8)
+    }
+    elseif ($Target.UncachedDiskIOPS -le 0) {
+        $score += 8
+    }
+
+    # Data disk count closeness (7 points)
+    if ($Target.MaxDataDiskCount -gt 0 -and $Candidate.MaxDataDiskCount -gt 0) {
+        $maxDisks = [math]::Max($Target.MaxDataDiskCount, $Candidate.MaxDataDiskCount)
+        $diskScore = 1 - ([math]::Abs($Target.MaxDataDiskCount - $Candidate.MaxDataDiskCount) / $maxDisks)
+        $score += [math]::Round($diskScore * 7)
+    }
+    elseif ($Target.MaxDataDiskCount -le 0) {
+        $score += 7
     }
 
     return [math]::Min($score, 100)
@@ -1597,6 +2014,9 @@ function New-RecommendOutputContract {
             disk       = $item.Disk
             tempDiskGB = $item.TempGB
             accelNet   = $item.AccelNet
+            maxDisks   = $item.MaxDisks
+            maxNICs    = $item.MaxNICs
+            iops       = $item.IOPS
             score      = $item.Score
             capacity   = $item.Capacity
             allocScore = $item.AllocScore
@@ -1652,7 +2072,7 @@ function Write-RecommendOutputContract {
     $recommendations = @($Contract.recommendations)
     $placementEnabled = [bool]$Contract.placementEnabled
     $spotPricingEnabled = [bool]$Contract.spotPricingEnabled
-    $fleetWarnings = @($Contract.warnings)
+    $compatWarnings = @($Contract.warnings)
 
     Write-Host "`n" -NoNewline
     Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
@@ -1813,10 +2233,10 @@ function Write-RecommendOutputContract {
     Write-Host '  NV+T = NVMe + local temp disk   NVMe = NVMe only (no temp disk)' -ForegroundColor DarkGray
     Write-Host '  SC+T = SCSI + local temp disk   SCSI = SCSI only (no temp disk)' -ForegroundColor DarkGray
 
-    if ($fleetWarnings.Count -gt 0) {
+    if ($compatWarnings.Count -gt 0) {
         Write-Host ''
-        Write-Host 'FLEET NOTES:' -ForegroundColor Yellow
-        foreach ($warning in $fleetWarnings) {
+        Write-Host 'COMPATIBILITY NOTES:' -ForegroundColor Yellow
+        foreach ($warning in $compatWarnings) {
             Write-Host "  $($Icons.Warning) $warning" -ForegroundColor Yellow
         }
     }
@@ -1914,7 +2334,9 @@ function Invoke-RecommendMode {
         [Parameter(Mandatory)]
         [pscustomobject]$RunContext,
 
-        [int]$OutputWidth = 122
+        [int]$OutputWidth = 122,
+
+        [hashtable]$SkuProfileCache = $null
     )
 
     $targetSku = $null
@@ -1949,17 +2371,25 @@ function Invoke-RecommendMode {
     $targetHasNvme = $targetCaps.NvmeSupport
     $targetDiskCode = Get-DiskCode -HasTempDisk ($targetCaps.TempDiskGB -gt 0) -HasNvme $targetHasNvme
     $targetProfile = @{
-        Name         = $targetSku.Name
-        vCPU         = [int](Get-CapValue $targetSku 'vCPUs')
-        MemoryGB     = [int](Get-CapValue $targetSku 'MemoryGB')
-        Family       = Get-SkuFamily $targetSku.Name
-        Generation   = $targetCaps.HyperVGenerations
-        Architecture = $targetCaps.CpuArchitecture
-        PremiumIO    = (Get-CapValue $targetSku 'PremiumIO') -eq 'True'
-        Processor    = $targetProcessor
-        TempDiskGB   = $targetCaps.TempDiskGB
-        DiskCode     = $targetDiskCode
-        AccelNet     = $targetCaps.AcceleratedNetworkingEnabled
+        Name                     = $targetSku.Name
+        vCPU                     = [int](Get-CapValue $targetSku 'vCPUs')
+        MemoryGB                 = [int](Get-CapValue $targetSku 'MemoryGB')
+        Family                   = Get-SkuFamily $targetSku.Name
+        FamilyVersion            = Get-SkuFamilyVersion $targetSku.Name
+        Generation               = $targetCaps.HyperVGenerations
+        Architecture             = $targetCaps.CpuArchitecture
+        PremiumIO                = (Get-CapValue $targetSku 'PremiumIO') -eq 'True'
+        Processor                = $targetProcessor
+        TempDiskGB               = $targetCaps.TempDiskGB
+        DiskCode                 = $targetDiskCode
+        AccelNet                 = $targetCaps.AcceleratedNetworkingEnabled
+        MaxDataDiskCount         = $targetCaps.MaxDataDiskCount
+        MaxNetworkInterfaces     = $targetCaps.MaxNetworkInterfaces
+        EphemeralOSDiskSupported = $targetCaps.EphemeralOSDiskSupported
+        UltraSSDAvailable        = $targetCaps.UltraSSDAvailable
+        UncachedDiskIOPS         = $targetCaps.UncachedDiskIOPS
+        UncachedDiskBytesPerSecond = $targetCaps.UncachedDiskBytesPerSecond
+        EncryptionAtHostSupported = $targetCaps.EncryptionAtHostSupported
     }
 
     # Score all candidate SKUs across all regions
@@ -1971,27 +2401,62 @@ function Invoke-RecommendMode {
             foreach ($sku in $data.Skus) {
                 if ($sku.Name -eq $TargetSkuName) { continue }
 
+                # Skip SKUs with retirement or retired status
+                $candidateRetirement = Get-SkuRetirementInfo -SkuName $sku.Name
+                if ($candidateRetirement) { continue }
+
                 $restrictions = Get-RestrictionDetails $sku
                 if ($restrictions.Status -eq 'RESTRICTED') { continue }
 
-                $caps = Get-SkuCapabilities -Sku $sku
-                $candidateProcessor = Get-ProcessorVendor -SkuName $sku.Name
-                $candidateHasNvme = $caps.NvmeSupport
-                $candidateDiskCode = Get-DiskCode -HasTempDisk ($caps.TempDiskGB -gt 0) -HasNvme $candidateHasNvme
-                $candidateProfile = @{
-                    Name         = $sku.Name
-                    vCPU         = [int](Get-CapValue $sku 'vCPUs')
-                    MemoryGB     = [int](Get-CapValue $sku 'MemoryGB')
-                    Family       = Get-SkuFamily $sku.Name
-                    Generation   = $caps.HyperVGenerations
-                    Architecture = $caps.CpuArchitecture
-                    PremiumIO    = (Get-CapValue $sku 'PremiumIO') -eq 'True'
+                # Use cached profile if available; otherwise build and cache it
+                $candidateProfile = $null
+                $caps = $null
+                $candidateProcessor = $null
+                $candidateDiskCode = $null
+                if ($SkuProfileCache -and $SkuProfileCache.ContainsKey($sku.Name)) {
+                    $cached = $SkuProfileCache[$sku.Name]
+                    $candidateProfile = $cached.Profile
+                    $caps = $cached.Caps
+                    $candidateProcessor = $cached.Processor
+                    $candidateDiskCode = $cached.DiskCode
+                }
+                else {
+                    $caps = Get-SkuCapabilities -Sku $sku
+                    $candidateProcessor = Get-ProcessorVendor -SkuName $sku.Name
+                    $candidateHasNvme = $caps.NvmeSupport
+                    $candidateDiskCode = Get-DiskCode -HasTempDisk ($caps.TempDiskGB -gt 0) -HasNvme $candidateHasNvme
+                    $candidateProfile = @{
+                        Name                     = $sku.Name
+                        vCPU                     = [int](Get-CapValue $sku 'vCPUs')
+                        MemoryGB                 = [int](Get-CapValue $sku 'MemoryGB')
+                        Family                   = Get-SkuFamily $sku.Name
+                        FamilyVersion            = Get-SkuFamilyVersion $sku.Name
+                        Generation               = $caps.HyperVGenerations
+                        Architecture             = $caps.CpuArchitecture
+                        PremiumIO                = (Get-CapValue $sku 'PremiumIO') -eq 'True'
+                        DiskCode                 = $candidateDiskCode
+                        AccelNet                 = $caps.AcceleratedNetworkingEnabled
+                        MaxDataDiskCount         = $caps.MaxDataDiskCount
+                        MaxNetworkInterfaces     = $caps.MaxNetworkInterfaces
+                        EphemeralOSDiskSupported = $caps.EphemeralOSDiskSupported
+                        UltraSSDAvailable        = $caps.UltraSSDAvailable
+                        UncachedDiskIOPS         = $caps.UncachedDiskIOPS
+                        UncachedDiskBytesPerSecond = $caps.UncachedDiskBytesPerSecond
+                        EncryptionAtHostSupported = $caps.EncryptionAtHostSupported
+                    }
+                    if ($SkuProfileCache) {
+                        $SkuProfileCache[$sku.Name] = @{ Profile = $candidateProfile; Caps = $caps; Processor = $candidateProcessor; DiskCode = $candidateDiskCode }
+                    }
                 }
 
                 # Architecture filtering — skip candidates that don't match target arch unless opted out
                 if (-not $AllowMixedArch -and $candidateProfile.Architecture -ne $targetProfile.Architecture) {
                     continue
                 }
+
+                # Hard compatibility gate — candidate must meet or exceed target on critical dimensions
+                $compat = Test-SkuCompatibility -Target $targetProfile -Candidate $candidateProfile
+                if (-not $compat.Compatible) { continue }
 
                 $simScore = Get-SkuSimilarityScore -Target $targetProfile -Candidate $candidateProfile -FamilyInfo $FamilyInfo
 
@@ -2030,6 +2495,9 @@ function Invoke-RecommendMode {
                         Disk     = $candidateDiskCode
                         TempGB   = $caps.TempDiskGB
                         AccelNet = $caps.AcceleratedNetworkingEnabled
+                        MaxDisks = $caps.MaxDataDiskCount
+                        MaxNICs  = $caps.MaxNetworkInterfaces
+                        IOPS     = $caps.UncachedDiskIOPS
                         Score    = $simScore
                         Capacity = $restrictions.Status
                         ZonesOK  = $restrictions.ZonesOK.Count
@@ -2083,6 +2551,38 @@ function Invoke-RecommendMode {
     ForEach-Object { $_.Group | Select-Object -First 1 } |
     Select-Object -First $TopN
 
+    # Ensure a like-for-like (same vCPU count) candidate is always included
+    $targetvCPU = [int]$targetProfile.vCPU
+    $hasLikeForLike = $ranked | Where-Object { [int]$_.vCPU -eq $targetvCPU }
+    if (-not $hasLikeForLike) {
+        $likeForLikeCandidate = $filtered |
+            Where-Object { [int]$_.vCPU -eq $targetvCPU } |
+            Sort-Object @{Expression = 'Score'; Descending = $true } |
+            Group-Object SKU |
+            ForEach-Object { $_.Group | Select-Object -First 1 } |
+            Select-Object -First 1
+        if ($likeForLikeCandidate) {
+            $ranked = @($ranked) + @($likeForLikeCandidate)
+        }
+    }
+
+    # Ensure at least one candidate with IOPS >= target (no performance downgrade)
+    $targetIOPS = [int]$targetProfile.UncachedDiskIOPS
+    if ($targetIOPS -gt 0) {
+        $hasIopsMatch = $ranked | Where-Object { [int]$_.IOPS -ge $targetIOPS }
+        if (-not $hasIopsMatch) {
+            $iopsCandidate = $filtered |
+                Where-Object { [int]$_.IOPS -ge $targetIOPS } |
+                Sort-Object @{Expression = 'Score'; Descending = $true } |
+                Group-Object SKU |
+                ForEach-Object { $_.Group | Select-Object -First 1 } |
+                Select-Object -First 1
+            if ($iopsCandidate) {
+                $ranked = @($ranked) + @($iopsCandidate)
+            }
+        }
+    }
+
     if ($ShowPlacement) {
         $placementScores = Get-PlacementScores -SkuNames @($ranked | Select-Object -ExpandProperty SKU) -Regions @($ranked | Select-Object -ExpandProperty Region) -DesiredCount $DesiredCount -MaxRetries $MaxRetries -Caches $RunContext.Caches
         $ranked = @($ranked | ForEach-Object {
@@ -2102,6 +2602,9 @@ function Invoke-RecommendMode {
                     Disk      = $item.Disk
                     TempGB    = $item.TempGB
                     AccelNet  = $item.AccelNet
+                    MaxDisks  = $item.MaxDisks
+                    MaxNICs   = $item.MaxNICs
+                    IOPS      = $item.IOPS
                     Score     = $item.Score
                     Capacity  = $item.Capacity
                     AllocScore = $allocScore
@@ -2129,6 +2632,9 @@ function Invoke-RecommendMode {
                     Disk      = $item.Disk
                     TempGB    = $item.TempGB
                     AccelNet  = $item.AccelNet
+                    MaxDisks  = $item.MaxDisks
+                    MaxNICs   = $item.MaxNICs
+                    IOPS      = $item.IOPS
                     Score     = $item.Score
                     Capacity  = $item.Capacity
                     AllocScore = $null
@@ -2141,34 +2647,34 @@ function Invoke-RecommendMode {
             })
     }
 
-    # Fleet safety warning detection (shared by JSON and console output)
-    $fleetWarnings = @()
+    # Compatibility warning detection (shared by JSON and console output)
+    $compatWarnings = @()
     $uniqueCPUs = @($ranked | Select-Object -ExpandProperty CPU -Unique)
     $uniqueAccelNet = @($ranked | Select-Object -ExpandProperty AccelNet -Unique)
     if ($AllowMixedArch) {
         $uniqueArchs = @($ranked | Select-Object -ExpandProperty Arch -Unique)
         if ($uniqueArchs.Count -gt 1) {
-            $fleetWarnings += "Mixed architectures (x64 + ARM64) — each requires a separate OS image."
+            $compatWarnings += "Mixed architectures (x64 + ARM64) — each requires a separate OS image."
         }
     }
     if ($uniqueCPUs.Count -gt 1) {
-        $fleetWarnings += "Mixed CPU vendors ($($uniqueCPUs -join ', ')) — performance characteristics vary."
+        $compatWarnings += "Mixed CPU vendors ($($uniqueCPUs -join ', ')) — performance characteristics vary."
     }
     $hasTempDisk = @($ranked | Where-Object { $_.Disk -match 'T' })
     $noTempDisk = @($ranked | Where-Object { $_.Disk -notmatch 'T' })
     if ($hasTempDisk.Count -gt 0 -and $noTempDisk.Count -gt 0) {
-        $fleetWarnings += "Mixed temp disk configs — some SKUs have local temp disk, others don't. Drive paths differ."
+        $compatWarnings += "Mixed temp disk configs — some SKUs have local temp disk, others don't. Drive paths differ."
     }
     $hasNvme = @($ranked | Where-Object { $_.Disk -match 'NV' })
     $hasScsi = @($ranked | Where-Object { $_.Disk -match 'SC' })
     if ($hasNvme.Count -gt 0 -and $hasScsi.Count -gt 0) {
-        $fleetWarnings += "Mixed storage interfaces (NVMe vs SCSI) — disk driver and device path differences."
+        $compatWarnings += "Mixed storage interfaces (NVMe vs SCSI) — disk driver and device path differences."
     }
     if ($uniqueAccelNet.Count -gt 1) {
-        $fleetWarnings += "Mixed accelerated networking support — network performance will vary across the fleet."
+        $compatWarnings += "Mixed accelerated networking support — network performance will vary across the inventory."
     }
 
-    $RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($fleetWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
+    $RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($compatWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
     )
 
     if ($JsonOutput) {
@@ -2234,10 +2740,12 @@ function Get-ImageRequirements {
 function Get-SkuCapabilities {
     <#
     .SYNOPSIS
-        Extracts VM capabilities from a SKU object for compatibility and fleet safety analysis.
+        Extracts VM capabilities from a SKU object for compatibility and inventory analysis.
     .DESCRIPTION
         Parses the SKU's Capabilities array to find HyperVGenerations, CpuArchitectureType,
-        temp disk size, accelerated networking, and NVMe support.
+        temp disk size, accelerated networking, NVMe support, max data disks, max NICs,
+        ephemeral OS disk support, Ultra SSD availability, uncached disk IOPS/throughput,
+        encryption at host, and trusted launch status.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -2250,6 +2758,14 @@ function Get-SkuCapabilities {
         TempDiskGB                   = 0
         AcceleratedNetworkingEnabled = $false
         NvmeSupport                  = $false
+        MaxDataDiskCount             = 0
+        MaxNetworkInterfaces         = 1
+        EphemeralOSDiskSupported     = $false
+        UltraSSDAvailable            = $false
+        UncachedDiskIOPS             = 0
+        UncachedDiskBytesPerSecond   = 0
+        EncryptionAtHostSupported    = $false
+        TrustedLaunchDisabled        = $false
     }
 
     if ($Sku.Capabilities) {
@@ -2268,6 +2784,34 @@ function Get-SkuCapabilities {
                     $capabilities.AcceleratedNetworkingEnabled = $cap.Value -eq 'True'
                 }
                 'NvmeDiskSizeInMiB' { $capabilities.NvmeSupport = $true }
+                'MaxDataDiskCount' {
+                    $val = 0
+                    if ([int]::TryParse($cap.Value, [ref]$val)) { $capabilities.MaxDataDiskCount = $val }
+                }
+                'MaxNetworkInterfaces' {
+                    $val = 0
+                    if ([int]::TryParse($cap.Value, [ref]$val)) { $capabilities.MaxNetworkInterfaces = $val }
+                }
+                'EphemeralOSDiskSupported' {
+                    $capabilities.EphemeralOSDiskSupported = $cap.Value -eq 'True'
+                }
+                'UltraSSDAvailable' {
+                    $capabilities.UltraSSDAvailable = $cap.Value -eq 'True'
+                }
+                'UncachedDiskIOPS' {
+                    $val = 0
+                    if ([int]::TryParse($cap.Value, [ref]$val)) { $capabilities.UncachedDiskIOPS = $val }
+                }
+                'UncachedDiskBytesPerSecond' {
+                    $val = 0
+                    if ([long]::TryParse($cap.Value, [ref]$val)) { $capabilities.UncachedDiskBytesPerSecond = $val }
+                }
+                'EncryptionAtHostSupported' {
+                    $capabilities.EncryptionAtHostSupported = $cap.Value -eq 'True'
+                }
+                'TrustedLaunchDisabled' {
+                    $capabilities.TrustedLaunchDisabled = $cap.Value -eq 'True'
+                }
             }
         }
     }
@@ -2371,12 +2915,16 @@ function Get-AzVMPricing {
         $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
     }
 
-    # Build filter for the API - get Linux consumption pricing
-    $filter = "armRegionName eq '$armLocation' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'"
+    # Build filter for the API - get Linux consumption and reservation pricing
+    $filter = "armRegionName eq '$armLocation' and serviceName eq 'Virtual Machines'"
 
     $regularPrices = @{}
     $spotPrices = @{}
-    $apiUrl = "$($AzureEndpoints.PricingApiUrl)?`$filter=$([uri]::EscapeDataString($filter))"
+    $savingsPlan1YrPrices = @{}
+    $savingsPlan3YrPrices = @{}
+    $reservation1YrPrices = @{}
+    $reservation3YrPrices = @{}
+    $apiUrl = "$($AzureEndpoints.PricingApiUrl)?api-version=2023-01-01-preview&`$filter=$([uri]::EscapeDataString($filter))"
 
     try {
         $nextLink = $apiUrl
@@ -2391,16 +2939,35 @@ function Get-AzVMPricing {
             $pageCount++
 
             foreach ($item in $response.Items) {
-                # Filter for Linux spot/regular pricing, skip Windows and Low Priority
+                # Filter for Linux pricing, skip Windows, Low Priority, and DevTest
                 if ($item.productName -match 'Windows' -or
                     $item.skuName -match 'Low Priority' -or
-                    $item.meterName -match 'Low Priority') {
+                    $item.meterName -match 'Low Priority' -or
+                    $item.type -eq 'DevTestConsumption') {
                     continue
                 }
 
                 # Extract the VM size from armSkuName
                 $vmSize = $item.armSkuName
                 if (-not $vmSize) { continue }
+
+                if ($item.type -eq 'Reservation') {
+                    if ($item.reservationTerm -eq '1 Year' -and -not $reservation1YrPrices[$vmSize]) {
+                        $reservation1YrPrices[$vmSize] = @{
+                            Total    = [math]::Round($item.retailPrice, 2)
+                            Monthly  = [math]::Round($item.retailPrice / 12, 2)
+                            Currency = $item.currencyCode
+                        }
+                    }
+                    elseif ($item.reservationTerm -eq '3 Years' -and -not $reservation3YrPrices[$vmSize]) {
+                        $reservation3YrPrices[$vmSize] = @{
+                            Total    = [math]::Round($item.retailPrice, 2)
+                            Monthly  = [math]::Round($item.retailPrice / 36, 2)
+                            Currency = $item.currencyCode
+                        }
+                    }
+                    continue
+                }
 
                 $isSpot = ($item.skuName -match 'Spot' -or $item.meterName -match 'Spot')
                 $targetMap = if ($isSpot) { $spotPrices } else { $regularPrices }
@@ -2413,14 +2980,40 @@ function Get-AzVMPricing {
                         Meter    = $item.meterName
                     }
                 }
+
+                # Capture savings plan pricing from consumption items
+                if (-not $isSpot -and $item.savingsPlan) {
+                    foreach ($sp in $item.savingsPlan) {
+                        if ($sp.term -eq '1 Year' -and -not $savingsPlan1YrPrices[$vmSize]) {
+                            $savingsPlan1YrPrices[$vmSize] = @{
+                                Hourly   = [math]::Round($sp.retailPrice, 4)
+                                Monthly  = [math]::Round($sp.retailPrice * $HoursPerMonth, 2)
+                                Total    = [math]::Round($sp.retailPrice * 8760, 2)
+                                Currency = $item.currencyCode
+                            }
+                        }
+                        elseif ($sp.term -eq '3 Years' -and -not $savingsPlan3YrPrices[$vmSize]) {
+                            $savingsPlan3YrPrices[$vmSize] = @{
+                                Hourly   = [math]::Round($sp.retailPrice, 4)
+                                Monthly  = [math]::Round($sp.retailPrice * $HoursPerMonth, 2)
+                                Total    = [math]::Round($sp.retailPrice * 26280, 2)
+                                Currency = $item.currencyCode
+                            }
+                        }
+                    }
+                }
             }
 
             $nextLink = $response.NextPageLink
         }
 
         $result = [ordered]@{
-            Regular = $regularPrices
-            Spot    = $spotPrices
+            Regular          = $regularPrices
+            Spot             = $spotPrices
+            SavingsPlan1Yr   = $savingsPlan1YrPrices
+            SavingsPlan3Yr   = $savingsPlan3YrPrices
+            Reservation1Yr   = $reservation1YrPrices
+            Reservation3Yr   = $reservation3YrPrices
         }
 
         $Caches.Pricing[$armLocation] = $result
@@ -2430,8 +3023,12 @@ function Get-AzVMPricing {
     catch {
         Write-Verbose "Failed to fetch pricing for region $Region`: $_"
         return [ordered]@{
-            Regular = @{}
-            Spot    = @{}
+            Regular          = @{}
+            Spot             = @{}
+            SavingsPlan1Yr   = @{}
+            SavingsPlan3Yr   = @{}
+            Reservation1Yr   = @{}
+            Reservation3Yr   = @{}
         }
     }
 }
@@ -2475,6 +3072,44 @@ function Get-SpotPricingMap {
         return $PricingContainer.Spot
     }
 
+    return @{}
+}
+
+function Get-SavingsPlanPricingMap {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$PricingContainer,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('1Yr','3Yr')]
+        [string]$Term
+    )
+
+    if ($null -eq $PricingContainer) { return @{} }
+    if ($PricingContainer -is [array]) { $PricingContainer = $PricingContainer[0] }
+
+    $key = "SavingsPlan$Term"
+    if ($PricingContainer -is [System.Collections.IDictionary] -and $PricingContainer.Contains($key)) {
+        return $PricingContainer[$key]
+    }
+    return @{}
+}
+
+function Get-ReservationPricingMap {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$PricingContainer,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('1Yr','3Yr')]
+        [string]$Term
+    )
+
+    if ($null -eq $PricingContainer) { return @{} }
+    if ($PricingContainer -is [array]) { $PricingContainer = $PricingContainer[0] }
+
+    $key = "Reservation$Term"
+    if ($PricingContainer -is [System.Collections.IDictionary] -and $PricingContainer.Contains($key)) {
+        return $PricingContainer[$key]
+    }
     return @{}
 }
 
@@ -2763,6 +3398,18 @@ function ConvertFrom-RestQuota {
 
 #endregion Inline Function Definitions
 }
+
+function ConvertTo-ExcelColumnLetter {
+    param([int]$ColumnNumber)
+    $letter = ''
+    while ($ColumnNumber -gt 0) {
+        $mod = ($ColumnNumber - 1) % 26
+        $letter = [char](65 + $mod) + $letter
+        $ColumnNumber = [math]::Floor(($ColumnNumber - 1) / 26)
+    }
+    return $letter
+}
+
 #endregion Module Import / Inline Fallback
 #region Initialize Azure Endpoints
 $script:AzureEndpoints = Get-AzureEndpoints -EnvironmentName $script:TargetEnvironment
@@ -2943,9 +3590,9 @@ if ($validatedRegions.Count -eq 0) {
 
 $Regions = $validatedRegions
 
-# Validate region count limit
+# Validate region count limit (skip for lifecycle scans — all deployed regions need pricing)
 $maxRegions = 5
-if ($Regions.Count -gt $maxRegions) {
+if ($Regions.Count -gt $maxRegions -and -not $lifecycleEntries) {
     if ($NoPrompt) {
         # In NoPrompt mode, auto-truncate with warning (don't hang on Read-Host)
         Write-Host "`nWARNING: " -ForegroundColor Yellow -NoNewline
@@ -3338,7 +3985,7 @@ try {
         $retryErrorPattern = '429|Too Many Requests|500|Internal Server Error|InternalServerError|503|ServiceUnavailable|Service Unavailable'
 
         $scanRegionScript = {
-            param($region, $skuFilterCopy, $maxRetries, $armUrl, $bearerToken, $retryPattern)
+            param($region, $skuFilterCopy, $maxRetries, $armUrl, $bearerToken, $retryPattern, $skipQuota)
             $boundRetryPattern = $retryPattern
 
             # Inline retry — parallel runspaces cannot see script-scope functions
@@ -3405,7 +4052,9 @@ try {
 
                 # Normalize REST response objects to match cmdlet output shape
                 $normalizedSkus = foreach ($sku in $allSkus) { ConvertFrom-RestSku -RestSku $sku }
-                $normalizedQuotas = foreach ($q in $quotaResult) { ConvertFrom-RestQuota -RestQuota $q }
+                $normalizedQuotas = if ($skipQuota) { @() } else {
+                    foreach ($q in $quotaResult) { ConvertFrom-RestQuota -RestQuota $q }
+                }
 
                 @{ Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
             }
@@ -3433,6 +4082,7 @@ try {
                     $bearerToken = $using:bearerToken
                     $subId = $using:subId
                     $retryPattern = $using:retryErrorPattern
+                    $skipQuota = $using:NoQuota.IsPresent
 
                     # Inline retry — parallel runspaces cannot see script-scope functions or external scriptblocks
                     $retryCall = {
@@ -3546,14 +4196,16 @@ try {
                             }
                         }
 
-                        $normalizedQuotas = foreach ($q in $quotaJson.value) {
-                            [pscustomobject]@{
-                                Name = [pscustomobject]@{
-                                    Value          = $q.name.value
-                                    LocalizedValue = $q.name.localizedValue
+                        $normalizedQuotas = if ($skipQuota) { @() } else {
+                            foreach ($q in $quotaJson.value) {
+                                [pscustomobject]@{
+                                    Name = [pscustomobject]@{
+                                        Value          = $q.name.value
+                                        LocalizedValue = $q.name.localizedValue
+                                    }
+                                    CurrentValue = $q.currentValue
+                                    Limit        = $q.limit
                                 }
-                                CurrentValue = $q.currentValue
-                                Limit        = $q.limit
                             }
                         }
 
@@ -3573,7 +4225,7 @@ try {
 
         if (-not $canUseParallel) {
             $regionData = foreach ($region in $Regions) {
-                & $scanRegionScript -region ([string]$region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern
+                & $scanRegionScript -region ([string]$region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern -skipQuota $NoQuota.IsPresent
             }
         }
 
@@ -3598,21 +4250,962 @@ catch {
 }
 
 #endregion Data Collection
-#region Fleet Readiness
+#region Inventory Readiness
 
-if ($Fleet -and $Fleet.Count -gt 0) {
-    $fleetResult = Get-FleetReadiness -Fleet $Fleet -SubscriptionData $allSubscriptionData
-    Write-FleetReadinessSummary -FleetResult $fleetResult -Fleet $Fleet
+if ($Inventory -and $Inventory.Count -gt 0) {
+    $inventoryResult = Get-InventoryReadiness -Inventory $Inventory -SubscriptionData $allSubscriptionData
+    Write-InventoryReadinessSummary -InventoryResult $inventoryResult -Inventory $Inventory
 
     if ($JsonOutput) {
-        $fleetResult | ConvertTo-Json -Depth 5
+        $inventoryResult | ConvertTo-Json -Depth 5
     }
 
-    # Fleet mode exits after summary — no need to render full scan output
+    # Inventory mode exits after summary — no need to render full scan output
     return
 }
 
-#endregion Fleet Readiness
+#endregion Inventory Readiness
+#region Lifecycle Recommendations
+
+if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count -gt 0) {
+    $lifecycleResults = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $skuIndex = 0
+
+    # Pre-build indexes for O(1) lookups during the lifecycle loop
+    $lcSkuIndex = @{}       # "SKUName|region" → raw SKU object (for .Family quota key)
+    $lcQuotaIndex = @{}     # "region" → hashtable of quota name → quota object
+    foreach ($subData in $allSubscriptionData) {
+        foreach ($rd in $subData.RegionData) {
+            if ($rd.Error) { continue }
+            $regionKey = [string]$rd.Region
+            if (-not $lcQuotaIndex.ContainsKey($regionKey)) {
+                $qLookup = @{}
+                foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
+                $lcQuotaIndex[$regionKey] = $qLookup
+            }
+            foreach ($sku in $rd.Skus) {
+                $skuRegionKey = "$($sku.Name)|$regionKey"
+                if (-not $lcSkuIndex.ContainsKey($skuRegionKey)) {
+                    $lcSkuIndex[$skuRegionKey] = $sku
+                }
+            }
+        }
+    }
+
+    # Candidate profile cache — populated on first Invoke-RecommendMode call, reused for all subsequent
+    $lcProfileCache = @{}
+
+    # Load upgrade path knowledge base for AI-curated recommendations
+    $upgradePathData = $null
+    $upgradePathFile = Join-Path $PSScriptRoot 'data' 'UpgradePath.json'
+    if (Test-Path -LiteralPath $upgradePathFile) {
+        try {
+            $upgradePathData = Get-Content -LiteralPath $upgradePathFile -Raw | ConvertFrom-Json
+            Write-Verbose "Loaded upgrade path knowledge base v$($upgradePathData._metadata.version) ($($upgradePathData._metadata.lastUpdated))"
+        }
+        catch {
+            Write-Verbose "Failed to load UpgradePath.json: $_"
+        }
+    }
+
+    foreach ($entry in $lifecycleEntries) {
+        $targetSku = $entry.SKU
+        $deployedRegion = $entry.Region
+        $entryQty = $entry.Qty
+        $skuIndex++
+        $regionLabel = if ($deployedRegion) { " (deployed: $deployedRegion)" } else { '' }
+        $qtyLabel = if ($entryQty -gt 1) { " x$entryQty" } else { '' }
+        if (-not $JsonOutput) {
+            Write-Host ""
+            Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
+            Write-Host "LIFECYCLE ANALYSIS [$skuIndex/$($lifecycleEntries.Count)]: $targetSku$qtyLabel$regionLabel" -ForegroundColor Cyan
+            Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
+        }
+
+        Invoke-RecommendMode -TargetSkuName $targetSku -SubscriptionData $allSubscriptionData `
+            -FamilyInfo $FamilyInfo -Icons $Icons -FetchPricing ([bool]$FetchPricing) `
+            -ShowSpot $ShowSpot.IsPresent -ShowPlacement $ShowPlacement.IsPresent `
+            -AllowMixedArch $AllowMixedArch.IsPresent -MinvCPU $MinvCPU -MinMemoryGB $MinMemoryGB `
+            -MinScore $MinScore -TopN $TopN -DesiredCount $DesiredCount `
+            -JsonOutput $false -MaxRetries $MaxRetries `
+            -RunContext $script:RunContext -OutputWidth $script:OutputWidth `
+            -SkuProfileCache $lcProfileCache
+
+        # Capture lifecycle risk signals from the recommend output
+        $recOutput = $script:RunContext.RecommendOutput
+        if ($recOutput) {
+            $target = $recOutput.target
+            $allRecs = @($recOutput.recommendations)
+
+            # Look up target SKU monthly price for cost-diff calculation
+            $targetPriceMo = $null
+            if ($FetchPricing -and $deployedRegion -and $script:RunContext.RegionPricing[$deployedRegion]) {
+                $tgtPriceMap = Get-RegularPricingMap -PricingContainer $script:RunContext.RegionPricing[$deployedRegion]
+                $tgtPriceEntry = $tgtPriceMap[$target.Name]
+                if ($tgtPriceEntry) { $targetPriceMo = [double]$tgtPriceEntry.Monthly }
+            }
+
+            # Detect lifecycle risk: old generation, capacity issues, no alternatives
+            $generation = if ($target.Name -match '_v(\d+)$') { [int]$Matches[1] } else { 1 }
+            $targetAvail = $recOutput.targetAvailability
+
+            # If a deployed region was specified, check availability specifically in that region
+            $hasCapacityIssues = $false
+            if ($deployedRegion) {
+                $deployedStatus = $targetAvail | Where-Object { $_.Region -eq $deployedRegion } | Select-Object -First 1
+                if ($deployedStatus -and $deployedStatus.Status -notin 'OK','LIMITED') {
+                    $hasCapacityIssues = $true
+                }
+                elseif (-not $deployedStatus) {
+                    $hasCapacityIssues = $true
+                }
+            }
+            else {
+                $hasCapacityIssues = @($targetAvail | Where-Object { $_.Status -notin 'OK','LIMITED' }).Count -gt 0
+            }
+
+            # Quota analysis for target SKU: use pre-built indexes for O(1) lookup
+            $targetQuotaStatus = '-'
+            $targetQuotaAvail = $null
+            $quotaInsufficient = $false
+            if (-not $NoQuota) {
+                $lookupRegions = if ($deployedRegion) { @($deployedRegion) } else { @($lcQuotaIndex.Keys) }
+                foreach ($qRegion in $lookupRegions) {
+                    if ($targetQuotaAvail) { break }
+                    $regionQuotas = $lcQuotaIndex[$qRegion]
+                    if (-not $regionQuotas) { continue }
+                    $rawSku = $lcSkuIndex["$($target.Name)|$qRegion"]
+                    if ($rawSku) {
+                        $requiredvCPUs = $entryQty * [int]$target.vCPU
+                        $qi = Get-QuotaAvailable -QuotaLookup $regionQuotas -SkuFamily $rawSku.Family -RequiredvCPUs $requiredvCPUs
+                        if ($null -ne $qi.Available) {
+                            $targetQuotaAvail = $qi
+                            $targetQuotaStatus = "$($qi.Current)/$($qi.Limit) (avail: $($qi.Available))"
+                            if (-not $qi.OK) { $quotaInsufficient = $true }
+                        }
+                    }
+                }
+            }
+
+            $isOldGen = $generation -le 3
+            $noAlternatives = $allRecs.Count -eq 0
+
+            $riskLevel = 'Low'
+            $riskReasons = [System.Collections.Generic.List[string]]::new()
+            if ($isOldGen) { $riskReasons.Add("Gen v$generation"); $riskLevel = 'Medium' }
+            $retirementInfo = Get-SkuRetirementInfo -SkuName $target.Name
+            if ($retirementInfo) {
+                $retireLabel = if ($retirementInfo.Status -eq 'Retired') { "Retired $($retirementInfo.RetireDate)" } else { "Retiring $($retirementInfo.RetireDate)" }
+                $riskReasons.Add($retireLabel)
+                $riskLevel = 'High'
+            }
+            if ($hasCapacityIssues) { $riskReasons.Add("Capacity$(if ($deployedRegion) { " ($deployedRegion)" } else { '' })"); $riskLevel = 'High' }
+            if ($quotaInsufficient) { $riskReasons.Add("Quota: need $($entryQty)x$($target.vCPU)vCPU"); $riskLevel = 'High' }
+            if ($noAlternatives -and ($isOldGen -or $hasCapacityIssues -or $retirementInfo)) { $riskReasons.Add("No alternatives"); $riskLevel = 'High' }
+
+            # Current-gen (v4+) SKUs with quota as the only risk → recommend quota increase, not SKU change
+            $isQuotaOnlyCurrentGen = (-not $isOldGen) -and (-not $hasCapacityIssues) -and (-not $retirementInfo) -and $quotaInsufficient
+
+            # Select up to 3 weighted recommendations: like-for-like, best fit, alternative
+            $ScoreCloseThreshold = 10
+            $MaxWeightedRecs = 3
+            $selectedRecs = [System.Collections.Generic.List[pscustomobject]]::new()
+            $usedSkus = [System.Collections.Generic.HashSet[string]]::new()
+
+            # Inject upgrade path recommendations from knowledge base FIRST (up to 3)
+            # Upgrade paths get priority so weighted recs fill remaining slots with different SKUs
+            if ($upgradePathData -and $riskLevel -ne 'Low' -and (-not $isQuotaOnlyCurrentGen)) {
+                $targetFamily = $target.Family
+                $targetVersion = [int]$target.FamilyVersion
+                $targetvCPU = [string][int]$target.vCPU
+                # Normalize family: DS→D, GS→G (the S suffix indicates Premium SSD, same family)
+                $normalizedFamily = if ($targetFamily -cmatch '^([A-Z]+)S$' -and $targetFamily -notin 'NVS','NCS','NDS','HBS','HCS','HXS','FXS') { $Matches[1] } else { $targetFamily }
+                $pathKey = "${normalizedFamily}v${targetVersion}"
+                $upgradePath = $upgradePathData.upgradePaths.$pathKey
+
+                if ($upgradePath) {
+                    $upgradeRecs = [System.Collections.Generic.List[pscustomobject]]::new()
+                    $pathLabels = @(
+                        @{ Key = 'dropIn'; Label = 'Upgrade: Drop-in' }
+                        @{ Key = 'futureProof'; Label = 'Upgrade: Future-proof' }
+                        @{ Key = 'costOptimized'; Label = 'Upgrade: Cost-optimized' }
+                    )
+
+                    foreach ($pl in $pathLabels) {
+                        $pathEntry = $upgradePath.$($pl.Key)
+                        if (-not $pathEntry) { continue }
+
+                        # Look up the size-matched SKU from the sizeMap
+                        $mappedSku = $pathEntry.sizeMap.$targetvCPU
+                        if (-not $mappedSku) {
+                            # Find nearest vCPU match (next size up)
+                            $availSizes = @($pathEntry.sizeMap.PSObject.Properties.Name | ForEach-Object { [int]$_ } | Sort-Object)
+                            $nearestSize = $availSizes | Where-Object { $_ -ge [int]$targetvCPU } | Select-Object -First 1
+                            if ($nearestSize) { $mappedSku = $pathEntry.sizeMap."$nearestSize" }
+                            elseif ($availSizes.Count -gt 0) { $mappedSku = $pathEntry.sizeMap."$($availSizes[-1])" }
+                        }
+                        if (-not $mappedSku) { continue }
+
+                        # Skip if already used by a prior upgrade path entry
+                        if ($usedSkus.Contains($mappedSku)) { continue }
+
+                        # Check if this SKU exists in the scored candidates
+                        $scoredMatch = $allRecs | Where-Object { $_.sku -eq $mappedSku } | Select-Object -First 1
+                        if ($scoredMatch) {
+                            $upgradeRecs.Add([pscustomobject]@{ Rec = $scoredMatch; MatchType = $pl.Label })
+                            $usedSkus.Add($mappedSku) | Out-Null
+                        }
+                        else {
+                            # SKU not in scored candidates — check raw scan data (may have failed compat gate)
+                            $rawUpgradeSku = $null
+                            $rawSkuRegion = $deployedRegion
+                            if ($deployedRegion) {
+                                $rawUpgradeSku = $lcSkuIndex["$mappedSku|$deployedRegion"]
+                            }
+                            if (-not $rawUpgradeSku) {
+                                foreach ($rk in $lcSkuIndex.Keys) {
+                                    if ($rk.StartsWith("$mappedSku|")) {
+                                        $rawUpgradeSku = $lcSkuIndex[$rk]
+                                        $rawSkuRegion = $rk.Substring($mappedSku.Length + 1)
+                                        break
+                                    }
+                                }
+                            }
+
+                            if ($rawUpgradeSku) {
+                                # Build rec from actual scan data and profile cache
+                                $upRestrictions = Get-RestrictionDetails $rawUpgradeSku
+                                $cached = if ($lcProfileCache.ContainsKey($mappedSku)) { $lcProfileCache[$mappedSku] } else { $null }
+                                if ($cached) {
+                                    $upVcpu = $cached.Profile.vCPU
+                                    $upMemGiB = $cached.Profile.MemoryGB
+                                    $upIOPS = $cached.Caps.UncachedDiskIOPS
+                                    $upMaxDisks = $cached.Caps.MaxDataDiskCount
+                                    $upCandidateProfile = $cached.Profile
+                                }
+                                else {
+                                    $upCaps = Get-SkuCapabilities -Sku $rawUpgradeSku
+                                    $upVcpu = [int](Get-CapValue $rawUpgradeSku 'vCPUs')
+                                    $upMemGiB = [int](Get-CapValue $rawUpgradeSku 'MemoryGB')
+                                    $upIOPS = $upCaps.UncachedDiskIOPS
+                                    $upMaxDisks = $upCaps.MaxDataDiskCount
+                                    $upCandidateProfile = @{
+                                        Name     = $mappedSku
+                                        vCPU     = $upVcpu
+                                        MemoryGB = $upMemGiB
+                                        Family   = Get-SkuFamily $mappedSku
+                                        Generation               = $upCaps.HyperVGenerations
+                                        Architecture             = $upCaps.CpuArchitecture
+                                        PremiumIO                = (Get-CapValue $rawUpgradeSku 'PremiumIO') -eq 'True'
+                                        DiskCode                 = Get-DiskCode -HasTempDisk ($upCaps.TempDiskGB -gt 0) -HasNvme $upCaps.NvmeSupport
+                                        AccelNet                 = $upCaps.AcceleratedNetworkingEnabled
+                                        MaxDataDiskCount         = $upCaps.MaxDataDiskCount
+                                        MaxNetworkInterfaces     = $upCaps.MaxNetworkInterfaces
+                                        EphemeralOSDiskSupported  = $upCaps.EphemeralOSDiskSupported
+                                        UltraSSDAvailable        = $upCaps.UltraSSDAvailable
+                                        UncachedDiskIOPS         = $upCaps.UncachedDiskIOPS
+                                        UncachedDiskBytesPerSecond = $upCaps.UncachedDiskBytesPerSecond
+                                        EncryptionAtHostSupported = $upCaps.EncryptionAtHostSupported
+                                    }
+                                }
+                                # Compute similarity score against the target profile
+                                $targetProfileHt = @{}
+                                foreach ($p in $target.PSObject.Properties) { $targetProfileHt[$p.Name] = $p.Value }
+                                $upScore = Get-SkuSimilarityScore -Target $targetProfileHt -Candidate $upCandidateProfile -FamilyInfo $FamilyInfo
+                                $upPriceMo = $null
+                                if ($FetchPricing -and $rawSkuRegion -and $script:RunContext.RegionPricing[$rawSkuRegion]) {
+                                    $prMap = Get-RegularPricingMap -PricingContainer $script:RunContext.RegionPricing[$rawSkuRegion]
+                                    $prEntry = $prMap[$mappedSku]
+                                    if ($prEntry) { $upPriceMo = $prEntry.Monthly }
+                                }
+                                $upgradeRecs.Add([pscustomobject]@{
+                                    Rec = [pscustomobject]@{
+                                        sku      = $mappedSku
+                                        vCPU     = $upVcpu
+                                        memGiB   = $upMemGiB
+                                        family   = Get-SkuFamily $mappedSku
+                                        score    = $upScore
+                                        capacity = $upRestrictions.Status
+                                        IOPS     = $upIOPS
+                                        MaxDisks = $upMaxDisks
+                                        priceMo  = $upPriceMo
+                                    }
+                                    MatchType = $pl.Label
+                                })
+                                $usedSkus.Add($mappedSku) | Out-Null
+                            }
+                            else {
+                                # SKU not in any scanned region — skip (no data to compare)
+                                continue
+                            }
+                        }
+                    }
+
+                    # Add upgrade recs to selectedRecs (weighted recs will be appended after)
+                    foreach ($ur in $upgradeRecs) { $selectedRecs.Add($ur) }
+                }
+            }
+
+            # Build weighted recommendations from scored candidates (excluding upgrade path SKUs)
+            if ($riskLevel -ne 'Low' -and (-not $isQuotaOnlyCurrentGen) -and $allRecs.Count -gt 0) {
+                $filteredRecs = if ($usedSkus.Count -gt 0) {
+                    @($allRecs | Where-Object { -not $usedSkus.Contains($_.sku) })
+                } else { $allRecs }
+
+                if ($filteredRecs.Count -gt 0) {
+                    $bestFit = $filteredRecs | Sort-Object -Property score -Descending | Select-Object -First 1
+                    $likeForLike = $filteredRecs | Where-Object { $_.vCPU -eq [int]$target.vCPU } | Sort-Object -Property score -Descending | Select-Object -First 1
+
+                    $weightedRecs = [System.Collections.Generic.List[pscustomobject]]::new()
+                    if ($likeForLike -and $likeForLike.sku -ne $bestFit.sku) {
+                        $weightedRecs.Add([pscustomobject]@{ Rec = $likeForLike; MatchType = 'Like-for-like' })
+                        $weightedRecs.Add([pscustomobject]@{ Rec = $bestFit; MatchType = 'Best fit' })
+                    }
+                    else {
+                        $matchLabel = if ($likeForLike -and $likeForLike.sku -eq $bestFit.sku) { 'Like-for-like' } else { 'Best fit' }
+                        $weightedRecs.Add([pscustomobject]@{ Rec = $bestFit; MatchType = $matchLabel })
+                    }
+
+                    foreach ($s in $weightedRecs) { $usedSkus.Add($s.Rec.sku) | Out-Null }
+
+                    foreach ($altRec in $filteredRecs) {
+                        if ($weightedRecs.Count -ge $MaxWeightedRecs) { break }
+                        if ($usedSkus.Contains($altRec.sku)) { continue }
+                        if ($altRec.score -ge ($bestFit.score - $ScoreCloseThreshold)) {
+                            $weightedRecs.Add([pscustomobject]@{ Rec = $altRec; MatchType = 'Alternative' })
+                            $usedSkus.Add($altRec.sku) | Out-Null
+                        }
+                    }
+
+                    # Guarantee at least one rec with IOPS >= target (no performance downgrade)
+                    $targetIOPS = [int]$target.UncachedDiskIOPS
+                    if ($targetIOPS -gt 0) {
+                        $hasIopsMatch = $selectedRecs + @($weightedRecs) | Where-Object { [int]$_.Rec.IOPS -ge $targetIOPS }
+                        if (-not $hasIopsMatch) {
+                            $iopsCandidate = $allRecs |
+                                Where-Object { [int]$_.IOPS -ge $targetIOPS -and -not $usedSkus.Contains($_.sku) } |
+                                Sort-Object -Property score -Descending |
+                                Select-Object -First 1
+                            if ($iopsCandidate) {
+                                $weightedRecs.Add([pscustomobject]@{ Rec = $iopsCandidate; MatchType = 'IOPS match' })
+                                $usedSkus.Add($iopsCandidate.sku) | Out-Null
+                            }
+                        }
+                    }
+
+                    # Append weighted recs after upgrade path recs
+                    foreach ($wr in $weightedRecs) { $selectedRecs.Add($wr) }
+                }
+            }
+
+            # Look up savings plan and reservation pricing maps for this region
+            $sp1YrMap = @{}; $sp3YrMap = @{}; $ri1YrMap = @{}; $ri3YrMap = @{}
+            if ($RateOptimization -and $FetchPricing -and $deployedRegion -and $script:RunContext.RegionPricing[$deployedRegion]) {
+                $regionContainer = $script:RunContext.RegionPricing[$deployedRegion]
+                $sp1YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '1Yr'
+                $sp3YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                $ri1YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '1Yr'
+                $ri3YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '3Yr'
+            }
+
+            # Build lifecycle result rows — one per selected recommendation (or one summary row)
+            if ($selectedRecs.Count -eq 0) {
+                $lifecycleResults.Add([pscustomobject]@{
+                    SKU              = $target.Name
+                    DeployedRegion   = if ($deployedRegion) { $deployedRegion } else { '-' }
+                    Qty              = $entryQty
+                    vCPU             = $target.vCPU
+                    MemoryGB         = $target.MemoryGB
+                    Generation       = "v$generation"
+                    RiskLevel        = $riskLevel
+                    RiskReasons      = ($riskReasons -join '; ')
+                    QuotaStatus      = $targetQuotaStatus
+                    MatchType        = '-'
+                    TopAlternative   = if ($riskLevel -eq 'Low') { 'N/A' } elseif ($isQuotaOnlyCurrentGen) { 'Request quota increase' } else { '-' }
+                    AltScore         = ''
+                    CpuDelta         = '-'
+                    MemDelta         = '-'
+                    DiskDelta        = '-'
+                    IopsDelta        = '-'
+                    AltCapacity      = '-'
+                    AltQuotaStatus   = '-'
+                    PriceDiff        = '-'
+                    TotalPriceDiff   = '-'
+                    PAYG1Yr          = '-'
+                    PAYG3Yr          = '-'
+                    SP1YrSavings     = '-'
+                    SP3YrSavings     = '-'
+                    RI1YrSavings     = '-'
+                    RI3YrSavings     = '-'
+                    AlternativeCount = 0
+                    Details          = if ($riskLevel -eq 'Low') { '-' } elseif ($isQuotaOnlyCurrentGen) { 'Current gen; quota increase recommended' } else { 'No suitable alternatives found in scanned regions' }
+                })
+            }
+            else {
+                $isFirstRow = $true
+                foreach ($sel in $selectedRecs) {
+                    $rec = $sel.Rec
+                    # Quota lookup for this specific alternative
+                    $thisAltQuota = '-'
+                    if (-not $NoQuota) {
+                        $lookupRegions = if ($deployedRegion) { @($deployedRegion) } else { @($lcQuotaIndex.Keys) }
+                        foreach ($qRegion in $lookupRegions) {
+                            $altRawSku = $lcSkuIndex["$($rec.sku)|$qRegion"]
+                            if ($altRawSku) {
+                                $regionQuotas = $lcQuotaIndex[$qRegion]
+                                if ($regionQuotas) {
+                                    $altRequiredvCPUs = $entryQty * [int]$rec.vCPU
+                                    $altQi = Get-QuotaAvailable -QuotaLookup $regionQuotas -SkuFamily $altRawSku.Family -RequiredvCPUs $altRequiredvCPUs
+                                    if ($null -ne $altQi.Available) {
+                                        $thisAltQuota = "$($altQi.Current)/$($altQi.Limit) (avail: $($altQi.Available))"
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    # Calculate price difference for this alternative
+                    $priceDiffStr = '-'
+                    $totalDiffStr = '-'
+                    $payg1YrStr = '-'
+                    $payg3YrStr = '-'
+                    if ($null -ne $targetPriceMo -and $null -ne $rec.priceMo) {
+                        $diff = [double]$rec.priceMo - $targetPriceMo
+                        $priceDiffStr = if ($diff -ge 0) { '+$' + $diff.ToString('0') } else { '-$' + ([Math]::Abs($diff)).ToString('0') }
+                        $totalDiff = $diff * $entryQty
+                        $totalDiffStr = if ($totalDiff -ge 0) { '+$' + $totalDiff.ToString('N0') } else { '-$' + ([Math]::Abs($totalDiff)).ToString('N0') }
+                        $payg1Yr = [double]$rec.priceMo * 12 * $entryQty
+                        $payg1YrStr = '$' + $payg1Yr.ToString('N0')
+                        $payg3Yr = [double]$rec.priceMo * 36 * $entryQty
+                        $payg3YrStr = '$' + $payg3Yr.ToString('N0')
+                    }
+
+                    # Look up savings plan and reservation savings vs PAYG fleet total
+                    $sp1YrSavingsStr = '-'; $sp3YrSavingsStr = '-'; $ri1YrSavingsStr = '-'; $ri3YrSavingsStr = '-'
+                    if ($RateOptimization -and $FetchPricing -and $null -ne $rec.priceMo) {
+                        $recPaygFleet1Yr = [double]$rec.priceMo * 12 * $entryQty
+                        $recPaygFleet3Yr = [double]$rec.priceMo * 36 * $entryQty
+                        $sp1Entry = $sp1YrMap[$rec.sku]
+                        if ($sp1Entry) { $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty; $sp1Savings = $recPaygFleet1Yr - $sp1Fleet; $sp1YrSavingsStr = '$' + $sp1Savings.ToString('N0') }
+                        $sp3Entry = $sp3YrMap[$rec.sku]
+                        if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
+                        $ri1Entry = $ri1YrMap[$rec.sku]
+                        if ($ri1Entry) { $ri1Fleet = [double]$ri1Entry.Total * $entryQty; $ri1Savings = $recPaygFleet1Yr - $ri1Fleet; $ri1YrSavingsStr = '$' + $ri1Savings.ToString('N0') }
+                        $ri3Entry = $ri3YrMap[$rec.sku]
+                        if ($ri3Entry) { $ri3Fleet = [double]$ri3Entry.Total * $entryQty; $ri3Savings = $recPaygFleet3Yr - $ri3Fleet; $ri3YrSavingsStr = '$' + $ri3Savings.ToString('N0') }
+                    }
+
+                    # Compute CPU, memory, and disk deltas
+                    $isUnscannedUpgrade = ($rec.capacity -eq 'Not scanned')
+                    if ($isUnscannedUpgrade) {
+                        $cpuDiff = 0; $cpuDeltaStr = '-'
+                        $memDiff = 0; $memDeltaStr = '-'
+                        $diskDeltaStr = '-'
+                        $iopsDiff = 0; $iopsDeltaStr = '-'
+                    }
+                    else {
+                        $cpuDiff = [int]$rec.vCPU - [int]$target.vCPU
+                        $cpuDeltaStr = if ($cpuDiff -eq 0) { '=' } elseif ($cpuDiff -gt 0) { "+$cpuDiff" } else { "$cpuDiff" }
+                        $memDiff = [double]$rec.memGiB - [double]$target.MemoryGB
+                        $memDeltaStr = if ($memDiff -eq 0) { '=' } elseif ($memDiff -gt 0) { "+$memDiff" } else { "$memDiff" }
+                        $diskDiff = [int]$rec.MaxDisks - [int]$target.MaxDataDiskCount
+                        $diskDeltaStr = if ($diskDiff -eq 0) { '=' } elseif ($diskDiff -gt 0) { "+$diskDiff" } else { "$diskDiff" }
+                        $iopsDiff = [int]$rec.IOPS - [int]$target.UncachedDiskIOPS
+                        $iopsDeltaStr = if ($iopsDiff -eq 0) { '=' } elseif ($iopsDiff -gt 0) { "+$iopsDiff" } else { "$iopsDiff" }
+                    }
+
+                    # Build Details string explaining why this recommendation was selected
+                    $targetFamily = $target.Family
+                    $targetVersion = [int]$target.FamilyVersion
+                    $recFamily = Get-SkuFamily $rec.sku
+                    $recVersion = if ($rec.sku -match '_v(\d+)$') { [int]$Matches[1] } else { 1 }
+
+                    $detailParts = [System.Collections.Generic.List[string]]::new()
+
+                    # Upgrade path recommendations get their reason from the knowledge base
+                    if ($sel.MatchType -like 'Upgrade:*' -and $upgradePathData) {
+                        $detailNormFamily = if ($targetFamily -cmatch '^([A-Z]+)S$' -and $targetFamily -notin 'NVS','NCS','NDS','HBS','HCS','HXS','FXS') { $Matches[1] } else { $targetFamily }
+                        $pathKey = "${detailNormFamily}v${targetVersion}"
+                        $upgradePath = $upgradePathData.upgradePaths.$pathKey
+                        if ($upgradePath) {
+                            $pathTypeKey = switch -Wildcard ($sel.MatchType) {
+                                '*Drop-in'        { 'dropIn' }
+                                '*Future-proof'    { 'futureProof' }
+                                '*Cost-optimized'  { 'costOptimized' }
+                            }
+                            $pathEntry = if ($pathTypeKey) { $upgradePath.$pathTypeKey } else { $null }
+                            if ($pathEntry -and $pathEntry.reason) {
+                                $detailParts.Add($pathEntry.reason)
+                            }
+                            if ($pathEntry -and $pathEntry.requirements -and $pathEntry.requirements.Count -gt 0) {
+                                $detailParts.Add("Requires: $($pathEntry.requirements -join ', ')")
+                            }
+                        }
+                        if ($rec.capacity -eq 'Not scanned') {
+                            $detailParts.Add("availability not verified (region not scanned)")
+                        }
+                    }
+                    else {
+                        # Weighted recommendation — existing family/version analysis
+                        if ($recFamily -eq $targetFamily) {
+                            if ($recVersion -gt $targetVersion) {
+                                $detailParts.Add("$targetFamily-family v$targetVersion→v$recVersion upgrade")
+                            }
+                            elseif ($recVersion -eq $targetVersion) {
+                                $detailParts.Add("Same $targetFamily-family v$recVersion")
+                            }
+                            else {
+                                $detailParts.Add("$targetFamily-family v$recVersion (older generation)")
+                            }
+                        }
+                        else {
+                            $hasSameFamily = $allRecs | Where-Object { (Get-SkuFamily $_.sku) -eq $targetFamily } | Select-Object -First 1
+                            if ($hasSameFamily) {
+                                $detailParts.Add("Cross-family: $recFamily-family v$recVersion selected (same-family options scored lower)")
+                            }
+                            else {
+                                $detailParts.Add("Cross-family: $recFamily-family v$recVersion (no $targetFamily-family v${targetVersion}+ available)")
+                            }
+                        }
+
+                        if ($sel.MatchType -eq 'Like-for-like') {
+                            $detailParts.Add("same vCPU count ($($rec.vCPU))")
+                        }
+                        elseif ($sel.MatchType -eq 'IOPS match') {
+                            $detailParts.Add("IOPS guarantee: maintains ≥$($target.UncachedDiskIOPS) IOPS")
+                        }
+                    }
+
+                    if ($cpuDiff -ne 0 -or $memDiff -ne 0) {
+                        $resizeParts = @()
+                        if ($cpuDiff -gt 0) { $resizeParts += "+$cpuDiff vCPU" }
+                        elseif ($cpuDiff -lt 0) { $resizeParts += "$cpuDiff vCPU" }
+                        if ($memDiff -gt 0) { $resizeParts += "+$memDiff GB RAM" }
+                        elseif ($memDiff -lt 0) { $resizeParts += "$memDiff GB RAM" }
+                        if ($resizeParts.Count -gt 0) { $detailParts.Add("resize: $($resizeParts -join ', ')") }
+                    }
+
+                    $detailsStr = $detailParts -join '; '
+
+                    $lifecycleResults.Add([pscustomobject]@{
+                        SKU              = if ($isFirstRow) { $target.Name } else { '' }
+                        DeployedRegion   = if ($isFirstRow) { if ($deployedRegion) { $deployedRegion } else { '-' } } else { '' }
+                        Qty              = if ($isFirstRow) { $entryQty } else { '' }
+                        vCPU             = if ($isFirstRow) { $target.vCPU } else { '' }
+                        MemoryGB         = if ($isFirstRow) { $target.MemoryGB } else { '' }
+                        Generation       = if ($isFirstRow) { "v$generation" } else { '' }
+                        RiskLevel        = if ($isFirstRow) { $riskLevel } else { '' }
+                        RiskReasons      = if ($isFirstRow) { ($riskReasons -join '; ') } else { '' }
+                        QuotaStatus      = if ($isFirstRow) { $targetQuotaStatus } else { '' }
+                        MatchType        = $sel.MatchType
+                        TopAlternative   = $rec.sku
+                        AltScore         = if ($rec.score -is [ValueType] -and $rec.score -isnot [bool]) { "$([int]$rec.score)%" } else { '' }
+                        CpuDelta         = $cpuDeltaStr
+                        MemDelta         = $memDeltaStr
+                        DiskDelta        = $diskDeltaStr
+                        IopsDelta        = $iopsDeltaStr
+                        AltCapacity      = $rec.capacity
+                        AltQuotaStatus   = $thisAltQuota
+                        PriceDiff        = $priceDiffStr
+                        TotalPriceDiff   = $totalDiffStr
+                        PAYG1Yr          = $payg1YrStr
+                        PAYG3Yr          = $payg3YrStr
+                        SP1YrSavings     = $sp1YrSavingsStr
+                        SP3YrSavings     = $sp3YrSavingsStr
+                        RI1YrSavings     = $ri1YrSavingsStr
+                        RI3YrSavings     = $ri3YrSavingsStr
+                        AlternativeCount = if ($isFirstRow) { $allRecs.Count } else { '' }
+                        Details          = $detailsStr
+                    })
+
+                    $isFirstRow = $false
+                }
+            }
+        }
+    }
+
+    # Print lifecycle summary
+    $uniqueSkuCount = @($lifecycleResults | Where-Object { $_.SKU -ne '' }).Count
+    $totalVMCount = ($lifecycleResults | Where-Object { $_.Qty -ne '' } | Measure-Object -Property Qty -Sum).Sum
+    if (-not $JsonOutput) {
+        Write-Host ""
+        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
+        Write-Host "LIFECYCLE RECOMMENDATIONS SUMMARY  ($uniqueSkuCount SKUs, $totalVMCount VMs)" -ForegroundColor Green
+        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
+        Write-Host ""
+
+        if ($NoQuota) {
+            if ($FetchPricing) {
+                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8} {15,-10} {16,-12}"
+                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Price Diff', 'Total') -ForegroundColor White
+            }
+            else {
+                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8}"
+                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-') -ForegroundColor White
+            }
+        }
+        else {
+            if ($FetchPricing) {
+                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-22} {8,-33} {9,-24} {10,-26} {11,-6} {12,-5} {13,-5} {14,-7} {15,-8} {16,-10} {17,-10} {18,-12}"
+                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Quota (used/limit)', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Alt Quota', 'Price Diff', 'Total') -ForegroundColor White
+            }
+            else {
+                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-22} {8,-33} {9,-24} {10,-26} {11,-6} {12,-5} {13,-5} {14,-7} {15,-8} {16,-10}"
+                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Quota (used/limit)', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Alt Quota') -ForegroundColor White
+            }
+        }
+        Write-Host (' ' + ('-' * ($script:OutputWidth - 2))) -ForegroundColor DarkGray
+
+        $lastSeenRiskColor = 'Gray'
+        foreach ($r in $lifecycleResults) {
+            if ($r.RiskLevel -and $r.RiskLevel -ne '') {
+                $riskColor = switch ($r.RiskLevel) {
+                    'High'   { 'Red' }
+                    'Medium' { 'Yellow' }
+                    'Low'    { 'Green' }
+                    default  { 'Gray' }
+                }
+                $lastSeenRiskColor = $riskColor
+            }
+            else {
+                $riskColor = $lastSeenRiskColor
+            }
+            if ($NoQuota) {
+                [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta)
+            }
+            else {
+                [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.QuotaStatus, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta, $r.AltQuotaStatus)
+            }
+            if ($FetchPricing) { $fmtArgs += @($r.PriceDiff, $r.TotalPriceDiff) }
+            $line = $sumFmt -f $fmtArgs
+            Write-Host $line -ForegroundColor $riskColor
+        }
+
+        $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' })
+        $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' })
+        $highVMs = ($highRisk | Measure-Object -Property Qty -Sum).Sum
+        $medVMs = ($medRisk | Measure-Object -Property Qty -Sum).Sum
+        Write-Host ""
+        if ($highRisk.Count -gt 0) {
+            Write-Host "  $($highRisk.Count) SKU(s) ($highVMs VMs) at HIGH risk — immediate action recommended" -ForegroundColor Red
+        }
+        if ($medRisk.Count -gt 0) {
+            Write-Host "  $($medRisk.Count) SKU(s) ($medVMs VMs) at MEDIUM risk — plan migration to current generation" -ForegroundColor Yellow
+        }
+        if ($highRisk.Count -eq 0 -and $medRisk.Count -eq 0) {
+            Write-Host "  All SKUs are current generation with good availability" -ForegroundColor Green
+        }
+        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
+    }
+
+    # XLSX Export — auto-export lifecycle results
+    if (-not $JsonOutput -and (Test-ImportExcelModule)) {
+        $lcTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        if ($LifecycleRecommendations) {
+            $sourceDir = [System.IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $LifecycleRecommendations).Path)
+            $sourceBase = [System.IO.Path]::GetFileNameWithoutExtension($LifecycleRecommendations)
+        }
+        else {
+            $sourceDir = $PWD.Path
+            $sourceBase = 'LifecycleScan'
+        }
+        $lcXlsxFile = Join-Path $sourceDir "${sourceBase}_Lifecycle_Recommendations_${lcTimestamp}.xlsx"
+
+        try {
+            $greenFill = [System.Drawing.Color]::FromArgb(198, 239, 206)
+            $greenText = [System.Drawing.Color]::FromArgb(0, 97, 0)
+            $yellowFill = [System.Drawing.Color]::FromArgb(255, 235, 156)
+            $yellowText = [System.Drawing.Color]::FromArgb(156, 101, 0)
+            $redFill = [System.Drawing.Color]::FromArgb(255, 199, 206)
+            $redText = [System.Drawing.Color]::FromArgb(156, 0, 6)
+            $headerBlue = [System.Drawing.Color]::FromArgb(0, 120, 212)
+            $lightGray = [System.Drawing.Color]::FromArgb(242, 242, 242)
+            $naGray = [System.Drawing.Color]::FromArgb(191, 191, 191)
+
+            #region Lifecycle Summary Sheet
+            # Tag continuation rows with parent's risk level, SKU, and group sequence for sorting
+            $lastParentRisk = 'Low'
+            $lastParentSKU = ''
+            $groupSeq = 0
+            $rowSeq = 0
+            foreach ($lr in $lifecycleResults) {
+                if ($lr.SKU -and $lr.SKU -ne '') {
+                    $lastParentRisk = $lr.RiskLevel
+                    $lastParentSKU = $lr.SKU
+                    $groupSeq++
+                    $rowSeq = 0
+                }
+                $lr | Add-Member -NotePropertyName '_ParentRisk' -NotePropertyValue $lastParentRisk -Force
+                $lr | Add-Member -NotePropertyName '_ParentSKU' -NotePropertyValue $lastParentSKU -Force
+                $lr | Add-Member -NotePropertyName '_GroupSeq' -NotePropertyValue $groupSeq -Force
+                $lr | Add-Member -NotePropertyName '_RowSeq' -NotePropertyValue $rowSeq -Force
+                $rowSeq++
+            }
+
+            $lcSortedResults = $lifecycleResults | Sort-Object @{e={switch($_._ParentRisk){'High'{0}'Medium'{1}'Low'{2}default{3}}}}, _ParentSKU, _GroupSeq, _RowSeq
+
+            # SP/RI columns included only with -RateOptimization flag
+            $rateOptCols = if ($RateOptimization) {
+                @(
+                    @{N='SP 1-Year Savings';E={$_.SP1YrSavings}},
+                    @{N='SP 3-Year Savings';E={$_.SP3YrSavings}},
+                    @{N='RI 1-Year Savings';E={$_.RI1YrSavings}},
+                    @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
+                )
+            } else { @() }
+
+            # PAYG pricing columns included only with -ShowPricing
+            $pricingCols = if ($FetchPricing) {
+                @(
+                    @{N='Price Diff';E={$_.PriceDiff}}, @{N='Total';E={$_.TotalPriceDiff}},
+                    @{N='1-Year Cost';E={$_.PAYG1Yr}}, @{N='3-Year Cost';E={$_.PAYG3Yr}}
+                ) + $rateOptCols
+            } else { @() }
+
+            if ($NoQuota) {
+                $lcProps = @(
+                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                    @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E={$_.RiskReasons}},
+                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
+                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
+                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+                $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
+                $riskColLetter = 'G'
+                $altColLetter = 'J'
+                $riskReasonsColNum = 8
+            }
+            else {
+                $lcProps = @(
+                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                    @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E={$_.RiskReasons}},
+                    @{N='Quota (Used/Limit)';E={$_.QuotaStatus}},
+                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
+                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}},
+                    @{N='Alt Quota';E={$_.AltQuotaStatus}}
+                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+                $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
+                $riskColLetter = 'G'
+                $altColLetter = 'K'
+                $riskReasonsColNum = 8
+            }
+
+            $excel = $lcExportRows | Export-Excel -Path $lcXlsxFile -WorksheetName "Lifecycle Summary" -AutoSize -AutoFilter -FreezeTopRow -PassThru
+
+            $ws = $excel.Workbook.Worksheets["Lifecycle Summary"]
+            $lastRow = $ws.Dimension.End.Row
+            $lastCol = $ws.Dimension.End.Column
+
+            # Azure-blue header row
+            $headerRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)1"]
+            $headerRange.Style.Font.Bold = $true
+            $headerRange.Style.Font.Color.SetColor([System.Drawing.Color]::White)
+            $headerRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $headerRange.Style.Fill.BackgroundColor.SetColor($headerBlue)
+            $headerRange.Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+
+            # Alternating row colors
+            for ($row = 2; $row -le $lastRow; $row++) {
+                if ($row % 2 -eq 0) {
+                    $rowRange = $ws.Cells["A$row`:$(ConvertTo-ExcelColumnLetter $lastCol)$row"]
+                    $rowRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $rowRange.Style.Fill.BackgroundColor.SetColor($lightGray)
+                }
+            }
+
+            # Risk Level column — conditional formatting
+            $riskRange = "${riskColLetter}2:${riskColLetter}$lastRow"
+            Add-ConditionalFormatting -Worksheet $ws -Range $riskRange -RuleType ContainsText -ConditionValue "High" -BackgroundColor $redFill -ForegroundColor $redText
+            Add-ConditionalFormatting -Worksheet $ws -Range $riskRange -RuleType ContainsText -ConditionValue "Medium" -BackgroundColor $yellowFill -ForegroundColor $yellowText
+            Add-ConditionalFormatting -Worksheet $ws -Range $riskRange -RuleType ContainsText -ConditionValue "Low" -BackgroundColor $greenFill -ForegroundColor $greenText
+
+            # Alternative column — highlight N/A
+            $altRange = "${altColLetter}2:${altColLetter}$lastRow"
+            Add-ConditionalFormatting -Worksheet $ws -Range $altRange -RuleType Equal -ConditionValue "N/A" -BackgroundColor $lightGray -ForegroundColor $naGray
+            Add-ConditionalFormatting -Worksheet $ws -Range $altRange -RuleType Equal -ConditionValue "-" -BackgroundColor $redFill -ForegroundColor $redText
+
+            # Thin borders on all data cells
+            $dataRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)$lastRow"]
+            $dataRange.Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+            $dataRange.Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+            $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+            $dataRange.Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+
+            # Center-align numeric and short columns
+            $ws.Cells["C2:F$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+            $ws.Cells["${riskColLetter}2:${riskColLetter}$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+
+            # Widen Risk Reasons column
+            $ws.Column($riskReasonsColNum).Width = 50
+
+            # Summary footer rows
+            $footerStart = $lastRow + 2
+            $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' })
+            $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' })
+            $lowRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Low' })
+            $highVMs = ($highRisk | Measure-Object -Property Qty -Sum).Sum
+            $medVMs = ($medRisk | Measure-Object -Property Qty -Sum).Sum
+            $lowVMs = ($lowRisk | Measure-Object -Property Qty -Sum).Sum
+
+            $ws.Cells["A$footerStart"].Value = "SUMMARY"
+            $ws.Cells["A$footerStart`:F$footerStart"].Merge = $true
+            $ws.Cells["A$footerStart"].Style.Font.Bold = $true
+            $ws.Cells["A$footerStart"].Style.Font.Size = 11
+            $ws.Cells["A$footerStart`:F$footerStart"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $ws.Cells["A$footerStart`:F$footerStart"].Style.Fill.BackgroundColor.SetColor($headerBlue)
+            $ws.Cells["A$footerStart`:F$footerStart"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+
+            $summaryItems = @(
+                @{ Label = "Total SKUs"; Value = "$uniqueSkuCount"; VMs = "$totalVMCount VMs" }
+                @{ Label = "HIGH Risk"; Value = "$($highRisk.Count) SKUs"; VMs = "$highVMs VMs — immediate action" }
+                @{ Label = "MEDIUM Risk"; Value = "$($medRisk.Count) SKUs"; VMs = "$medVMs VMs — plan migration" }
+                @{ Label = "LOW Risk"; Value = "$($lowRisk.Count) SKUs"; VMs = "$lowVMs VMs — no action needed" }
+            )
+
+            $sRow = $footerStart + 1
+            foreach ($si in $summaryItems) {
+                $ws.Cells["A$sRow"].Value = $si.Label
+                $ws.Cells["A$sRow"].Style.Font.Bold = $true
+                $ws.Cells["B$sRow"].Value = $si.Value
+                $ws.Cells["C$sRow`:F$sRow"].Merge = $true
+                $ws.Cells["C$sRow"].Value = $si.VMs
+
+                $ws.Cells["A$sRow`:F$sRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                switch ($si.Label) {
+                    "HIGH Risk" { $ws.Cells["A$sRow`:F$sRow"].Style.Fill.BackgroundColor.SetColor($redFill); $ws.Cells["A$sRow`:F$sRow"].Style.Font.Color.SetColor($redText) }
+                    "MEDIUM Risk" { $ws.Cells["A$sRow`:F$sRow"].Style.Fill.BackgroundColor.SetColor($yellowFill); $ws.Cells["A$sRow`:F$sRow"].Style.Font.Color.SetColor($yellowText) }
+                    "LOW Risk" { $ws.Cells["A$sRow`:F$sRow"].Style.Fill.BackgroundColor.SetColor($greenFill); $ws.Cells["A$sRow`:F$sRow"].Style.Font.Color.SetColor($greenText) }
+                    default { $ws.Cells["A$sRow`:F$sRow"].Style.Fill.BackgroundColor.SetColor($lightGray) }
+                }
+                $sRow++
+            }
+            #endregion Lifecycle Summary Sheet
+
+            #region Risk Breakdown Sheet
+            $highBase = @($lifecycleResults | Where-Object { $_._ParentRisk -eq 'High' })
+            if ($NoQuota) {
+                $hrProps = @(
+                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                    @{N='Risk Reasons';E={$_.RiskReasons}},
+                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
+                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
+                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+                $highRows = @($highBase | Select-Object -Property $hrProps)
+            }
+            else {
+                $hrProps = @(
+                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                    @{N='Risk Reasons';E={$_.RiskReasons}},
+                    @{N='Quota (Used/Limit)';E={$_.QuotaStatus}},
+                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
+                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}},
+                    @{N='Alt Quota';E={$_.AltQuotaStatus}}
+                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+                $highRows = @($highBase | Select-Object -Property $hrProps)
+            }
+
+            if ($highRows.Count -gt 0) {
+                $excel = $highRows | Export-Excel -ExcelPackage $excel -WorksheetName "High Risk" -AutoSize -AutoFilter -FreezeTopRow -PassThru
+                $wsH = $excel.Workbook.Worksheets["High Risk"]
+                $hLastRow = $wsH.Dimension.End.Row
+                $hLastCol = $wsH.Dimension.End.Column
+
+                $hHeader = $wsH.Cells["A1:$(ConvertTo-ExcelColumnLetter $hLastCol)1"]
+                $hHeader.Style.Font.Bold = $true
+                $hHeader.Style.Font.Color.SetColor([System.Drawing.Color]::White)
+                $hHeader.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                $hHeader.Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(156, 0, 6))
+
+                for ($row = 2; $row -le $hLastRow; $row++) {
+                    $rowRange = $wsH.Cells["A$row`:$(ConvertTo-ExcelColumnLetter $hLastCol)$row"]
+                    $rowRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $rowRange.Style.Fill.BackgroundColor.SetColor($(if ($row % 2 -eq 0) { $redFill } else { [System.Drawing.Color]::White }))
+                }
+            }
+
+            $medBase = @($lifecycleResults | Where-Object { $_._ParentRisk -eq 'Medium' })
+            if ($NoQuota) {
+                $mrProps = @(
+                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                    @{N='Risk Reasons';E={$_.RiskReasons}},
+                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
+                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
+                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+                $medRows = @($medBase | Select-Object -Property $mrProps)
+            }
+            else {
+                $mrProps = @(
+                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                    @{N='Risk Reasons';E={$_.RiskReasons}},
+                    @{N='Quota (Used/Limit)';E={$_.QuotaStatus}},
+                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
+                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}},
+                    @{N='Alt Quota';E={$_.AltQuotaStatus}}
+                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+                $medRows = @($medBase | Select-Object -Property $mrProps)
+            }
+
+            if ($medRows.Count -gt 0) {
+                $excel = $medRows | Export-Excel -ExcelPackage $excel -WorksheetName "Medium Risk" -AutoSize -AutoFilter -FreezeTopRow -PassThru
+                $wsM = $excel.Workbook.Worksheets["Medium Risk"]
+                $mLastRow = $wsM.Dimension.End.Row
+                $mLastCol = $wsM.Dimension.End.Column
+
+                $mHeader = $wsM.Cells["A1:$(ConvertTo-ExcelColumnLetter $mLastCol)1"]
+                $mHeader.Style.Font.Bold = $true
+                $mHeader.Style.Font.Color.SetColor([System.Drawing.Color]::White)
+                $mHeader.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                $mHeader.Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(156, 101, 0))
+
+                for ($row = 2; $row -le $mLastRow; $row++) {
+                    $rowRange = $wsM.Cells["A$row`:$(ConvertTo-ExcelColumnLetter $mLastCol)$row"]
+                    $rowRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $rowRange.Style.Fill.BackgroundColor.SetColor($(if ($row % 2 -eq 0) { $yellowFill } else { [System.Drawing.Color]::White }))
+                }
+            }
+            #endregion Risk Breakdown Sheet
+
+            Close-ExcelPackage $excel
+
+            Write-Host ""
+            Write-Host "Lifecycle report exported: $lcXlsxFile" -ForegroundColor Green
+            Write-Host "  Sheets: Lifecycle Summary$(if ($highRows.Count -gt 0) { ', High Risk' })$(if ($medRows.Count -gt 0) { ', Medium Risk' })" -ForegroundColor Cyan
+        }
+        catch {
+            Write-Warning "Failed to export lifecycle XLSX: $_"
+        }
+    }
+    elseif (-not $JsonOutput -and -not (Test-ImportExcelModule)) {
+        Write-Host ""
+        Write-Host "Tip: Install ImportExcel for styled XLSX export: Install-Module ImportExcel -Scope CurrentUser" -ForegroundColor DarkGray
+    }
+
+    if ($JsonOutput) {
+        @{
+            schemaVersion = '1.0'
+            mode          = 'lifecycle'
+            skuCount      = $lifecycleEntries.Count
+            totalVMs      = $totalVMCount
+            results       = @($lifecycleResults)
+        } | ConvertTo-Json -Depth 5
+    }
+
+    return
+}
+
+#endregion Lifecycle Recommendations
 #region Recommend Mode
 
 if ($Recommend) {
@@ -4439,7 +6032,7 @@ if ($ExportPath) {
             $lastRow = $ws.Dimension.End.Row
             $lastCol = $ws.Dimension.End.Column
 
-            $headerRange = $ws.Cells["A1:$([char](64 + $lastCol))1"]
+            $headerRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)1"]
             $headerRange.Style.Font.Bold = $true
             $headerRange.Style.Font.Color.SetColor([System.Drawing.Color]::White)
             $headerRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
@@ -4448,14 +6041,14 @@ if ($ExportPath) {
 
             for ($row = 2; $row -le $lastRow; $row++) {
                 if ($row % 2 -eq 0) {
-                    $rowRange = $ws.Cells["A$row`:$([char](64 + $lastCol))$row"]
+                    $rowRange = $ws.Cells["A$row`:$(ConvertTo-ExcelColumnLetter $lastCol)$row"]
                     $rowRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
                     $rowRange.Style.Fill.BackgroundColor.SetColor($lightGray)
                 }
             }
 
             for ($col = 4; $col -le $lastCol; $col++) {
-                $colLetter = [char](64 + $col)
+                $colLetter = ConvertTo-ExcelColumnLetter $col
                 $statusRange = "$colLetter`2:$colLetter$lastRow"
 
                 # OK status - Green
@@ -4471,7 +6064,7 @@ if ($ExportPath) {
                 Add-ConditionalFormatting -Worksheet $ws -Range $statusRange -RuleType Equal -ConditionValue "N/A" -BackgroundColor $lightGray -ForegroundColor ([System.Drawing.Color]::Gray)
             }
 
-            $dataRange = $ws.Cells["A1:$([char](64 + $lastCol))$lastRow"]
+            $dataRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)$lastRow"]
             $dataRange.Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
@@ -4605,7 +6198,7 @@ if ($ExportPath) {
             $lastRow = $ws.Dimension.End.Row
             $lastCol = $ws.Dimension.End.Column
 
-            $headerRange = $ws.Cells["A1:$([char](64 + $lastCol))1"]
+            $headerRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)1"]
             $headerRange.Style.Font.Bold = $true
             $headerRange.Style.Font.Color.SetColor([System.Drawing.Color]::White)
             $headerRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
@@ -4621,7 +6214,7 @@ if ($ExportPath) {
             }
 
             if ($capacityCol) {
-                $colLetter = [char](64 + $capacityCol)
+                $colLetter = ConvertTo-ExcelColumnLetter $capacityCol
                 $capacityRange = "$colLetter`2:$colLetter$lastRow"
 
                 # OK - Green
@@ -4640,7 +6233,7 @@ if ($ExportPath) {
                 Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "RESTRICTED" -BackgroundColor $redFill -ForegroundColor $redText
             }
 
-            $dataRange = $ws.Cells["A1:$([char](64 + $lastCol))$lastRow"]
+            $dataRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)$lastRow"]
             $dataRange.Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
@@ -4649,7 +6242,7 @@ if ($ExportPath) {
             $ws.Cells["E2:F$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
             $ws.Cells["J2:J$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
 
-            $ws.Cells["A1:$([char](64 + $lastCol))1"].AutoFilter = $true
+            $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)1"].AutoFilter = $true
 
             Close-ExcelPackage $excel
 

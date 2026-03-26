@@ -1,16 +1,18 @@
-function Get-FleetReadiness {
+function Get-InventoryReadiness {
+    [Alias('Get-FleetReadiness')]
     <#
     .SYNOPSIS
-        Validates a fleet BOM against scan data to produce per-SKU and per-quota-family readiness.
+        Validates an inventory BOM against scan data to produce per-SKU and per-quota-family readiness.
     .DESCRIPTION
-        Takes a Fleet hashtable (SKU=Qty) and scan data, then checks:
+        Takes an Inventory hashtable (SKU=Qty) and scan data, then checks:
         1. Does each SKU exist in the scanned regions?
         2. What is the capacity status for each SKU?
         3. Does the quota family have enough available vCPUs for the aggregated demand?
     #>
     param(
         [Parameter(Mandatory)]
-        [hashtable]$Fleet,
+        [Alias('Fleet')]
+        [hashtable]$Inventory,
 
         [Parameter(Mandatory)]
         [array]$SubscriptionData
@@ -19,9 +21,9 @@ function Get-FleetReadiness {
     $results = [System.Collections.Generic.List[PSCustomObject]]::new()
     $quotaDemandByFamily = @{}
 
-    foreach ($skuName in $Fleet.Keys) {
+    foreach ($skuName in $Inventory.Keys) {
         $normalizedSku = $skuName
-        $qty = [int]$Fleet[$skuName]
+        $qty = [int]$Inventory[$skuName]
 
         $foundInAnyRegion = $false
         $bestStatus = 'NOT FOUND'

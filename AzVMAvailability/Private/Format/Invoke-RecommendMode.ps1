@@ -35,7 +35,9 @@ function Invoke-RecommendMode {
         [Parameter(Mandatory)]
         [pscustomobject]$RunContext,
 
-        [int]$OutputWidth = 122
+        [int]$OutputWidth = 122,
+
+        [hashtable]$SkuProfileCache = $null
     )
 
     $targetSku = $null
@@ -70,17 +72,25 @@ function Invoke-RecommendMode {
     $targetHasNvme = $targetCaps.NvmeSupport
     $targetDiskCode = Get-DiskCode -HasTempDisk ($targetCaps.TempDiskGB -gt 0) -HasNvme $targetHasNvme
     $targetProfile = @{
-        Name         = $targetSku.Name
-        vCPU         = [int](Get-CapValue $targetSku 'vCPUs')
-        MemoryGB     = [int](Get-CapValue $targetSku 'MemoryGB')
-        Family       = Get-SkuFamily $targetSku.Name
-        Generation   = $targetCaps.HyperVGenerations
-        Architecture = $targetCaps.CpuArchitecture
-        PremiumIO    = (Get-CapValue $targetSku 'PremiumIO') -eq 'True'
-        Processor    = $targetProcessor
-        TempDiskGB   = $targetCaps.TempDiskGB
-        DiskCode     = $targetDiskCode
-        AccelNet     = $targetCaps.AcceleratedNetworkingEnabled
+        Name                     = $targetSku.Name
+        vCPU                     = [int](Get-CapValue $targetSku 'vCPUs')
+        MemoryGB                 = [int](Get-CapValue $targetSku 'MemoryGB')
+        Family                   = Get-SkuFamily $targetSku.Name
+        FamilyVersion            = Get-SkuFamilyVersion $targetSku.Name
+        Generation               = $targetCaps.HyperVGenerations
+        Architecture             = $targetCaps.CpuArchitecture
+        PremiumIO                = (Get-CapValue $targetSku 'PremiumIO') -eq 'True'
+        Processor                = $targetProcessor
+        TempDiskGB               = $targetCaps.TempDiskGB
+        DiskCode                 = $targetDiskCode
+        AccelNet                 = $targetCaps.AcceleratedNetworkingEnabled
+        MaxDataDiskCount         = $targetCaps.MaxDataDiskCount
+        MaxNetworkInterfaces     = $targetCaps.MaxNetworkInterfaces
+        EphemeralOSDiskSupported = $targetCaps.EphemeralOSDiskSupported
+        UltraSSDAvailable        = $targetCaps.UltraSSDAvailable
+        UncachedDiskIOPS         = $targetCaps.UncachedDiskIOPS
+        UncachedDiskBytesPerSecond = $targetCaps.UncachedDiskBytesPerSecond
+        EncryptionAtHostSupported = $targetCaps.EncryptionAtHostSupported
     }
 
     # Score all candidate SKUs across all regions
@@ -95,24 +105,54 @@ function Invoke-RecommendMode {
                 $restrictions = Get-RestrictionDetails $sku
                 if ($restrictions.Status -eq 'RESTRICTED') { continue }
 
-                $caps = Get-SkuCapabilities -Sku $sku
-                $candidateProcessor = Get-ProcessorVendor -SkuName $sku.Name
-                $candidateHasNvme = $caps.NvmeSupport
-                $candidateDiskCode = Get-DiskCode -HasTempDisk ($caps.TempDiskGB -gt 0) -HasNvme $candidateHasNvme
-                $candidateProfile = @{
-                    Name         = $sku.Name
-                    vCPU         = [int](Get-CapValue $sku 'vCPUs')
-                    MemoryGB     = [int](Get-CapValue $sku 'MemoryGB')
-                    Family       = Get-SkuFamily $sku.Name
-                    Generation   = $caps.HyperVGenerations
-                    Architecture = $caps.CpuArchitecture
-                    PremiumIO    = (Get-CapValue $sku 'PremiumIO') -eq 'True'
+                # Use cached profile if available; otherwise build and cache it
+                $candidateProfile = $null
+                $caps = $null
+                $candidateProcessor = $null
+                $candidateDiskCode = $null
+                if ($SkuProfileCache -and $SkuProfileCache.ContainsKey($sku.Name)) {
+                    $cached = $SkuProfileCache[$sku.Name]
+                    $candidateProfile = $cached.Profile
+                    $caps = $cached.Caps
+                    $candidateProcessor = $cached.Processor
+                    $candidateDiskCode = $cached.DiskCode
+                }
+                else {
+                    $caps = Get-SkuCapabilities -Sku $sku
+                    $candidateProcessor = Get-ProcessorVendor -SkuName $sku.Name
+                    $candidateHasNvme = $caps.NvmeSupport
+                    $candidateDiskCode = Get-DiskCode -HasTempDisk ($caps.TempDiskGB -gt 0) -HasNvme $candidateHasNvme
+                    $candidateProfile = @{
+                        Name                     = $sku.Name
+                        vCPU                     = [int](Get-CapValue $sku 'vCPUs')
+                        MemoryGB                 = [int](Get-CapValue $sku 'MemoryGB')
+                        Family                   = Get-SkuFamily $sku.Name
+                        Generation               = $caps.HyperVGenerations
+                        Architecture             = $caps.CpuArchitecture
+                        PremiumIO                = (Get-CapValue $sku 'PremiumIO') -eq 'True'
+                        DiskCode                 = $candidateDiskCode
+                        AccelNet                 = $caps.AcceleratedNetworkingEnabled
+                        MaxDataDiskCount         = $caps.MaxDataDiskCount
+                        MaxNetworkInterfaces     = $caps.MaxNetworkInterfaces
+                        EphemeralOSDiskSupported = $caps.EphemeralOSDiskSupported
+                        UltraSSDAvailable        = $caps.UltraSSDAvailable
+                        UncachedDiskIOPS         = $caps.UncachedDiskIOPS
+                        UncachedDiskBytesPerSecond = $caps.UncachedDiskBytesPerSecond
+                        EncryptionAtHostSupported = $caps.EncryptionAtHostSupported
+                    }
+                    if ($SkuProfileCache) {
+                        $SkuProfileCache[$sku.Name] = @{ Profile = $candidateProfile; Caps = $caps; Processor = $candidateProcessor; DiskCode = $candidateDiskCode }
+                    }
                 }
 
                 # Architecture filtering — skip candidates that don't match target arch unless opted out
                 if (-not $AllowMixedArch -and $candidateProfile.Architecture -ne $targetProfile.Architecture) {
                     continue
                 }
+
+                # Hard compatibility gate — candidate must meet or exceed target on critical dimensions
+                $compat = Test-SkuCompatibility -Target $targetProfile -Candidate $candidateProfile
+                if (-not $compat.Compatible) { continue }
 
                 $simScore = Get-SkuSimilarityScore -Target $targetProfile -Candidate $candidateProfile -FamilyInfo $FamilyInfo
 
@@ -151,6 +191,9 @@ function Invoke-RecommendMode {
                         Disk     = $candidateDiskCode
                         TempGB   = $caps.TempDiskGB
                         AccelNet = $caps.AcceleratedNetworkingEnabled
+                        MaxDisks = $caps.MaxDataDiskCount
+                        MaxNICs  = $caps.MaxNetworkInterfaces
+                        IOPS     = $caps.UncachedDiskIOPS
                         Score    = $simScore
                         Capacity = $restrictions.Status
                         ZonesOK  = $restrictions.ZonesOK.Count
@@ -223,6 +266,9 @@ function Invoke-RecommendMode {
                     Disk      = $item.Disk
                     TempGB    = $item.TempGB
                     AccelNet  = $item.AccelNet
+                    MaxDisks  = $item.MaxDisks
+                    MaxNICs   = $item.MaxNICs
+                    IOPS      = $item.IOPS
                     Score     = $item.Score
                     Capacity  = $item.Capacity
                     AllocScore = $allocScore
@@ -250,6 +296,9 @@ function Invoke-RecommendMode {
                     Disk      = $item.Disk
                     TempGB    = $item.TempGB
                     AccelNet  = $item.AccelNet
+                    MaxDisks  = $item.MaxDisks
+                    MaxNICs   = $item.MaxNICs
+                    IOPS      = $item.IOPS
                     Score     = $item.Score
                     Capacity  = $item.Capacity
                     AllocScore = $null
@@ -262,34 +311,34 @@ function Invoke-RecommendMode {
             })
     }
 
-    # Fleet safety warning detection (shared by JSON and console output)
-    $fleetWarnings = @()
+    # Compatibility warning detection (shared by JSON and console output)
+    $compatWarnings = @()
     $uniqueCPUs = @($ranked | Select-Object -ExpandProperty CPU -Unique)
     $uniqueAccelNet = @($ranked | Select-Object -ExpandProperty AccelNet -Unique)
     if ($AllowMixedArch) {
         $uniqueArchs = @($ranked | Select-Object -ExpandProperty Arch -Unique)
         if ($uniqueArchs.Count -gt 1) {
-            $fleetWarnings += "Mixed architectures (x64 + ARM64) — each requires a separate OS image."
+            $compatWarnings += "Mixed architectures (x64 + ARM64) — each requires a separate OS image."
         }
     }
     if ($uniqueCPUs.Count -gt 1) {
-        $fleetWarnings += "Mixed CPU vendors ($($uniqueCPUs -join ', ')) — performance characteristics vary."
+        $compatWarnings += "Mixed CPU vendors ($($uniqueCPUs -join ', ')) — performance characteristics vary."
     }
     $hasTempDisk = @($ranked | Where-Object { $_.Disk -match 'T' })
     $noTempDisk = @($ranked | Where-Object { $_.Disk -notmatch 'T' })
     if ($hasTempDisk.Count -gt 0 -and $noTempDisk.Count -gt 0) {
-        $fleetWarnings += "Mixed temp disk configs — some SKUs have local temp disk, others don't. Drive paths differ."
+        $compatWarnings += "Mixed temp disk configs — some SKUs have local temp disk, others don't. Drive paths differ."
     }
     $hasNvme = @($ranked | Where-Object { $_.Disk -match 'NV' })
     $hasScsi = @($ranked | Where-Object { $_.Disk -match 'SC' })
     if ($hasNvme.Count -gt 0 -and $hasScsi.Count -gt 0) {
-        $fleetWarnings += "Mixed storage interfaces (NVMe vs SCSI) — disk driver and device path differences."
+        $compatWarnings += "Mixed storage interfaces (NVMe vs SCSI) — disk driver and device path differences."
     }
     if ($uniqueAccelNet.Count -gt 1) {
-        $fleetWarnings += "Mixed accelerated networking support — network performance will vary across the fleet."
+        $compatWarnings += "Mixed accelerated networking support — network performance will vary across the inventory."
     }
 
-    $RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($fleetWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
+    $RunContext.RecommendOutput = New-RecommendOutputContract -TargetProfile $targetProfile -TargetAvailability @($targetRegionStatus) -RankedRecommendations @($ranked) -Warnings @($compatWarnings) -BelowMinSpec @($belowMinSpec) -MinScore $MinScore -TopN $TopN -FetchPricing ([bool]$FetchPricing) -ShowPlacement ([bool]$ShowPlacement) -ShowSpot ([bool]$ShowSpot
     )
 
     if ($JsonOutput) {

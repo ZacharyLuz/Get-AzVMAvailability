@@ -27,7 +27,20 @@ BeforeAll {
             TempDiskGB                   = if ($skuName -match 'd') { 75 } else { 0 }
             NvmeSupport                  = ($skuName -match 'n')
             AcceleratedNetworkingEnabled = ($skuName -notmatch 'legacy')
+            MaxDataDiskCount             = 16
+            MaxNetworkInterfaces         = 4
+            EphemeralOSDiskSupported     = $false
+            UltraSSDAvailable            = $false
+            UncachedDiskIOPS             = 12800
+            UncachedDiskBytesPerSecond   = 134217728
+            EncryptionAtHostSupported    = $false
+            TrustedLaunchDisabled        = $false
         }
+    }
+
+    function Test-SkuCompatibility {
+        param([hashtable]$Target, [hashtable]$Candidate)
+        @{ Compatible = $true; Failures = @() }
     }
 
     function Get-ProcessorVendor {
