@@ -165,21 +165,21 @@
 **Copilot Finding:** "This link target is incorrect for a file that already lives under `data/` (it resolves to `data/data/UpgradePath.json`). Use a relative link like `./UpgradePath.json`."
 **Assessment:** Agree
 **Reasoning:** The file is `data/UpgradePath.md` and contains `[data/UpgradePath.json](data/UpgradePath.json)`, which resolves to `data/data/UpgradePath.json` — a path that doesn't exist. Should be `./UpgradePath.json` since both files are in the same directory.
-**Action Taken:** Fixed — changed link to `[UpgradePath.json](./UpgradePath.json)`.
+**Action Taken:** Fixed — changed link to `[UpgradePath.json](./UpgradePath.json)`. Commit ac59ea8.
 
 ### Comment 15
 **File:** `data/UpgradePath.md:409`
 **Copilot Finding:** "This 'JSON companion' link is also using `data/UpgradePath.json`, which resolves to `data/data/UpgradePath.json` from within this file."
 **Assessment:** Agree
 **Reasoning:** Same root cause as Comment 14 — second instance of the broken relative link at the bottom of the file.
-**Action Taken:** Fixed — changed link to `[UpgradePath.json](./UpgradePath.json)`.
+**Action Taken:** Fixed — changed link to `[UpgradePath.json](./UpgradePath.json)`. Commit ac59ea8.
 
 ### Comment 16
 **File:** `CHANGELOG.md:17`
 **Copilot Finding:** "The changelog entry claims the compatibility gate enforces 'data disks' as a hard requirement, but `Test-SkuCompatibility` intentionally does not gate on `MaxDataDiskCount`."
 **Assessment:** Agree
 **Reasoning:** Same root cause as Round 1 Comments 3/6/8 and Round 2 Comments 10/11. The CHANGELOG entry was missed across two prior rounds of doc fixes. It listed "12 hard requirements" including "data disks", but the actual hard gate count is 10 (data disks and IOPS are soft scoring dimensions).
-**Action Taken:** Fixed — removed "data disks" from the hard requirements list, removed "12" count claim, clarified that disk IOPS and data disk count are soft scoring dimensions.
+**Action Taken:** Fixed — removed "data disks" from the hard requirements list, removed "12" count claim, clarified that disk IOPS and data disk count are soft scoring dimensions. Commit ac59ea8.
 
 ---
 
