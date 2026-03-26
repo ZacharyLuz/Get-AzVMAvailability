@@ -4,7 +4,7 @@
     "version": "1.1.0",
     "lastUpdated": "2026-07-21",
     "source": "https://learn.microsoft.com/azure/virtual-machines/sizes/migration-guides",
-    "usage": "Keyed by SKU family+version (e.g., 'Dv2'). Each entry provides 3 upgrade recommendations: dropIn (lowest risk), futurePoof (latest gen), costOptimized (AMD/alternative). The 'sizeMap' translates vCPU counts to specific SKU names for each path."
+    "usage": "Keyed by SKU family+version (e.g., 'Dv2'). Each entry provides 3 upgrade recommendations: dropIn (lowest risk), futureProof (latest gen), costOptimized (AMD/alternative). The 'sizeMap' translates vCPU counts to specific SKU names for each path."
   },
   "upgradePaths": {
     "Av1": {
@@ -567,8 +567,8 @@
       },
       "costOptimized": {
         "family": "NC",
-        "series": "NCv4",
-        "reason": "AMD Radeon MI25 GPU — lower cost for GPU visualization and light compute",
+        "series": "NCasT4v3",
+        "reason": "NVIDIA T4 GPU — lower cost for GPU inference and light compute",
         "requirements": ["AMD GPU drivers"],
         "sizeMap": {
           "6": "Standard_NC4as_T4_v3",
