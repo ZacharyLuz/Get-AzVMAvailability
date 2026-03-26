@@ -22,6 +22,10 @@ function Get-AzVMPricing {
         [System.Collections.IDictionary]$Caches = @{}
     )
 
+    # Derive term-hour constants from HoursPerMonth for savings plan total calculations
+    $HoursPerYear    = $HoursPerMonth * 12
+    $HoursPer3Years  = $HoursPerMonth * 36
+
     if (-not $Caches.Pricing) {
         $Caches.Pricing = @{}
     }
@@ -113,7 +117,7 @@ function Get-AzVMPricing {
                             $savingsPlan1YrPrices[$vmSize] = @{
                                 Hourly   = [math]::Round($sp.retailPrice, 4)
                                 Monthly  = [math]::Round($sp.retailPrice * $HoursPerMonth, 2)
-                                Total    = [math]::Round($sp.retailPrice * 8760, 2)
+                                Total    = [math]::Round($sp.retailPrice * $HoursPerYear, 2)
                                 Currency = $item.currencyCode
                             }
                         }
@@ -121,7 +125,7 @@ function Get-AzVMPricing {
                             $savingsPlan3YrPrices[$vmSize] = @{
                                 Hourly   = [math]::Round($sp.retailPrice, 4)
                                 Monthly  = [math]::Round($sp.retailPrice * $HoursPerMonth, 2)
-                                Total    = [math]::Round($sp.retailPrice * 26280, 2)
+                                Total    = [math]::Round($sp.retailPrice * $HoursPer3Years, 2)
                                 Currency = $item.currencyCode
                             }
                         }
