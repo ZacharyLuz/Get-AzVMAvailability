@@ -182,6 +182,24 @@
 **Action Taken:** Fixed — removed "data disks" from the hard requirements list, removed "12" count claim, clarified that disk IOPS and data disk count are soft scoring dimensions. Commit ac59ea8.
 
 ---
+## PR #99 — Round 4 (post-fix re-review)
+**Date:** 2026-03-26 | **Branch:** main | **Commit:** dc0ba2b
+
+### Comment 17
+**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:118`
+**Copilot Finding:** "`8760` is a non-obvious term-hour constant embedded in the savings plan total calculation. Consider defining a named constant (e.g., HoursPerYear) or computing it from days×hours to make the intent clearer and reduce maintenance risk."
+**Assessment:** Agree
+**Reasoning:** Project conventions (copilot-instructions.md line 109) explicitly require named constants for magic numbers. `$HoursPerMonth = 730` already exists as a named constant. `8760` (hours per year) should be derived as `$HoursPerMonth * 12`.
+**Action Taken:** Fixed — added `$HoursPerYear = $HoursPerMonth * 12` and replaced bare `8760` in both module and inline copies. Commit dc0ba2b.
+
+### Comment 18
+**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:124`
+**Copilot Finding:** "`26280` is another non-obvious term-hour constant (3-year total) in the savings plan calculation. Please use a named constant (e.g., HoursPer3Years) or a self-documenting calculation to keep the pricing logic easy to audit."
+**Assessment:** Agree
+**Reasoning:** Same root cause as Comment 17. `26280` (hours per 3 years) should be derived as `$HoursPerMonth * 36`.
+**Action Taken:** Fixed — added `$HoursPer3Years = $HoursPerMonth * 36` and replaced bare `26280` in both module and inline copies. Commit dc0ba2b.
+
+---
 
 ---
 ## PR #42 | branch: fix/v1.11.2-patch | commit: c9bfc1e0287173517640b33ac5d795a42118c627
