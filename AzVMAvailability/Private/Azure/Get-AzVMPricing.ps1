@@ -3,8 +3,8 @@ function Get-AzVMPricing {
     .SYNOPSIS
         Fetches VM pricing from Azure Retail Prices API.
     .DESCRIPTION
-        Retrieves pay-as-you-go Linux pricing for VM SKUs in a given region.
-        Uses the public Azure Retail Prices API (no auth required).
+        Retrieves Linux VM pricing from the public Azure Retail Prices API (no auth required).
+        Returns PAYG, Spot, Savings Plan (1yr/3yr), and Reserved Instance (1yr/3yr) pricing maps.
         Implements caching to minimize API calls.
     #>
     param(
