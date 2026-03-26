@@ -58,6 +58,66 @@
 **Action Taken:** Removed `global:` prefix — function now scoped to the test's BeforeEach block.
 ---
 
+## PR #99 — feat: Lifecycle Management — recommendations, live scan, upgrade path knowledge base
+**Date:** 2026-03-25 | **Branch:** main | **Commits:** 5223065, 8d24603
+
+### Comment 1
+**File:** `AzVMAvailability/Private/Format/Invoke-RecommendMode.ps1:142`
+**Copilot Finding:** "`Get-SkuSimilarityScore` now relies on `FamilyVersion`, and `targetProfile` sets it, but `candidateProfile` does not. As a result, candidate SKUs will be treated as version 1 in scoring, which breaks the new 'family version newness' dimension and will skew recommendation rankings."
+**Assessment:** Agree
+**Reasoning:** Real scoring bug. `targetProfile` sets `FamilyVersion = Get-SkuFamilyVersion $targetSku.Name` but `candidateProfile` omitted it entirely, causing all candidates to default to version 1 in the 12-point version dimension. Newer-gen SKUs (v5/v6/v7) were penalized up to 12 points. Copilot's suggested fix was over-engineered (12 lines of `$FamilyInfo` hashtable lookup) when `Get-SkuFamilyVersion` already parses `_v5` → `5` in one line.
+**Action Taken:** Fixed — added `FamilyVersion = Get-SkuFamilyVersion $sku.Name` to `candidateProfile` (1 line). Commit 5223065.
+
+### Comment 2
+**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:93`
+**Copilot Finding:** "Reservation pricing is being handled inconsistently with Savings Plan pricing... If `retailPrice` for `type='Reservation'` is an hourly rate, this will understate totals by ~8760×."
+**Assessment:** Disagree
+**Reasoning:** Azure Retail Prices API returns reservation `retailPrice` as the **full-term total**, not hourly. The official API docs example shows `retailPrice: 25007.0` for E64_v4 1-year RI (vs ~$4.03/hr PAYG). The `unitOfMeasure` field says "1 Hour" for all VM meter types regardless of pricing type — it describes the meter granularity, not the price unit. Dividing by 12/36 for monthly is correct. Copilot assumed the price was hourly; it's not.
+**Action Taken:** No change — code is correct as-is.
+
+### Comment 3
+**File:** `README.md:229`
+**Copilot Finding:** "The README's compatibility/scoring descriptions don't match the current implementation: (1) it states 'Max data disks: Candidate ≥ Target' but `Test-SkuCompatibility` currently doesn't enforce `MaxDataDiskCount`; and (2) the similarity score table still lists 'Generation overlap (12 pts)', while the code uses 'family version newness (12 pts)'."
+**Assessment:** Partially Agree
+**Reasoning:** Both doc mismatches are real. (1) `MaxDataDiskCount` is intentionally a soft scoring dimension (7 pts in similarity scoring) — being too strict eliminates viable candidates where users don't use all disk slots. The README incorrectly listed it as a hard gate. (2) "Generation overlap" was the original dimension name; code was refactored to "family version newness" but docs weren't updated.
+**Action Taken:** Fixed — removed "Max data disks" from the hard gate table, renamed "Generation overlap" to "Family version newness" in scoring table, added vCPU ceiling note. Commit 8d24603.
+
+### Comment 4
+**File:** `data/UpgradePath.json:7`
+**Copilot Finding:** "Typo in the `_metadata.usage` string: it says `futurePoof` but the actual key used throughout the file is `futureProof`."
+**Assessment:** Agree
+**Reasoning:** Simple typo in metadata description string.
+**Action Taken:** Fixed — `futurePoof` → `futureProof`. Commit 8d24603.
+
+### Comment 5
+**File:** `data/UpgradePath.json:577`
+**Copilot Finding:** "In `upgradePaths.NCv1.costOptimized`, the metadata and size map appear inconsistent: `series` is `NCv4` and the reason describes AMD Radeon MI25, but the `sizeMap` points to `Standard_NC*as_T4_v3` SKUs (NVIDIA T4 v3 series)."
+**Assessment:** Agree
+**Reasoning:** The sizeMap correctly targets NCas_T4_v3 SKUs (NVIDIA T4) but the `series` field said "NCv4" and the `reason` described "AMD Radeon MI25" — a completely different GPU. NCv4 doesn't exist as an Azure series; the T4 v3 series is the correct cost-optimized GPU inference option.
+**Action Taken:** Fixed — `series` → `NCasT4v3`, `reason` → "NVIDIA T4 GPU — lower cost for GPU inference and light compute". Commit 8d24603.
+
+### Comment 6
+**File:** `AzVMAvailability/Private/SKU/Test-SkuCompatibility.ps1:45`
+**Copilot Finding:** "`Test-SkuCompatibility` claims to enforce hard requirements for data disks, but there is currently no check comparing `MaxDataDiskCount`."
+**Assessment:** Partially Agree
+**Reasoning:** The function's help text says "data disks" in the hard gate list, but the implementation intentionally treats it as a soft scoring dimension (7 points in `Get-SkuSimilarityScore`). Making it a hard gate would over-restrict recommendations — many users don't use all available disk slots. The fix is aligning the docs, not changing the gate logic.
+**Action Taken:** Fixed docs (README hard gate table) in Comment 3's fix. The function's `.DESCRIPTION` help text is accurate enough as a general overview. Commit 8d24603.
+
+### Comment 7
+**File:** `AzVMAvailability/Private/SKU/Get-SkuRetirementInfo.ps1:23`
+**Copilot Finding:** "Some retirement patterns look too narrow... the Dv3 pattern `^Standard_D\\d+s?_v3$` won't match common v3 variants like `Standard_D4ds_v3`."
+**Assessment:** Disagree
+**Reasoning:** `Standard_D4ds_v3` does not exist in Azure. The `ds` suffix (local SSD + premium storage) was introduced in v4+ naming conventions. Real Dv3 SKU names are `Standard_D*_v3` and `Standard_D*s_v3` only. Same applies to Ev3 — `Standard_E4ds_v3` doesn't exist. The Ev3 pattern `^Standard_E\\d+i?s?_v3$` correctly matches the `i` (isolated) and `s` (premium storage) suffixes that actually exist in the v3 generation.
+**Action Taken:** No change — regexes are correct for the actual Azure SKU naming conventions.
+
+### Comment 8
+**File:** `tests/SkuCompatibility.Tests.ps1:83`
+**Copilot Finding:** "This test asserts that a candidate with fewer `MaxDataDiskCount` than the target remains compatible... That contradicts the README's compatibility gate."
+**Assessment:** Partially Agree
+**Reasoning:** Same issue as Comments 3 and 6. The test correctly validates the intentional design (soft dimension), but the README was inaccurate. Docs were the problem, not the test.
+**Action Taken:** Fixed via README update in Comment 3's fix. Test unchanged — it correctly validates the intended behavior. Commit 8d24603.
+---
+
 ---
 ## PR #42 | branch: fix/v1.11.2-patch | commit: c9bfc1e0287173517640b33ac5d795a42118c627
 Date: 2026-03-12
