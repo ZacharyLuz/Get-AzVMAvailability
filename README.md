@@ -99,11 +99,11 @@ cd Get-AzVMAvailability
 if ($IsWindows) {
     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 }
-Install-Module -Name Az.Compute -Scope CurrentUser
-Install-Module -Name Az.Resources -Scope CurrentUser
+Install-Module -Name Az.Compute -Scope CurrentUser -Repository PSGallery -Force
+Install-Module -Name Az.Resources -Scope CurrentUser -Repository PSGallery -Force
 
 # Optional: Install ImportExcel for styled exports
-Install-Module -Name ImportExcel -Scope CurrentUser
+Install-Module -Name ImportExcel -Scope CurrentUser -Repository PSGallery -Force
 
 # Trust the current repo directory
 Register-PSRepository -Name Get-AzVMAvailability -SourceLocation . -InstallationPolicy Trusted
