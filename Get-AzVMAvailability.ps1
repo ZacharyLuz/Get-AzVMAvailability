@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Get-AzVMAvailability - Comprehensive SKU availability and capacity scanner.
 
@@ -125,7 +125,7 @@
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
     Created:        2026-01-21
-    Version:        1.12.4
+    Version:        1.14.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -381,7 +381,13 @@ param(
 
     [Parameter(Mandatory = $false, HelpMessage = "Filter -LifecycleScan to VMs with specific tags. Hashtable of key=value pairs, e.g. @{Environment='prod'}. Use '*' as value to match any VM that has the tag key regardless of value.")]
     [Alias("Tags")]
-    [hashtable]$Tag
+    [hashtable]$Tag,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Add a 'Subscription Map' sheet to the lifecycle XLSX showing VM counts grouped by subscription, region, and SKU. Requires -LifecycleScan.")]
+    [switch]$SubMap,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Add a 'Resource Group Map' sheet to the lifecycle XLSX showing VM counts grouped by resource group, subscription, region, and SKU. Requires -LifecycleScan.")]
+    [switch]$RGMap
 )
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
@@ -505,6 +511,9 @@ if ($LifecycleRecommendations) {
     if ($ext -eq '.xlsx' -and -not (Get-Module -ListAvailable ImportExcel)) { throw "ImportExcel module required for .xlsx files. Install with: Install-Module ImportExcel -Scope CurrentUser" }
     $lifecycleEntries = [System.Collections.Generic.List[PSCustomObject]]::new()
     $compositeKeys = @{}
+    # When -SubMap or -RGMap is set, capture per-row subscription/RG data for the deployment map
+    $captureDeploymentMap = ($SubMap -or $RGMap)
+    if ($captureDeploymentMap) { $fileVMRows = [System.Collections.Generic.List[PSCustomObject]]::new() }
     $parseRow = {
         param($item)
         $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Size|VmSize)$' } | Select-Object -First 1).Value
@@ -526,6 +535,27 @@ if ($LifecycleRecommendations) {
             else {
                 $compositeKeys[$compositeKey] = $lifecycleEntries.Count
                 $lifecycleEntries.Add([pscustomobject]@{ SKU = $clean; Region = $regionClean; Qty = $qty })
+            }
+            # Capture per-row sub/RG data for deployment map
+            if ($captureDeploymentMap) {
+                $subIdProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SubscriptionId|Subscription_Id|SUBSCRIPTION ID)$' } | Select-Object -First 1).Value
+                # Extract subscription ID from RESOURCE LINK URL if not found in a dedicated column
+                if (-not $subIdProp) {
+                    $linkProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(RESOURCE LINK|ResourceLink|Resource_Link)$' } | Select-Object -First 1).Value
+                    if ($linkProp -and $linkProp -match '/subscriptions/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
+                        $subIdProp = $matches[1]
+                    }
+                }
+                $subNameProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SubscriptionName|Subscription_Name|SUBSCRIPTION)$' } | Select-Object -First 1).Value
+                $rgProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(ResourceGroup|Resource_Group|RESOURCE GROUP)$' } | Select-Object -First 1).Value
+                $fileVMRows.Add([pscustomobject]@{
+                    subscriptionId   = if ($subIdProp) { $subIdProp.Trim() } else { '' }
+                    subscriptionName = if ($subNameProp) { $subNameProp.Trim() } else { '' }
+                    resourceGroup    = if ($rgProp) { $rgProp.Trim() } else { '' }
+                    location         = $regionClean
+                    vmSize           = $clean
+                    qty              = $qty
+                })
             }
         }
     }
@@ -559,6 +589,57 @@ if ($LifecycleRecommendations) {
 
     $totalVMs = ($lifecycleEntries | Measure-Object -Property Qty -Sum).Sum
     if (-not $JsonOutput) { Write-Host "Lifecycle analysis: loaded $($lifecycleEntries.Count) SKU entries ($totalVMs VMs) from $LifecycleRecommendations" -ForegroundColor Cyan }
+
+    #region Build Deployment Map from File Data (-SubMap / -RGMap)
+    if ($captureDeploymentMap -and $fileVMRows.Count -gt 0) {
+        $hasSubData = $fileVMRows | Where-Object { $_.subscriptionId -or $_.subscriptionName } | Select-Object -First 1
+        $hasRGData = $fileVMRows | Where-Object { $_.resourceGroup } | Select-Object -First 1
+        if ($RGMap -and -not $hasRGData) {
+            Write-Warning "-RGMap: No ResourceGroup column found in file. The Resource Group Map sheet will show empty resource group values."
+        }
+        if (-not $hasSubData) {
+            Write-Warning "$(if ($SubMap) { '-SubMap' } else { '-RGMap' }): No SubscriptionId/SubscriptionName column found in file. The map sheet will show empty subscription values."
+        }
+        if ($SubMap) {
+            $subMapRows = [System.Collections.Generic.List[PSCustomObject]]::new()
+            $grouped = $fileVMRows | Group-Object -Property subscriptionId, subscriptionName, location, vmSize
+            foreach ($g in $grouped) {
+                $sample = $g.Group[0]
+                $subMapRows.Add([pscustomobject]@{
+                    SubscriptionId   = $sample.subscriptionId
+                    SubscriptionName = if ($sample.subscriptionName) { $sample.subscriptionName } else { $sample.subscriptionId }
+                    Region           = $sample.location
+                    SKU              = $sample.vmSize
+                    Qty              = ($g.Group | Measure-Object -Property qty -Sum).Sum
+                })
+            }
+            $subMapRows = [System.Collections.Generic.List[PSCustomObject]]@($subMapRows | Sort-Object SubscriptionName, Region, SKU)
+            if (-not $JsonOutput) { Write-Host "Subscription map: $($subMapRows.Count) rows" -ForegroundColor Cyan }
+        }
+        if ($RGMap) {
+            $rgMapRows = [System.Collections.Generic.List[PSCustomObject]]::new()
+            $grouped = $fileVMRows | Group-Object -Property subscriptionId, subscriptionName, resourceGroup, location, vmSize
+            foreach ($g in $grouped) {
+                $sample = $g.Group[0]
+                $rgMapRows.Add([pscustomobject]@{
+                    SubscriptionId   = $sample.subscriptionId
+                    SubscriptionName = if ($sample.subscriptionName) { $sample.subscriptionName } else { $sample.subscriptionId }
+                    ResourceGroup    = $sample.resourceGroup
+                    Region           = $sample.location
+                    SKU              = $sample.vmSize
+                    Qty              = ($g.Group | Measure-Object -Property qty -Sum).Sum
+                })
+            }
+            $rgMapRows = [System.Collections.Generic.List[PSCustomObject]]@($rgMapRows | Sort-Object SubscriptionName, ResourceGroup, Region, SKU)
+            if (-not $JsonOutput) { Write-Host "Resource Group map: $($rgMapRows.Count) rows" -ForegroundColor Cyan }
+        }
+    }
+    #endregion Build Deployment Map from File Data
+}
+
+# Validate -SubMap / -RGMap require a lifecycle mode
+if (($SubMap -or $RGMap) -and -not $LifecycleScan -and -not $LifecycleRecommendations) {
+    throw "-SubMap and -RGMap require -LifecycleScan or -LifecycleRecommendations."
 }
 
 # LifecycleScan: pull live VM inventory from Azure Resource Graph
@@ -650,6 +731,65 @@ if ($LifecycleScan) {
     $totalVMs = ($lifecycleEntries | Measure-Object -Property Qty -Sum).Sum
     $scopeDesc = if ($ManagementGroup) { "management group(s): $($ManagementGroup -join ', ')" } elseif ($SubscriptionId) { "subscription(s): $($SubscriptionId -join ', ')" } else { "current subscription" }
     if (-not $JsonOutput) { Write-Host "Lifecycle scan: found $($lifecycleEntries.Count) unique SKU+Region entries ($totalVMs VMs) across $($scanRegions.Count) region(s) from $scopeDesc" -ForegroundColor Cyan }
+
+    #region Build Deployment Map Data (-SubMap / -RGMap)
+    if ($SubMap -or $RGMap) {
+        # Resolve subscription IDs to names via ARG ResourceContainers, filtered to only present subscriptions
+        $subIds = @($allVMs | ForEach-Object { $_.subscriptionId } | Select-Object -Unique)
+        $subNameMap = @{}
+        if ($subIds.Count -gt 0) {
+            $quotedSubIds = $subIds | ForEach-Object { "'$_'" }
+            $subFilter = $quotedSubIds -join ','
+            $subQuery = "ResourceContainers | where type =~ 'microsoft.resources/subscriptions' | where subscriptionId in~ ($subFilter) | project subscriptionId, name"
+            $subParams = @{ Query = $subQuery; First = 1000 }
+            if ($ManagementGroup) { $subParams['ManagementGroup'] = $ManagementGroup }
+            elseif ($SubscriptionId) { $subParams['Subscription'] = $SubscriptionId }
+            try {
+                $subResults = Search-AzGraph @subParams
+                foreach ($s in $subResults) { $subNameMap[$s.subscriptionId] = $s.name }
+            }
+            catch {
+                Write-Verbose "Could not resolve subscription names via ARG: $_"
+            }
+        }
+
+        if ($SubMap) {
+            $subMapRows = [System.Collections.Generic.List[PSCustomObject]]::new()
+            $grouped = $allVMs | Group-Object -Property subscriptionId, location, vmSize
+            foreach ($g in $grouped) {
+                $sample = $g.Group[0]
+                $subId = $sample.subscriptionId
+                $subMapRows.Add([pscustomobject]@{
+                    SubscriptionId   = $subId
+                    SubscriptionName = if ($subNameMap[$subId]) { $subNameMap[$subId] } else { $subId }
+                    Region           = $sample.location
+                    SKU              = $sample.vmSize
+                    Qty              = $g.Count
+                })
+            }
+            $subMapRows = [System.Collections.Generic.List[PSCustomObject]]@($subMapRows | Sort-Object SubscriptionName, Region, SKU)
+            if (-not $JsonOutput) { Write-Host "Subscription map: $($subMapRows.Count) rows" -ForegroundColor Cyan }
+        }
+        if ($RGMap) {
+            $rgMapRows = [System.Collections.Generic.List[PSCustomObject]]::new()
+            $grouped = $allVMs | Group-Object -Property subscriptionId, resourceGroup, location, vmSize
+            foreach ($g in $grouped) {
+                $sample = $g.Group[0]
+                $subId = $sample.subscriptionId
+                $rgMapRows.Add([pscustomobject]@{
+                    SubscriptionId   = $subId
+                    SubscriptionName = if ($subNameMap[$subId]) { $subNameMap[$subId] } else { $subId }
+                    ResourceGroup    = $sample.resourceGroup
+                    Region           = $sample.location
+                    SKU              = $sample.vmSize
+                    Qty              = $g.Count
+                })
+            }
+            $rgMapRows = [System.Collections.Generic.List[PSCustomObject]]@($rgMapRows | Sort-Object SubscriptionName, ResourceGroup, Region, SKU)
+            if (-not $JsonOutput) { Write-Host "Resource Group map: $($rgMapRows.Count) rows" -ForegroundColor Cyan }
+        }
+    }
+    #endregion Build Deployment Map Data
 }
 
 # Expand SKU filter to include upgrade path target SKUs so they get scanned
@@ -697,7 +837,7 @@ if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
 }
 
 #region Configuration
-$ScriptVersion = "1.12.4"
+$ScriptVersion = "1.14.0"
 
 #region Constants
 $HoursPerMonth = 730
@@ -1142,28 +1282,29 @@ function Get-SkuRetirementInfo {
     param([string]$SkuName)
 
     # Azure VM series retirement data from official Microsoft announcements
-    # https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement
+    # https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement/retired-sizes-list
+    # Last verified: 2026-03-27
     $retirementLookup = @(
         # Already retired
-        @{ Pattern = '^(Basic_A\d+|Standard_A\d+)$';  Series = 'Av1';  RetireDate = '2024-08-31'; Status = 'Retired' }
-        @{ Pattern = '^Standard_DS?\d+$';              Series = 'Dv1';  RetireDate = '2024-08-31'; Status = 'Retired' }
-        @{ Pattern = '^Standard_GS?\d+$';              Series = 'G/GS'; RetireDate = '2025-03-31'; Status = 'Retired' }
         @{ Pattern = '^Standard_H\d+[a-z]*$';          Series = 'H';    RetireDate = '2024-09-28'; Status = 'Retired' }
         @{ Pattern = '^Standard_HB60rs$';              Series = 'HBv1'; RetireDate = '2024-09-28'; Status = 'Retired' }
         @{ Pattern = '^Standard_HC44rs$';              Series = 'HC';   RetireDate = '2024-09-28'; Status = 'Retired' }
         @{ Pattern = '^Standard_NC\d+r?$';             Series = 'NCv1'; RetireDate = '2023-09-06'; Status = 'Retired' }
         @{ Pattern = '^Standard_NC\d+r?s_v2$';         Series = 'NCv2'; RetireDate = '2023-09-06'; Status = 'Retired' }
+        @{ Pattern = '^Standard_NC\d+r?s_v3$';         Series = 'NCv3'; RetireDate = '2025-09-30'; Status = 'Retired' }
         @{ Pattern = '^Standard_ND\d+r?s$';            Series = 'NDv1'; RetireDate = '2023-09-06'; Status = 'Retired' }
         @{ Pattern = '^Standard_NV\d+$';               Series = 'NVv1'; RetireDate = '2023-09-06'; Status = 'Retired' }
-        @{ Pattern = '^Standard_L\d+s$';               Series = 'Lsv1'; RetireDate = '2024-08-31'; Status = 'Retired' }
-        # Scheduled for retirement
-        @{ Pattern = '^Standard_DS?\d+_v2(_Promo)?$';  Series = 'Dv2';  RetireDate = '2027-03-31'; Status = 'Retiring' }
-        @{ Pattern = '^Standard_D\d+s?_v3$';           Series = 'Dv3';  RetireDate = '2027-09-30'; Status = 'Retiring' }
-        @{ Pattern = '^Standard_E\d+i?s?_v3$';         Series = 'Ev3';  RetireDate = '2027-09-30'; Status = 'Retiring' }
-        @{ Pattern = '^Standard_F\d+s$';               Series = 'Fsv1'; RetireDate = '2027-09-30'; Status = 'Retiring' }
-        @{ Pattern = '^Standard_NC\d+r?s_v3$';         Series = 'NCv3'; RetireDate = '2025-09-30'; Status = 'Retiring' }
+        # Scheduled for retirement (announced, planned retirement date)
+        @{ Pattern = '^Standard_DS?\d+$';              Series = 'Dv1';  RetireDate = '2028-05-01'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_DS?\d+_v2(_Promo)?$';  Series = 'Dv2';  RetireDate = '2028-05-01'; Status = 'Retiring' }
+        @{ Pattern = '^(Basic_A\d+|Standard_A\d+)$';  Series = 'Av1';  RetireDate = '2028-11-15'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_B\d+[a-z]*$';          Series = 'Bv1';  RetireDate = '2028-11-15'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_GS?\d+$';              Series = 'G/GS'; RetireDate = '2028-11-15'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_F\d+s?$';              Series = 'Fsv1'; RetireDate = '2028-11-15'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_L\d+s$';               Series = 'Lsv1'; RetireDate = '2028-05-01'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_L\d+s_v2$';            Series = 'Lsv2'; RetireDate = '2028-11-15'; Status = 'Retiring' }
         @{ Pattern = '^Standard_ND\d+r?s_v2$';         Series = 'NDv2'; RetireDate = '2025-09-30'; Status = 'Retiring' }
-        @{ Pattern = '^Standard_NV\d+s_v3$';           Series = 'NVv3'; RetireDate = '2025-09-30'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_NV\d+s_v3$';           Series = 'NVv3'; RetireDate = '2026-09-30'; Status = 'Retiring' }
         @{ Pattern = '^Standard_M\d+(-\d+)?[a-z]*$';   Series = 'Mv1';  RetireDate = '2027-08-31'; Status = 'Retiring' }
     )
 
@@ -4971,11 +5112,95 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             }
             #endregion Risk Breakdown Sheet
 
+            #region Deployment Map Sheets (-SubMap / -RGMap)
+            # Build risk lookup once for all map sheets
+            $riskLookup = @{}
+            if ($SubMap -or $RGMap) {
+                foreach ($lr in $lifecycleResults) {
+                    $riskKey = "$($lr.SKU)|$($lr.DeployedRegion)"
+                    if (-not $riskLookup.ContainsKey($riskKey)) {
+                        $riskLookup[$riskKey] = @{ RiskLevel = $lr.RiskLevel; RiskReasons = $lr.RiskReasons }
+                    }
+                }
+            }
+
+            # Helper scriptblock to enrich, export, and style a deployment map sheet
+            $exportMapSheet = {
+                param($mapRows, $sheetName, $hasRG)
+                $enriched = [System.Collections.Generic.List[PSCustomObject]]::new()
+                foreach ($mapRow in $mapRows) {
+                    $rKey = "$($mapRow.SKU)|$($mapRow.Region)"
+                    $risk = $riskLookup[$rKey]
+                    $props = [ordered]@{
+                        SubscriptionId   = $mapRow.SubscriptionId
+                        SubscriptionName = $mapRow.SubscriptionName
+                    }
+                    if ($hasRG) { $props['ResourceGroup'] = $mapRow.ResourceGroup }
+                    $props['Region']      = $mapRow.Region
+                    $props['SKU']         = $mapRow.SKU
+                    $props['Qty']         = $mapRow.Qty
+                    $props['RiskLevel']   = if ($risk) { $risk.RiskLevel } else { 'Low' }
+                    $props['RiskReasons'] = if ($risk) { $risk.RiskReasons } else { '' }
+                    $enriched.Add([pscustomobject]$props)
+                }
+                $excel = $enriched | Export-Excel -ExcelPackage $excel -WorksheetName $sheetName -AutoSize -AutoFilter -FreezeTopRow -PassThru
+                $wsMap = $excel.Workbook.Worksheets[$sheetName]
+                $mapLastRow = $wsMap.Dimension.End.Row
+                $mapLastCol = $wsMap.Dimension.End.Column
+                $mapHeader = $wsMap.Cells["A1:$(ConvertTo-ExcelColumnLetter $mapLastCol)1"]
+                $mapHeader.Style.Font.Bold = $true
+                $mapHeader.Style.Font.Color.SetColor([System.Drawing.Color]::White)
+                $mapHeader.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                $mapHeader.Style.Fill.BackgroundColor.SetColor($headerBlue)
+                $riskColNum = if ($hasRG) { 7 } else { 6 }
+                $riskColLtr = ConvertTo-ExcelColumnLetter $riskColNum
+                for ($row = 2; $row -le $mapLastRow; $row++) {
+                    $rowRange = $wsMap.Cells["A$row`:$(ConvertTo-ExcelColumnLetter $mapLastCol)$row"]
+                    $rowRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $rowRange.Style.Fill.BackgroundColor.SetColor($(if ($row % 2 -eq 0) { $lightGray } else { [System.Drawing.Color]::White }))
+                    $riskCell = $wsMap.Cells["$riskColLtr$row"]
+                    $riskVal = $riskCell.Value
+                    if ($riskVal -eq 'High') {
+                        $riskCell.Style.Font.Color.SetColor($redText)
+                        $riskCell.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                        $riskCell.Style.Fill.BackgroundColor.SetColor($redFill)
+                    }
+                    elseif ($riskVal -eq 'Medium') {
+                        $riskCell.Style.Font.Color.SetColor($yellowText)
+                        $riskCell.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                        $riskCell.Style.Fill.BackgroundColor.SetColor($yellowFill)
+                    }
+                    elseif ($riskVal -eq 'Low') {
+                        $riskCell.Style.Font.Color.SetColor($greenText)
+                        $riskCell.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                        $riskCell.Style.Fill.BackgroundColor.SetColor($greenFill)
+                    }
+                }
+                return $excel
+            }
+
+            if ($SubMap -and $subMapRows -and $subMapRows.Count -gt 0) {
+                $excel = & $exportMapSheet $subMapRows "Subscription Map" $false
+            }
+            if ($RGMap -and $rgMapRows -and $rgMapRows.Count -gt 0) {
+                $excel = & $exportMapSheet $rgMapRows "Resource Group Map" $true
+            }
+            #endregion Deployment Map Sheets
+
             Close-ExcelPackage $excel
 
             Write-Host ""
             Write-Host "Lifecycle report exported: $lcXlsxFile" -ForegroundColor Green
-            Write-Host "  Sheets: Lifecycle Summary$(if ($highRows.Count -gt 0) { ', High Risk' })$(if ($medRows.Count -gt 0) { ', Medium Risk' })" -ForegroundColor Cyan
+            $sheetList = "Lifecycle Summary"
+            if ($highRows.Count -gt 0) { $sheetList += ", High Risk" }
+            if ($medRows.Count -gt 0) { $sheetList += ", Medium Risk" }
+            if ($SubMap -and $subMapRows -and $subMapRows.Count -gt 0) {
+                $sheetList += ", Subscription Map"
+            }
+            if ($RGMap -and $rgMapRows -and $rgMapRows.Count -gt 0) {
+                $sheetList += ", Resource Group Map"
+            }
+            Write-Host "  Sheets: $sheetList" -ForegroundColor Cyan
         }
         catch {
             Write-Warning "Failed to export lifecycle XLSX: $_"
@@ -4987,13 +5212,26 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
     }
 
     if ($JsonOutput) {
-        @{
+        $jsonResult = @{
             schemaVersion = '1.0'
             mode          = 'lifecycle'
             skuCount      = $lifecycleEntries.Count
             totalVMs      = $totalVMCount
             results       = @($lifecycleResults)
-        } | ConvertTo-Json -Depth 5
+        }
+        if ($SubMap -and $subMapRows -and $subMapRows.Count -gt 0) {
+            $jsonResult['subscriptionMap'] = @{
+                groupBy = 'Subscription'
+                rows    = @($subMapRows)
+            }
+        }
+        if ($RGMap -and $rgMapRows -and $rgMapRows.Count -gt 0) {
+            $jsonResult['resourceGroupMap'] = @{
+                groupBy = 'ResourceGroup'
+                rows    = @($rgMapRows)
+            }
+        }
+        $jsonResult | ConvertTo-Json -Depth 5
     }
 
     return

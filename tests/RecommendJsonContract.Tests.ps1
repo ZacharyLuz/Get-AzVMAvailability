@@ -77,6 +77,12 @@ BeforeAll {
         return 'Unknown'
     }
 
+    function Get-SkuFamilyVersion {
+        param([string]$SkuName)
+        if ($SkuName -match '_v(\d+)') { return [int]$matches[1] }
+        return 1
+    }
+
     function Get-SkuSimilarityScore {
         param([hashtable]$Target, [hashtable]$Candidate, [hashtable]$FamilyInfo)
         $score = 100

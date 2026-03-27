@@ -632,3 +632,35 @@ Date: 2026-03-12
 **Reasoning:** Valid point — the psd1 ReleaseNotes field should describe module-specific changes. However, the module is not published to PSGallery yet (local scaffold only). The ReleaseNotes provide useful context about the v1.12.4 release.
 **Action Taken:** Deferred to v2.0.0 when module ships to PSGallery. Reply posted on GitHub.
 
+---
+## PR #1 — feat: Add -SubMap and -RGMap deployment mapping for lifecycle reports (v1.14.0)
+**Date:** 2026-03-27 | **Branch:** SubscriptionMapping | **Commit:** 93fcbd2
+
+### Comment 1
+**File:** `Get-AzVMAvailability.ps1:559`
+**Copilot Finding:** "Building the file-based deployment map expands each input row into $qty individual entries in $fileVMRows (one per VM) and then re-aggregates via Group-Object. This can blow up memory/time for large fleets. Instead, keep a single row with a Qty field and aggregate by grouping keys with a Qty sum."
+**Assessment:** Agree
+**Reasoning:** The for-loop `for ($q = 0; $q -lt $qty; $q++)` creates N individual objects per row then Group-Object recombines them. For large fleets (e.g., 10,000 VMs across 50 SKUs), this creates unnecessary object churn. Storing one row with a qty field and summing during aggregation is strictly better.
+**Action Taken:** Fixed — replaced per-qty row expansion with single row containing `qty` field. Aggregation now uses `($g.Group | Measure-Object -Property qty -Sum).Sum` instead of `$g.Count`.
+
+### Comment 2
+**File:** `Get-AzVMAvailability.ps1:746`
+**Copilot Finding:** "The subscription name lookup query isn't filtered to the subscriptions actually present in $allVMs ($subIds is computed but unused), and it only requests First=1000 with no pagination."
+**Assessment:** Partially Agree
+**Reasoning:** Filtering the ARG query to only present subscription IDs is a valid optimization — `$subIds` was already computed but unused in the query. However, pagination is unnecessary: subscription count per management group rarely exceeds 1000 (Azure itself limits to ~1000 subscriptions per tenant), and this is a lightweight metadata query, not a VM inventory query.
+**Action Taken:** Fixed — added `where subscriptionId in~ (...)` filter to the ARG query using `$subIds`. Pagination not added (subscription count well within First=1000 limit).
+
+### Comment 3
+**File:** `Get-AzVMAvailability.ps1:5151`
+**Copilot Finding:** "When both -SubMap and -RGMap are specified, the implementation always chooses the RGMap path and only emits a single map sheet/object (RG takes precedence). This conflicts with the PR/CHANGELOG wording that both flags can be used together."
+**Assessment:** Agree
+**Reasoning:** The `if ($RGMap) { ... } else { ... }` pattern meant `-SubMap -RGMap` together only produced the RG map. The documented behavior ("both flags can be used together") was correct intent but not implemented.
+**Action Taken:** Fixed — refactored to separate `$subMapRows` and `$rgMapRows` variables. Both file-based and ARG-based paths now build independent maps when both flags are set. XLSX export generates both sheets. JSON output includes `subscriptionMap` and `resourceGroupMap` as separate keys.
+
+### Comment 4
+**File:** `CHANGELOG.md:12`
+**Copilot Finding:** "This entry says 'Both flags can be used together', but the current script logic only generates one deployment map when -SubMap and -RGMap are both set (RGMap takes precedence)."
+**Assessment:** Agree
+**Reasoning:** Same root cause as Comment 3 — the code didn't match the documented behavior.
+**Action Taken:** Fixed — code now matches the documentation. Both maps are generated when both flags are set.
+
