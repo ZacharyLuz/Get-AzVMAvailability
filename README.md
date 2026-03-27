@@ -70,7 +70,24 @@ The script automatically detects your Azure environment and uses the correct API
 
 **No configuration required** - the script reads your current `Az` context and resolves endpoints automatically.
 
-## Installation
+## Using GitHub Codespaces
+A pre-configured codespace with the required modules already installed has been defined in the `.devcontainer` folder of this repo.  This means no downloading or installing of any code on your local machine.  Simply follow these steps: 
+- In GitHub, select the **Codespaces** tab from the **Code** dropdown in GitHub on the Repo's (or your fork's) main page.
+- Click on the plus (+) icon to create a new codespace
+- Wait for the codespace to finish installing/creating
+- Run the following commands
+
+```powershell
+# Use this instead if calling from a codespace
+Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere -UseDeviceAuthentication
+
+# Interactive mode - prompts for all options
+.\Get-AzVMAvailability.ps1
+
+# See further in this document for other examples outside of interactive mode
+```
+
+## Local Installation
 
 ```powershell
 # Clone the repository
@@ -96,8 +113,6 @@ Register-PSRepository -Name Get-AzVMAvailability -SourceLocation . -Installation
 ```powershell
 # Interactive Login to Azure
 Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere
-# Use this instead if calling from a codespace
-# Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere -UseDeviceAuthentication
 
 # Interactive mode - prompts for all options
 .\Get-AzVMAvailability.ps1
