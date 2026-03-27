@@ -5,9 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.14.0] - 2026-03-27
 
 ### Added
+- **`-SubMap` deployment mapping** — New switch parameter that produces a Subscription Map sheet in the lifecycle XLSX export. Groups affected VMs by subscription with VM count, SKU list, and region list. Works with both `-LifecycleScan` (ARG-based) and `-LifecycleRecommendations` (file-based). Enriches each row with Risk Level and Risk Reasons from lifecycle analysis results, with color-coded cells (red=High, amber=Medium, green=Low).
+- **`-RGMap` deployment mapping** — New switch parameter that produces a Resource Group Map sheet with the same enrichment as `-SubMap` but grouped by subscription + resource group. Both flags can be used together.
+- **SubscriptionId extraction from RESOURCE LINK** — When input files lack a dedicated SubscriptionId column (common with Azure portal exports), the subscription GUID is extracted from the `RESOURCE LINK` URL via regex. Falls back gracefully when neither source is available.
+- **Deployment map in JSON output** — `deploymentMap` object with `groupBy` and `rows` properties included in `-JsonOutput` when `-SubMap` or `-RGMap` is set.
 - **`-Tag` filter for `-LifecycleScan`** — New hashtable parameter to filter live VM inventory scans by Azure resource tags. Supports key=value matching (case-insensitive) and wildcard `'*'` value to match any VM with a given tag key. Multiple tags are AND-combined. Can be used alongside `-SubscriptionId`, `-ManagementGroup`, and `-ResourceGroup`.
 - **`-RateOptimization` flag** — New switch parameter that gates Savings Plan (SP) and Reserved Instance (RI) columns in lifecycle reports. By default, only PAYG pricing columns are shown with `-ShowPricing`. Adding `-RateOptimization` includes 4 savings columns: `SP 1-Year Savings`, `SP 3-Year Savings`, `RI 1-Year Savings`, `RI 3-Year Savings` showing fleet-wide savings vs PAYG for each commitment term. SP/RI pricing API calls are skipped entirely when the flag is not set, improving performance.
 - **Lifecycle Recommendations mode** — `-LifecycleRecommendations` accepts CSV, JSON, or XLSX files (including native Azure portal exports) of deployed VM SKUs. Runs compatibility-validated recommendations for each SKU and produces a consolidated lifecycle risk summary with old-gen flagging, capacity/quota analysis, and up to 5 alternatives per SKU. `-LifecycleScan` pulls live inventory via Resource Graph. `-NoQuota` skips quota API calls. JSON output supported via `-JsonOutput`.
@@ -24,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Branch protection**: enabled `required_review_thread_resolution` on main — GitHub now blocks merge until all PR conversation threads are resolved
 
 ### Fixed
+- Added `edited` trigger type to `release-metadata-guard.yml` so PR body checkbox changes re-run the guard without needing an empty commit workaround
+- **Corrected retirement dates** — Updated `Get-SkuRetirementInfo` with verified dates from Microsoft Learn: Dv1 (2028-05-01), Dv2 (2028-05-01), Fsv1 (2028-11-15), NVv3 (2026-09-30). Added Bv1 (2028-11-15) and Lsv2 (2028-11-15). Removed Dv3/Ev3 (no retirement announced). Marked NCv3 as Retired.
 - **Lifecycle modes exempt from 5-region limit** — `-LifecycleRecommendations` and `-LifecycleScan` now scan all deployed regions regardless of the 5-region cap. Previously, `-NoPrompt` auto-truncated to 5 regions, causing missing pricing data for SKUs deployed in truncated regions.
 - **Upgrade path recommendations now show real scan data** — Upgrade path target SKUs (v5, v6, AMD variants) are included in the Azure SKU scan filter and looked up from raw scan data when they fail the compatibility gate against the source SKU. Previously all upgrade recs showed "Not scanned" with missing fields; now they show real capacity status, vCPU/memory/disk/IOPS deltas, and pricing from the deployed region.
 - Current-gen SKUs (v4+) no longer flagged High risk when no alternatives exist and no capacity/retirement issues present
