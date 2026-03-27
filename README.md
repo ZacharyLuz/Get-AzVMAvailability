@@ -78,16 +78,25 @@ git clone https://github.com/zacharyluz/Get-AzVMAvailability.git
 cd Get-AzVMAvailability
 
 # Install required Azure modules (if needed)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 Install-Module -Name Az.Compute -Scope CurrentUser
 Install-Module -Name Az.Resources -Scope CurrentUser
 
 # Optional: Install ImportExcel for styled exports
 Install-Module -Name ImportExcel -Scope CurrentUser
+
+# Trust the current repo
+New-Item -ItemType Directory -Path . -Force
+Register-PSRepository -Name Get-AzVMAvailability -SourceLocation . -InstallationPolicy Trusted
+
 ```
 
 ## Quick Start
 
 ```powershell
+# Interactive Login to Azure
+Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere
+
 # Interactive mode - prompts for all options
 .\Get-AzVMAvailability.ps1
 
