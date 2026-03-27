@@ -102,8 +102,7 @@ Install-Module -Name Az.Resources -Scope CurrentUser
 # Optional: Install ImportExcel for styled exports
 Install-Module -Name ImportExcel -Scope CurrentUser
 
-# Trust the current repo
-New-Item -ItemType Directory -Path . -Force
+# Trust the current repo directory
 Register-PSRepository -Name Get-AzVMAvailability -SourceLocation . -InstallationPolicy Trusted
 
 ```
