@@ -1,6 +1,6 @@
 # Get-AzVMAvailability — Live Demo Guide
 
-**Version:** 1.12.4 | **Duration:** ~40 minutes + Q&A | **Audience:** Internal Microsoft / External Customers
+**Version:** 1.12.5 | **Duration:** ~40 minutes + Q&A | **Audience:** Internal Microsoft / External Customers
 
 ---
 
