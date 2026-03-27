@@ -185,7 +185,7 @@ Extract in this order to minimize risk:
 `Get-SkuFamily`, `Get-ProcessorVendor`, `Get-DiskCode`, `Get-RestrictionReason`,
 `Format-ZoneStatus`, `Format-RegionList`, `Get-QuotaAvailable`,
 `Test-SkuMatchesFilter`, `Get-ImageRequirements`, `Test-ImageSkuCompatibility`,
-`Get-FleetReadiness`, `Write-FleetReadinessSummary`
+`Get-InventoryReadiness`, `Write-InventoryReadinessSummary`
 
 **Phase 2 — Minor coupling (fix hidden deps):** `Get-StatusIcon`, `Get-SkuCapabilities`,
 `Get-SkuSimilarityScore`, `Get-RestrictionDetails`
@@ -214,7 +214,7 @@ AzVMAvailability/
 │   ├── Azure/   (endpoints, regions, pricing, retry)
 │   ├── SKU/     (family, capabilities, similarity, restrictions, filter)
 │   ├── Image/   (requirements, compatibility)
-│   ├── Fleet/   (readiness, summary)
+│   ├── Inventory/   (readiness, summary)
 │   ├── Format/  (icons, zone status, recommend output)
 │   └── Utility/ (SafeString, GeoGroup, SubscriptionContext)
 └── Get-AzVMAvailability.ps1            # thin backward-compat wrapper
@@ -238,8 +238,8 @@ with a forward-looking tone. Do not commit new files of this type.
 
 | Version | Theme | Status | Key Work |
 |---------|-------|--------|----------|
-| v1.12.0 | Fleet MVP | **Released** | `-Fleet` hashtable BOM validation, `Get-FleetReadiness`, `Write-FleetReadinessSummary`, fuzzy quota matching, used/available/limit display |
-| v1.12.1 | Fleet UX | **Released** | `-FleetFile` CSV/JSON input, `-GenerateFleetTemplate`, example files, README Quick Start, input validation (`-LiteralPath`, trim, qty guard) |
+| v1.12.0 | Inventory MVP | **Released** | `-Inventory` hashtable BOM validation, `Get-InventoryReadiness`, `Write-InventoryReadinessSummary`, fuzzy quota matching, used/available/limit display (originally shipped as `-Fleet`, aliases preserved) |
+| v1.12.1 | Inventory UX | **Released** | `-InventoryFile` CSV/JSON input, `-GenerateInventoryTemplate`, example files, README Quick Start, input validation (`-LiteralPath`, trim, qty guard) (originally `-FleetFile`/`-GenerateFleetTemplate`, aliases preserved) |
 | v2.0.0 | Module Conversion | Planned | Public/Private layout, PSGallery publishing, gate 349 Write-Host behind `-JsonOutput` (#65), pipeline composability, `exit` → `throw` |
 | v2.1.0 | MCP Server | Planned | 4 tools: `check_vm_availability`, `find_alternatives`, `get_vm_pricing`, `check_quota` — depends on v2.0.0 |
 | v2.2.0 | Proactive Monitoring | Planned | Watch mode, capacity alerts, Azure Monitor, Azure Functions |

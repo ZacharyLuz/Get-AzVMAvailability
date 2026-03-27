@@ -12,7 +12,7 @@ function Write-RecommendOutputContract {
     $recommendations = @($Contract.recommendations)
     $placementEnabled = [bool]$Contract.placementEnabled
     $spotPricingEnabled = [bool]$Contract.spotPricingEnabled
-    $fleetWarnings = @($Contract.warnings)
+    $compatWarnings = @($Contract.warnings)
 
     Write-Host "`n" -NoNewline
     Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
@@ -173,10 +173,10 @@ function Write-RecommendOutputContract {
     Write-Host '  NV+T = NVMe + local temp disk   NVMe = NVMe only (no temp disk)' -ForegroundColor DarkGray
     Write-Host '  SC+T = SCSI + local temp disk   SCSI = SCSI only (no temp disk)' -ForegroundColor DarkGray
 
-    if ($fleetWarnings.Count -gt 0) {
+    if ($compatWarnings.Count -gt 0) {
         Write-Host ''
-        Write-Host 'FLEET NOTES:' -ForegroundColor Yellow
-        foreach ($warning in $fleetWarnings) {
+        Write-Host 'COMPATIBILITY NOTES:' -ForegroundColor Yellow
+        foreach ($warning in $compatWarnings) {
             Write-Host "  $($Icons.Warning) $warning" -ForegroundColor Yellow
         }
     }

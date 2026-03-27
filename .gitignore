@@ -100,3 +100,6 @@ docs/archive/
 
 # Browser automation artifacts
 .playwright-mcp/
+
+# AI session replay logs
+.specstory/

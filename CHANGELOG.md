@@ -5,14 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.14.0] - 2026-03-27
+
+### Added
+- **`-SubMap` deployment mapping** — New switch parameter that produces a Subscription Map sheet in the lifecycle XLSX export. Groups affected VMs by subscription with VM count, SKU list, and region list. Works with both `-LifecycleScan` (ARG-based) and `-LifecycleRecommendations` (file-based). Enriches each row with Risk Level and Risk Reasons from lifecycle analysis results, with color-coded cells (red=High, amber=Medium, green=Low).
+- **`-RGMap` deployment mapping** — New switch parameter that produces a Resource Group Map sheet with the same enrichment as `-SubMap` but grouped by subscription + resource group. Both flags can be used together.
+- **SubscriptionId extraction from RESOURCE LINK** — When input files lack a dedicated SubscriptionId column (common with Azure portal exports), the subscription GUID is extracted from the `RESOURCE LINK` URL via regex. Falls back gracefully when neither source is available.
+- **Deployment map in JSON output** — `deploymentMap` object with `groupBy` and `rows` properties included in `-JsonOutput` when `-SubMap` or `-RGMap` is set.
+- **`-Tag` filter for `-LifecycleScan`** — New hashtable parameter to filter live VM inventory scans by Azure resource tags. Supports key=value matching (case-insensitive) and wildcard `'*'` value to match any VM with a given tag key. Multiple tags are AND-combined. Can be used alongside `-SubscriptionId`, `-ManagementGroup`, and `-ResourceGroup`.
+- **`-RateOptimization` flag** — New switch parameter that gates Savings Plan (SP) and Reserved Instance (RI) columns in lifecycle reports. By default, only PAYG pricing columns are shown with `-ShowPricing`. Adding `-RateOptimization` includes 4 savings columns: `SP 1-Year Savings`, `SP 3-Year Savings`, `RI 1-Year Savings`, `RI 3-Year Savings` showing fleet-wide savings vs PAYG for each commitment term. SP/RI pricing API calls are skipped entirely when the flag is not set, improving performance.
+- **Lifecycle Recommendations mode** — `-LifecycleRecommendations` accepts CSV, JSON, or XLSX files (including native Azure portal exports) of deployed VM SKUs. Runs compatibility-validated recommendations for each SKU and produces a consolidated lifecycle risk summary with old-gen flagging, capacity/quota analysis, and up to 5 alternatives per SKU. `-LifecycleScan` pulls live inventory via Resource Graph. `-NoQuota` skips quota API calls. JSON output supported via `-JsonOutput`.
+- **Hybrid recommendation strategy (3 AI + 2 weighted)** — Each retiring/old-gen SKU receives up to 5 recommendations: 3 from a curated upgrade path knowledge base (`data/UpgradePath.json`) and 2 from the real-time weighted scoring algorithm. Upgrade path recommendations are labeled `Upgrade: Drop-in` (lowest risk), `Upgrade: Future-proof` (latest gen), and `Upgrade: Cost-optimized` (AMD/alternative). Weighted recommendations provide availability-verified alternatives based on the 8-dimension scoring engine. The knowledge base covers 19 SKU families (11 retired, 8 scheduled) with vCPU-matched size maps and Microsoft's official migration guidance.
+- **Upgrade path knowledge base** — `data/UpgradePath.json` (programmatic) and `data/UpgradePath.md` (human-readable reference) document Microsoft's recommended upgrade paths for every retired or retiring VM SKU family. Each entry provides 3 upgrade options with size maps, requirements (Gen2 OS, NVMe driver, etc.), and rationale.
+- **Details column** — New column appended to console output and all XLSX sheets explaining *why* each recommendation was selected. Shows upgrade path reasons from the knowledge base (e.g., "Same family, SCSI disk, Gen1+Gen2 — safest migration from Dv2; Requires: Gen2 OS image, NVMe driver"), family upgrade context (e.g., "D-family v2→v5 upgrade"), cross-family explanations, IOPS guarantees, and resize impact.
+- **Compatibility gate** — `Test-SkuCompatibility` enforces hard requirements (vCPU, memory, NICs, accelerated networking, premium IO, disk interface, ephemeral OS, Ultra SSD, burstable exclusion, vCPU ceiling 2x max) before scoring. Extended `Get-SkuCapabilities` extraction and 8-dimension similarity scoring (disk IOPS + data disk count added as soft dimensions).
+- **Lifecycle XLSX auto-export** — styled 3-sheet XLSX report (Lifecycle Summary, High Risk, Medium Risk) with color-coded risk levels, Azure-blue headers, alternating rows, conditional formatting, and summary footer. Risk sheets correctly group continuation rows by parent SKU.
+- **Pricing comparison** — monthly cost delta (`Price Diff`) and fleet-wide impact (`Total`) columns in console. XLSX adds 4 dedicated columns: `SP 1-Year`, `SP 3-Year`, `RI 1-Year`, `RI 3-Year` showing per-unit full-term costs for each alternative. Uses Azure Retail Pricing API `api-version=2023-01-01-preview`. Requires `-ShowPricing`.
+- **VM retirement detection** — `Get-SkuRetirementInfo` flags SKUs on Microsoft's published retirement schedule as High risk. Shows "Retired YYYY-MM-DD" or "Retiring YYYY-MM-DD" in Risk Reasons.
 
 ### Fixed
 - Added `edited` trigger type to `release-metadata-guard.yml` so PR body checkbox changes re-run the guard without needing an empty commit workaround
+- **Corrected retirement dates** — Updated `Get-SkuRetirementInfo` with verified dates from Microsoft Learn: Dv1 (2028-05-01), Dv2 (2028-05-01), Fsv1 (2028-11-15), NVv3 (2026-09-30). Added Bv1 (2028-11-15) and Lsv2 (2028-11-15). Removed Dv3/Ev3 (no retirement announced). Marked NCv3 as Retired.
+- **Lifecycle modes exempt from 5-region limit** — `-LifecycleRecommendations` and `-LifecycleScan` now scan all deployed regions regardless of the 5-region cap. Previously, `-NoPrompt` auto-truncated to 5 regions, causing missing pricing data for SKUs deployed in truncated regions.
+- **Upgrade path recommendations now show real scan data** — Upgrade path target SKUs (v5, v6, AMD variants) are included in the Azure SKU scan filter and looked up from raw scan data when they fail the compatibility gate against the source SKU. Previously all upgrade recs showed "Not scanned" with missing fields; now they show real capacity status, vCPU/memory/disk/IOPS deltas, and pricing from the deployed region.
+- Current-gen SKUs (v4+) no longer flagged High risk when no alternatives exist and no capacity/retirement issues present
+- `Group-Object SKU` deduplication no longer reorders recommendations — explicit score sort before selection
+- Quota-only current-gen SKUs correctly show "Request quota increase" instead of alternative SKUs
+- XLSX High/Medium Risk sheets correctly filter by parent risk level, not row-level risk
+- Lifecycle Summary sort stability via explicit group/row sequence numbers
 
 ### Changed
-- Broadened `.gitignore` patterns for session/handoff docs (`docs/*handoff*`, `docs/*session-notes*`)
-- Removed accidentally committed session docs from tracking (local copies preserved in `docs/archive/`)
+- Similarity scoring rebalanced to 8 dimensions (added disk IOPS 8pts, data disk count 7pts). JSON contract includes `maxDisks`, `maxNICs`, `iops` fields.
+- Broadened `.gitignore` for session/handoff docs
 
 ## [1.12.4] - 2026-03-21
 

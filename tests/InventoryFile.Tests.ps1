@@ -1,5 +1,5 @@
 BeforeAll {
-    $script:TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "FleetFileTests-$(Get-Random)"
+    $script:TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "InventoryFileTests-$(Get-Random)"
     New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
 }
 
@@ -10,7 +10,7 @@ AfterAll {
 }
 
 #region CSV Parsing Tests
-Describe 'FleetFile CSV Parsing' {
+Describe 'InventoryFile CSV Parsing' {
     It 'Parses standard SKU,Qty columns' {
         $csvPath = Join-Path $script:TempDir 'standard.csv'
         @"
@@ -20,17 +20,17 @@ Standard_D4s_v5,5
 "@ | Set-Content -Path $csvPath -Encoding utf8
 
         $csvData = Import-Csv -LiteralPath $csvPath
-        $fleet = @{}
+        $inventory = @{}
         foreach ($row in $csvData) {
             $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                $fleet[$skuProp.Trim()] = [int]$qtyProp
+                $inventory[$skuProp.Trim()] = [int]$qtyProp
             }
         }
-        $fleet.Count | Should -Be 2
-        $fleet['Standard_D2s_v5'] | Should -Be 10
-        $fleet['Standard_D4s_v5'] | Should -Be 5
+        $inventory.Count | Should -Be 2
+        $inventory['Standard_D2s_v5'] | Should -Be 10
+        $inventory['Standard_D4s_v5'] | Should -Be 5
     }
 
     It 'Recognizes alternative column names: Name, Quantity' {
@@ -41,16 +41,16 @@ Standard_E4s_v5,3
 "@ | Set-Content -Path $csvPath -Encoding utf8
 
         $csvData = Import-Csv -LiteralPath $csvPath
-        $fleet = @{}
+        $inventory = @{}
         foreach ($row in $csvData) {
             $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                $fleet[$skuProp.Trim()] = [int]$qtyProp
+                $inventory[$skuProp.Trim()] = [int]$qtyProp
             }
         }
-        $fleet.Count | Should -Be 1
-        $fleet['Standard_E4s_v5'] | Should -Be 3
+        $inventory.Count | Should -Be 1
+        $inventory['Standard_E4s_v5'] | Should -Be 3
     }
 
     It 'Recognizes VmSize and Count column names' {
@@ -61,16 +61,16 @@ Standard_F8s_v2,7
 "@ | Set-Content -Path $csvPath -Encoding utf8
 
         $csvData = Import-Csv -LiteralPath $csvPath
-        $fleet = @{}
+        $inventory = @{}
         foreach ($row in $csvData) {
             $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                $fleet[$skuProp.Trim()] = [int]$qtyProp
+                $inventory[$skuProp.Trim()] = [int]$qtyProp
             }
         }
-        $fleet.Count | Should -Be 1
-        $fleet['Standard_F8s_v2'] | Should -Be 7
+        $inventory.Count | Should -Be 1
+        $inventory['Standard_F8s_v2'] | Should -Be 7
     }
 
     It 'Trims whitespace from SKU names' {
@@ -81,15 +81,15 @@ SKU,Qty
 "@ | Set-Content -Path $csvPath -Encoding utf8
 
         $csvData = Import-Csv -LiteralPath $csvPath
-        $fleet = @{}
+        $inventory = @{}
         foreach ($row in $csvData) {
             $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                $fleet[$skuProp.Trim()] = [int]$qtyProp
+                $inventory[$skuProp.Trim()] = [int]$qtyProp
             }
         }
-        $fleet.Keys | Should -Contain 'Standard_D2s_v5'
+        $inventory.Keys | Should -Contain 'Standard_D2s_v5'
     }
 
     It 'Sums duplicate SKUs' {
@@ -101,18 +101,18 @@ Standard_D2s_v5,5
 "@ | Set-Content -Path $csvPath -Encoding utf8
 
         $csvData = Import-Csv -LiteralPath $csvPath
-        $fleet = @{}
+        $inventory = @{}
         foreach ($row in $csvData) {
             $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
                 $skuClean = $skuProp.Trim()
                 $qtyInt = [int]$qtyProp
-                if ($fleet.ContainsKey($skuClean)) { $fleet[$skuClean] += $qtyInt }
-                else { $fleet[$skuClean] = $qtyInt }
+                if ($inventory.ContainsKey($skuClean)) { $inventory[$skuClean] += $qtyInt }
+                else { $inventory[$skuClean] = $qtyInt }
             }
         }
-        $fleet['Standard_D2s_v5'] | Should -Be 15
+        $inventory['Standard_D2s_v5'] | Should -Be 15
     }
 
     It 'Skips rows with unrecognized columns' {
@@ -123,21 +123,21 @@ Standard_D2s_v5,10
 "@ | Set-Content -Path $csvPath -Encoding utf8
 
         $csvData = Import-Csv -LiteralPath $csvPath
-        $fleet = @{}
+        $inventory = @{}
         foreach ($row in $csvData) {
             $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                $fleet[$skuProp.Trim()] = [int]$qtyProp
+                $inventory[$skuProp.Trim()] = [int]$qtyProp
             }
         }
-        $fleet.Count | Should -Be 0
+        $inventory.Count | Should -Be 0
     }
 }
 #endregion CSV Parsing Tests
 
 #region JSON Parsing Tests
-Describe 'FleetFile JSON Parsing' {
+Describe 'InventoryFile JSON Parsing' {
     It 'Parses JSON array with SKU and Qty' {
         $jsonPath = Join-Path $script:TempDir 'standard.json'
         @'
@@ -148,16 +148,16 @@ Describe 'FleetFile JSON Parsing' {
 '@ | Set-Content -Path $jsonPath -Encoding utf8
 
         $jsonData = @(Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json)
-        $fleet = @{}
+        $inventory = @{}
         foreach ($item in $jsonData) {
             $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                $fleet[$skuProp.Trim()] = [int]$qtyProp
+                $inventory[$skuProp.Trim()] = [int]$qtyProp
             }
         }
-        $fleet.Count | Should -Be 2
-        $fleet['Standard_D2s_v5'] | Should -Be 10
+        $inventory.Count | Should -Be 2
+        $inventory['Standard_D2s_v5'] | Should -Be 10
     }
 
     It 'Recognizes alternative JSON keys: Name, Quantity' {
@@ -169,16 +169,16 @@ Describe 'FleetFile JSON Parsing' {
 '@ | Set-Content -Path $jsonPath -Encoding utf8
 
         $jsonData = @(Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json)
-        $fleet = @{}
+        $inventory = @{}
         foreach ($item in $jsonData) {
             $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                $fleet[$skuProp.Trim()] = [int]$qtyProp
+                $inventory[$skuProp.Trim()] = [int]$qtyProp
             }
         }
-        $fleet.Count | Should -Be 1
-        $fleet['Standard_E4s_v5'] | Should -Be 3
+        $inventory.Count | Should -Be 1
+        $inventory['Standard_E4s_v5'] | Should -Be 3
     }
 
     It 'Sums duplicate SKUs in JSON' {
@@ -191,24 +191,24 @@ Describe 'FleetFile JSON Parsing' {
 '@ | Set-Content -Path $jsonPath -Encoding utf8
 
         $jsonData = @(Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json)
-        $fleet = @{}
+        $inventory = @{}
         foreach ($item in $jsonData) {
             $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
                 $skuClean = $skuProp.Trim()
                 $qtyInt = [int]$qtyProp
-                if ($fleet.ContainsKey($skuClean)) { $fleet[$skuClean] += $qtyInt }
-                else { $fleet[$skuClean] = $qtyInt }
+                if ($inventory.ContainsKey($skuClean)) { $inventory[$skuClean] += $qtyInt }
+                else { $inventory[$skuClean] = $qtyInt }
             }
         }
-        $fleet['Standard_D2s_v5'] | Should -Be 17
+        $inventory['Standard_D2s_v5'] | Should -Be 17
     }
 }
 #endregion JSON Parsing Tests
 
 #region Input Validation Tests
-Describe 'FleetFile Input Validation' {
+Describe 'InventoryFile Input Validation' {
     It 'Rejects unsupported file extension' {
         $txtPath = Join-Path $script:TempDir 'bad.txt'
         'hello' | Set-Content -Path $txtPath
@@ -256,7 +256,7 @@ Standard_D2s_v5,0
         } | Should -Throw '*Qty must be a positive integer*'
     }
 
-    It 'Yields empty fleet when CSV has no matching column names' {
+    It 'Yields empty inventory when CSV has no matching column names' {
         $csvPath = Join-Path $script:TempDir 'empty.csv'
         @"
 Foo,Bar
@@ -264,78 +264,79 @@ a,b
 "@ | Set-Content -Path $csvPath -Encoding utf8
 
         $csvData = Import-Csv -LiteralPath $csvPath
-        $fleet = @{}
+        $inventory = @{}
         foreach ($row in $csvData) {
             $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
             $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
             if ($skuProp -and $qtyProp) {
-                $fleet[$skuProp.Trim()] = [int]$qtyProp
+                $inventory[$skuProp.Trim()] = [int]$qtyProp
             }
         }
-        $fleet.Count | Should -Be 0
+        $inventory.Count | Should -Be 0
     }
 }
 #endregion Input Validation Tests
 
 
-#region Fleet Normalization Tests
-Describe 'Fleet SKU Normalization' {
+#region Inventory Normalization Tests
+Describe 'Inventory SKU Normalization' {
     It 'Adds Standard_ prefix to bare SKU names' {
-        $fleet = @{ 'D2s_v5' = 10 }
-        $normalizedFleet = @{}
-        foreach ($key in @($fleet.Keys)) {
+        $inventory = @{ 'D2s_v5' = 10 }
+        $normalizedInventory = @{}
+        foreach ($key in @($inventory.Keys)) {
             $clean = $key -replace '^Standard_Standard_', 'Standard_'
             if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
-            $normalizedFleet[$clean] = $fleet[$key]
+            $normalizedInventory[$clean] = $inventory[$key]
         }
-        $normalizedFleet.Keys | Should -Contain 'Standard_D2s_v5'
+        $normalizedInventory.Keys | Should -Contain 'Standard_D2s_v5'
     }
 
     It 'Strips double Standard_ prefix' {
-        $fleet = @{ 'Standard_Standard_D2s_v5' = 10 }
-        $normalizedFleet = @{}
-        foreach ($key in @($fleet.Keys)) {
+        $inventory = @{ 'Standard_Standard_D2s_v5' = 10 }
+        $normalizedInventory = @{}
+        foreach ($key in @($inventory.Keys)) {
             $clean = $key -replace '^Standard_Standard_', 'Standard_'
             if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
-            $normalizedFleet[$clean] = $fleet[$key]
+            $normalizedInventory[$clean] = $inventory[$key]
         }
-        $normalizedFleet.Keys | Should -Contain 'Standard_D2s_v5'
-        $normalizedFleet.Keys | Should -Not -Contain 'Standard_Standard_D2s_v5'
+        $normalizedInventory.Keys | Should -Contain 'Standard_D2s_v5'
+        $normalizedInventory.Keys | Should -Not -Contain 'Standard_Standard_D2s_v5'
     }
 
     It 'Preserves correctly prefixed SKU names' {
-        $fleet = @{ 'Standard_E4s_v5' = 5 }
-        $normalizedFleet = @{}
-        foreach ($key in @($fleet.Keys)) {
+        $inventory = @{ 'Standard_E4s_v5' = 5 }
+        $normalizedInventory = @{}
+        foreach ($key in @($inventory.Keys)) {
             $clean = $key -replace '^Standard_Standard_', 'Standard_'
             if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
-            $normalizedFleet[$clean] = $fleet[$key]
+            $normalizedInventory[$clean] = $inventory[$key]
         }
-        $normalizedFleet['Standard_E4s_v5'] | Should -Be 5
+        $normalizedInventory['Standard_E4s_v5'] | Should -Be 5
     }
 
-    It 'Derives SkuFilter from fleet keys' {
-        $fleet = @{ 'Standard_D2s_v5' = 10; 'Standard_E4s_v5' = 5 }
-        $skuFilter = @($fleet.Keys)
+    It 'Derives SkuFilter from inventory keys' {
+        $inventory = @{ 'Standard_D2s_v5' = 10; 'Standard_E4s_v5' = 5 }
+        $skuFilter = @($inventory.Keys)
         $skuFilter.Count | Should -Be 2
         $skuFilter | Should -Contain 'Standard_D2s_v5'
         $skuFilter | Should -Contain 'Standard_E4s_v5'
     }
 }
-#endregion Fleet Normalization Tests
+#endregion Inventory Normalization Tests
 
 #region Mutual Exclusion Tests
-Describe 'Fleet Parameter Mutual Exclusion' {
-    It 'Fleet and FleetFile cannot both be specified (logic check)' {
-        $fleet = @{ 'Standard_D2s_v5' = 10 }
-        $fleetFile = 'somefile.csv'
-        { if ($fleet -and $fleetFile) { throw "Cannot specify both -Fleet and -FleetFile. Use one or the other." } } | Should -Throw '*Cannot specify both*'
+Describe 'Inventory Parameter Mutual Exclusion' {
+    It 'Inventory and InventoryFile cannot both be specified (logic check)' {
+        $inventory = @{ 'Standard_D2s_v5' = 10 }
+        $inventoryFile = 'somefile.csv'
+        { if ($inventory -and $inventoryFile) { throw "Cannot specify both -Inventory and -InventoryFile. Use one or the other." } } | Should -Throw '*Cannot specify both*'
     }
 
-    It 'GenerateFleetTemplate and JsonOutput cannot both be specified (logic check)' {
-        $generateFleetTemplate = $true
+    It 'GenerateInventoryTemplate and JsonOutput cannot both be specified (logic check)' {
+        $generateInventoryTemplate = $true
         $jsonOutput = $true
-        { if ($generateFleetTemplate -and $jsonOutput) { throw "Cannot use -GenerateFleetTemplate with -JsonOutput." } } | Should -Throw '*Cannot use -GenerateFleetTemplate*'
+        { if ($generateInventoryTemplate -and $jsonOutput) { throw "Cannot use -GenerateInventoryTemplate with -JsonOutput." } } | Should -Throw '*Cannot use -GenerateInventoryTemplate*'
     }
 }
 #endregion Mutual Exclusion Tests
+

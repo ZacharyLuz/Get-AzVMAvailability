@@ -109,7 +109,7 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
 #region Scenario 7 — Recommend Mode (~4 min)
 # Customer's D4s_v3 is constrained — find scored alternatives.
 # Scoring: vCPU (25pts) + Memory (25) + Family (20) + Gen (13) + Arch (12) + PremiumIO (5) = 100 max.
-# v1.10+: CPU (Intel/AMD/ARM) and Disk columns added. Fleet safety warns on mixed-arch results.
+# v1.10+: CPU (Intel/AMD/ARM) and Disk columns added. Compatibility warnings fire on mixed-arch results.
 .\Get-AzVMAvailability.ps1 `
     -Recommend "Standard_D4s_v3" `
     -Region "eastus", "westus2" `
@@ -118,7 +118,7 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
     -NoPrompt
 
 # AllowMixedArch — include ARM64 candidates alongside x64 for broader coverage.
-# Fleet safety warnings fire automatically when mixed x64/ARM64 SKUs appear in results.
+# Compatibility warnings fire automatically when mixed x64/ARM64 SKUs appear in results.
 .\Get-AzVMAvailability.ps1 `
     -Recommend "Standard_D4s_v3" `
     -Region "eastus" `
@@ -128,27 +128,27 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
     -NoPrompt
 #endregion Scenario 7
 
-#region Scenario 7B — Fleet Readiness (BOM Validation) (~3 min)
-# Validate an entire VM fleet BOM against a region's capacity and quota.
+#region Scenario 7B — Inventory Readiness (BOM Validation) (~3 min)
+# Validate an entire VM inventory BOM against a region's capacity and quota.
 # This is a PASS/FAIL check: can all VMs in my deployment plan be provisioned?
 
 # Option A: Load from CSV file (easiest for non-PowerShell users)
 .\Get-AzVMAvailability.ps1 `
-    -FleetFile .\examples\fleet-bom.csv `
+    -InventoryFile .\examples\fleet-bom.csv `
     -Region "eastus" `
     -NoPrompt
 
 # Option B: Inline hashtable (for scripting)
 # .\Get-AzVMAvailability.ps1 `
-#     -Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5; 'Standard_D16ds_v5'=1; 'Standard_D16ls_v6'=1} `
+#     -Inventory @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5; 'Standard_D16ds_v5'=1; 'Standard_D16ls_v6'=1} `
 #     -Region "eastus" `
 #     -NoPrompt
 #endregion Scenario 7B
 
-#region Scenario 7C — Generate Fleet Template
-# Generate starter CSV + JSON fleet template files — no Azure login needed.
-# Users edit the template with their actual SKUs, then run -FleetFile.
-.\Get-AzVMAvailability.ps1 -GenerateFleetTemplate
+#region Scenario 7C — Generate Inventory Template
+# Generate starter CSV + JSON inventory template files — no Azure login needed.
+# Users edit the template with their actual SKUs, then run -InventoryFile.
+.\Get-AzVMAvailability.ps1 -GenerateInventoryTemplate
 #endregion Scenario 7C
 
 # ============================================================

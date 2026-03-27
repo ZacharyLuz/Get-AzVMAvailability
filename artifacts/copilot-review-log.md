@@ -58,6 +58,149 @@
 **Action Taken:** Removed `global:` prefix — function now scoped to the test's BeforeEach block.
 ---
 
+## PR #99 — feat: Lifecycle Management — recommendations, live scan, upgrade path knowledge base
+**Date:** 2026-03-25 | **Branch:** main | **Commits:** 5223065, 8d24603
+
+### Comment 1
+**File:** `AzVMAvailability/Private/Format/Invoke-RecommendMode.ps1:142`
+**Copilot Finding:** "`Get-SkuSimilarityScore` now relies on `FamilyVersion`, and `targetProfile` sets it, but `candidateProfile` does not. As a result, candidate SKUs will be treated as version 1 in scoring, which breaks the new 'family version newness' dimension and will skew recommendation rankings."
+**Assessment:** Agree
+**Reasoning:** Real scoring bug. `targetProfile` sets `FamilyVersion = Get-SkuFamilyVersion $targetSku.Name` but `candidateProfile` omitted it entirely, causing all candidates to default to version 1 in the 12-point version dimension. Newer-gen SKUs (v5/v6/v7) were penalized up to 12 points. Copilot's suggested fix was over-engineered (12 lines of `$FamilyInfo` hashtable lookup) when `Get-SkuFamilyVersion` already parses `_v5` → `5` in one line.
+**Action Taken:** Fixed — added `FamilyVersion = Get-SkuFamilyVersion $sku.Name` to `candidateProfile` (1 line). Commit 5223065.
+
+### Comment 2
+**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:93`
+**Copilot Finding:** "Reservation pricing is being handled inconsistently with Savings Plan pricing... If `retailPrice` for `type='Reservation'` is an hourly rate, this will understate totals by ~8760×."
+**Assessment:** Disagree
+**Reasoning:** Azure Retail Prices API returns reservation `retailPrice` as the **full-term total**, not hourly. The official API docs example shows `retailPrice: 25007.0` for E64_v4 1-year RI (vs ~$4.03/hr PAYG). The `unitOfMeasure` field says "1 Hour" for all VM meter types regardless of pricing type — it describes the meter granularity, not the price unit. Dividing by 12/36 for monthly is correct. Copilot assumed the price was hourly; it's not.
+**Action Taken:** No change — code is correct as-is.
+
+### Comment 3
+**File:** `README.md:229`
+**Copilot Finding:** "The README's compatibility/scoring descriptions don't match the current implementation: (1) it states 'Max data disks: Candidate ≥ Target' but `Test-SkuCompatibility` currently doesn't enforce `MaxDataDiskCount`; and (2) the similarity score table still lists 'Generation overlap (12 pts)', while the code uses 'family version newness (12 pts)'."
+**Assessment:** Partially Agree
+**Reasoning:** Both doc mismatches are real. (1) `MaxDataDiskCount` is intentionally a soft scoring dimension (7 pts in similarity scoring) — being too strict eliminates viable candidates where users don't use all disk slots. The README incorrectly listed it as a hard gate. (2) "Generation overlap" was the original dimension name; code was refactored to "family version newness" but docs weren't updated.
+**Action Taken:** Fixed — removed "Max data disks" from the hard gate table, renamed "Generation overlap" to "Family version newness" in scoring table, added vCPU ceiling note. Commit 8d24603.
+
+### Comment 4
+**File:** `data/UpgradePath.json:7`
+**Copilot Finding:** "Typo in the `_metadata.usage` string: it says `futurePoof` but the actual key used throughout the file is `futureProof`."
+**Assessment:** Agree
+**Reasoning:** Simple typo in metadata description string.
+**Action Taken:** Fixed — `futurePoof` → `futureProof`. Commit 8d24603.
+
+### Comment 5
+**File:** `data/UpgradePath.json:577`
+**Copilot Finding:** "In `upgradePaths.NCv1.costOptimized`, the metadata and size map appear inconsistent: `series` is `NCv4` and the reason describes AMD Radeon MI25, but the `sizeMap` points to `Standard_NC*as_T4_v3` SKUs (NVIDIA T4 v3 series)."
+**Assessment:** Agree
+**Reasoning:** The sizeMap correctly targets NCas_T4_v3 SKUs (NVIDIA T4) but the `series` field said "NCv4" and the `reason` described "AMD Radeon MI25" — a completely different GPU. NCv4 doesn't exist as an Azure series; the T4 v3 series is the correct cost-optimized GPU inference option.
+**Action Taken:** Fixed — `series` → `NCasT4v3`, `reason` → "NVIDIA T4 GPU — lower cost for GPU inference and light compute". Commit 8d24603.
+
+### Comment 6
+**File:** `AzVMAvailability/Private/SKU/Test-SkuCompatibility.ps1:45`
+**Copilot Finding:** "`Test-SkuCompatibility` claims to enforce hard requirements for data disks, but there is currently no check comparing `MaxDataDiskCount`."
+**Assessment:** Partially Agree
+**Reasoning:** The function's help text says "data disks" in the hard gate list, but the implementation intentionally treats it as a soft scoring dimension (7 points in `Get-SkuSimilarityScore`). Making it a hard gate would over-restrict recommendations — many users don't use all available disk slots. The fix is aligning the docs, not changing the gate logic.
+**Action Taken:** Fixed docs (README hard gate table) in Comment 3's fix. The function's `.DESCRIPTION` help text is accurate enough as a general overview. Commit 8d24603.
+
+### Comment 7
+**File:** `AzVMAvailability/Private/SKU/Get-SkuRetirementInfo.ps1:23`
+**Copilot Finding:** "Some retirement patterns look too narrow... the Dv3 pattern `^Standard_D\\d+s?_v3$` won't match common v3 variants like `Standard_D4ds_v3`."
+**Assessment:** Disagree
+**Reasoning:** `Standard_D4ds_v3` does not exist in Azure. The `ds` suffix (local SSD + premium storage) was introduced in v4+ naming conventions. Real Dv3 SKU names are `Standard_D*_v3` and `Standard_D*s_v3` only. Same applies to Ev3 — `Standard_E4ds_v3` doesn't exist. The Ev3 pattern `^Standard_E\\d+i?s?_v3$` correctly matches the `i` (isolated) and `s` (premium storage) suffixes that actually exist in the v3 generation.
+**Action Taken:** No change — regexes are correct for the actual Azure SKU naming conventions.
+
+### Comment 8
+**File:** `tests/SkuCompatibility.Tests.ps1:83`
+**Copilot Finding:** "This test asserts that a candidate with fewer `MaxDataDiskCount` than the target remains compatible... That contradicts the README's compatibility gate."
+**Assessment:** Partially Agree
+**Reasoning:** Same issue as Comments 3 and 6. The test correctly validates the intentional design (soft dimension), but the README was inaccurate. Docs were the problem, not the test.
+**Action Taken:** Fixed via README update in Comment 3's fix. Test unchanged — it correctly validates the intended behavior. Commit 8d24603.
+
+---
+## PR #99 — Round 2 (post-fix re-review)
+**Date:** 2026-03-26 | **Branch:** main | **Commit:** 637d9d4
+
+### Comment 9
+**File:** `data/UpgradePath.json:572`
+**Copilot Finding:** "NCasT4v3 is an NVIDIA T4-based series, but this entry lists `\"AMD GPU drivers\"` in requirements. This should reference NVIDIA GPU drivers."
+**Assessment:** Agree
+**Reasoning:** Leftover from the original NCv4/AMD Radeon MI25 entry. When we fixed the `series` and `reason` in Round 1 (commit 8d24603), the `requirements` array was missed. NCas_T4_v3 uses NVIDIA Tesla T4 GPUs, not AMD.
+**Action Taken:** Fixed — changed `"AMD GPU drivers"` to `"NVIDIA GPU drivers (T4)"` in `requirements` array. Commit 637d9d4.
+
+### Comment 10
+**File:** `AzVMAvailability/Private/SKU/Test-SkuCompatibility.ps1:10`
+**Copilot Finding:** "The comment-based help says this performs hard checks for 'data disks', but the function never evaluates `MaxDataDiskCount`."
+**Assessment:** Partially Agree
+**Reasoning:** Same root cause as Round 1 Comments 3/6/8 — the `.DESCRIPTION` help text lists "data disks" as a hard gate but the implementation intentionally treats it as a soft scoring dimension. The README gate table was already fixed in Round 1; the function's help text also needs updating for consistency.
+**Action Taken:** Fixed — removed "data disks" from the `.DESCRIPTION` hard gate list in `Test-SkuCompatibility`. Commit 637d9d4.
+
+### Comment 11
+**File:** `README.md:34`
+**Copilot Finding:** "This bullet claims recommendations are 'guaranteed' to meet/exceed data disks and IOPS, but the current compatibility gate doesn't enforce either as hard requirements."
+**Assessment:** Agree
+**Reasoning:** The Features section bullet was missed when we fixed the Compatibility Gate table in Round 1. Data disks and IOPS are both soft scoring dimensions (7 pts and 8 pts respectively), not hard gates. The word "guaranteed" is inaccurate for these two dimensions.
+**Action Taken:** Fixed — updated Features bullet to list only the actual hard-gate dimensions (NICs, accelerated networking, premium IO, disk interface, ephemeral OS disk, Ultra SSD). Commit 637d9d4.
+
+### Comment 12
+**File:** `AzVMAvailability/Private/SKU/Get-SkuRetirementInfo.ps1:21`
+**Copilot Finding:** "The Dv3 retirement regex misses DSv3 SKUs like `Standard_DS2_v3` / `Standard_DS3_v3`."
+**Assessment:** Disagree
+**Reasoning:** `Standard_DS2_v3` and `Standard_DS3_v3` do not exist in Azure. Copilot is confusing v1-era naming (`Standard_DS*` = D-series premium storage v1) with v3 naming. In the v3 generation, the premium storage suffix is lowercase `s` after the size number: `Standard_D2s_v3`, `Standard_D4s_v3`, etc. The existing regex `^Standard_D\d+s?_v3$` correctly matches both `Standard_D2_v3` (no premium) and `Standard_D2s_v3` (with premium). There is no `Standard_DS2_v3` in any Azure region — run `Get-AzComputeResourceSku | Where-Object { $_.Name -match 'DS\d+_v3' }` to verify empty results.
+**Action Taken:** No change — regexes are correct. Same false positive as Round 1 Comment 7.
+
+### Comment 13
+**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:43`
+**Copilot Finding:** "`Get-AzVMPricing` now returns additional maps (SavingsPlan*/Reservation*) and no longer filters by `priceType eq 'Consumption'`, but the help text still says 'Retrieves pay-as-you-go Linux pricing'."
+**Assessment:** Agree
+**Reasoning:** The function was expanded to fetch consumption, savings plan, reservation, and spot pricing in a single API call (no `priceType` filter). The `.DESCRIPTION` help text is stale — it only mentions pay-as-you-go.
+**Action Taken:** Fixed — updated `.DESCRIPTION` to document all pricing types returned (PAYG, Spot, Savings Plan 1yr/3yr, Reserved Instance 1yr/3yr). Commit 637d9d4.
+
+---
+## PR #99 — Round 3 (post-fix re-review)
+**Date:** 2026-03-26 | **Branch:** main | **Commit:** ac59ea8
+
+### Comment 14
+**File:** `data/UpgradePath.md:7`
+**Copilot Finding:** "This link target is incorrect for a file that already lives under `data/` (it resolves to `data/data/UpgradePath.json`). Use a relative link like `./UpgradePath.json`."
+**Assessment:** Agree
+**Reasoning:** The file is `data/UpgradePath.md` and contains `[data/UpgradePath.json](data/UpgradePath.json)`, which resolves to `data/data/UpgradePath.json` — a path that doesn't exist. Should be `./UpgradePath.json` since both files are in the same directory.
+**Action Taken:** Fixed — changed link to `[UpgradePath.json](./UpgradePath.json)`. Commit ac59ea8.
+
+### Comment 15
+**File:** `data/UpgradePath.md:409`
+**Copilot Finding:** "This 'JSON companion' link is also using `data/UpgradePath.json`, which resolves to `data/data/UpgradePath.json` from within this file."
+**Assessment:** Agree
+**Reasoning:** Same root cause as Comment 14 — second instance of the broken relative link at the bottom of the file.
+**Action Taken:** Fixed — changed link to `[UpgradePath.json](./UpgradePath.json)`. Commit ac59ea8.
+
+### Comment 16
+**File:** `CHANGELOG.md:17`
+**Copilot Finding:** "The changelog entry claims the compatibility gate enforces 'data disks' as a hard requirement, but `Test-SkuCompatibility` intentionally does not gate on `MaxDataDiskCount`."
+**Assessment:** Agree
+**Reasoning:** Same root cause as Round 1 Comments 3/6/8 and Round 2 Comments 10/11. The CHANGELOG entry was missed across two prior rounds of doc fixes. It listed "12 hard requirements" including "data disks", but the actual hard gate count is 10 (data disks and IOPS are soft scoring dimensions).
+**Action Taken:** Fixed — removed "data disks" from the hard requirements list, removed "12" count claim, clarified that disk IOPS and data disk count are soft scoring dimensions. Commit ac59ea8.
+
+---
+## PR #99 — Round 4 (post-fix re-review)
+**Date:** 2026-03-26 | **Branch:** main | **Commit:** dc0ba2b
+
+### Comment 17
+**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:118`
+**Copilot Finding:** "`8760` is a non-obvious term-hour constant embedded in the savings plan total calculation. Consider defining a named constant (e.g., HoursPerYear) or computing it from days×hours to make the intent clearer and reduce maintenance risk."
+**Assessment:** Agree
+**Reasoning:** Project conventions (copilot-instructions.md line 109) explicitly require named constants for magic numbers. `$HoursPerMonth = 730` already exists as a named constant. `8760` (hours per year) should be derived as `$HoursPerMonth * 12`.
+**Action Taken:** Fixed — added `$HoursPerYear = $HoursPerMonth * 12` and replaced bare `8760` in both module and inline copies. Commit dc0ba2b.
+
+### Comment 18
+**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:124`
+**Copilot Finding:** "`26280` is another non-obvious term-hour constant (3-year total) in the savings plan calculation. Please use a named constant (e.g., HoursPer3Years) or a self-documenting calculation to keep the pricing logic easy to audit."
+**Assessment:** Agree
+**Reasoning:** Same root cause as Comment 17. `26280` (hours per 3 years) should be derived as `$HoursPerMonth * 36`.
+**Action Taken:** Fixed — added `$HoursPer3Years = $HoursPerMonth * 36` and replaced bare `26280` in both module and inline copies. Commit dc0ba2b.
+
+---
+
 ---
 ## PR #42 | branch: fix/v1.11.2-patch | commit: c9bfc1e0287173517640b33ac5d795a42118c627
 Date: 2026-03-12
@@ -488,4 +631,36 @@ Date: 2026-03-12
 **Assessment:** Partially Agree
 **Reasoning:** Valid point — the psd1 ReleaseNotes field should describe module-specific changes. However, the module is not published to PSGallery yet (local scaffold only). The ReleaseNotes provide useful context about the v1.12.4 release.
 **Action Taken:** Deferred to v2.0.0 when module ships to PSGallery. Reply posted on GitHub.
+
+---
+## PR #1 — feat: Add -SubMap and -RGMap deployment mapping for lifecycle reports (v1.14.0)
+**Date:** 2026-03-27 | **Branch:** SubscriptionMapping | **Commit:** 93fcbd2
+
+### Comment 1
+**File:** `Get-AzVMAvailability.ps1:559`
+**Copilot Finding:** "Building the file-based deployment map expands each input row into $qty individual entries in $fileVMRows (one per VM) and then re-aggregates via Group-Object. This can blow up memory/time for large fleets. Instead, keep a single row with a Qty field and aggregate by grouping keys with a Qty sum."
+**Assessment:** Agree
+**Reasoning:** The for-loop `for ($q = 0; $q -lt $qty; $q++)` creates N individual objects per row then Group-Object recombines them. For large fleets (e.g., 10,000 VMs across 50 SKUs), this creates unnecessary object churn. Storing one row with a qty field and summing during aggregation is strictly better.
+**Action Taken:** Fixed — replaced per-qty row expansion with single row containing `qty` field. Aggregation now uses `($g.Group | Measure-Object -Property qty -Sum).Sum` instead of `$g.Count`.
+
+### Comment 2
+**File:** `Get-AzVMAvailability.ps1:746`
+**Copilot Finding:** "The subscription name lookup query isn't filtered to the subscriptions actually present in $allVMs ($subIds is computed but unused), and it only requests First=1000 with no pagination."
+**Assessment:** Partially Agree
+**Reasoning:** Filtering the ARG query to only present subscription IDs is a valid optimization — `$subIds` was already computed but unused in the query. However, pagination is unnecessary: subscription count per management group rarely exceeds 1000 (Azure itself limits to ~1000 subscriptions per tenant), and this is a lightweight metadata query, not a VM inventory query.
+**Action Taken:** Fixed — added `where subscriptionId in~ (...)` filter to the ARG query using `$subIds`. Pagination not added (subscription count well within First=1000 limit).
+
+### Comment 3
+**File:** `Get-AzVMAvailability.ps1:5151`
+**Copilot Finding:** "When both -SubMap and -RGMap are specified, the implementation always chooses the RGMap path and only emits a single map sheet/object (RG takes precedence). This conflicts with the PR/CHANGELOG wording that both flags can be used together."
+**Assessment:** Agree
+**Reasoning:** The `if ($RGMap) { ... } else { ... }` pattern meant `-SubMap -RGMap` together only produced the RG map. The documented behavior ("both flags can be used together") was correct intent but not implemented.
+**Action Taken:** Fixed — refactored to separate `$subMapRows` and `$rgMapRows` variables. Both file-based and ARG-based paths now build independent maps when both flags are set. XLSX export generates both sheets. JSON output includes `subscriptionMap` and `resourceGroupMap` as separate keys.
+
+### Comment 4
+**File:** `CHANGELOG.md:12`
+**Copilot Finding:** "This entry says 'Both flags can be used together', but the current script logic only generates one deployment map when -SubMap and -RGMap are both set (RGMap takes precedence)."
+**Assessment:** Agree
+**Reasoning:** Same root cause as Comment 3 — the code didn't match the documented behavior.
+**Action Taken:** Fixed — code now matches the documentation. Both maps are generated when both flags are set.
 

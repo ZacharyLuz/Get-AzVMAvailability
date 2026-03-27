@@ -1,24 +1,27 @@
-function Write-FleetReadinessSummary {
+function Write-InventoryReadinessSummary {
+    [Alias('Write-FleetReadinessSummary')]
     <#
     .SYNOPSIS
-        Renders the fleet readiness summary to console with color-coded pass/fail.
+        Renders the inventory readiness summary to console with color-coded pass/fail.
     #>
     param(
         [Parameter(Mandatory)]
-        [hashtable]$FleetResult,
+        [Alias('FleetResult')]
+        [hashtable]$InventoryResult,
 
         [Parameter(Mandatory)]
-        [hashtable]$Fleet
+        [Alias('Fleet')]
+        [hashtable]$Inventory
     )
 
-    $totalVMs = ($Fleet.Values | Measure-Object -Sum).Sum
-    $totalvCPU = ($FleetResult.SKUs | Measure-Object -Property TotalvCPU -Sum).Sum
+    $totalVMs = ($Inventory.Values | Measure-Object -Sum).Sum
+    $totalvCPU = ($InventoryResult.SKUs | Measure-Object -Property TotalvCPU -Sum).Sum
 
     Write-Host ""
     Write-Host ("=" * 100) -ForegroundColor Gray
-    Write-Host "FLEET READINESS SUMMARY" -ForegroundColor Cyan
+    Write-Host "INVENTORY READINESS SUMMARY" -ForegroundColor Cyan
     Write-Host ("=" * 100) -ForegroundColor Gray
-    Write-Host "Fleet: $($Fleet.Count) SKUs | $totalVMs VMs | $totalvCPU vCPUs total" -ForegroundColor White
+    Write-Host "Inventory: $($Inventory.Count) SKUs | $totalVMs VMs | $totalvCPU vCPUs total" -ForegroundColor White
     Write-Host ""
 
     # Per-SKU table
@@ -26,7 +29,7 @@ function Write-FleetReadinessSummary {
     Write-Host ($headerFmt -f 'SKU', 'Qty', 'vCPU', 'Mem', 'Need', 'Capacity', 'Region') -ForegroundColor White
     Write-Host ("-" * 100) -ForegroundColor Gray
 
-    foreach ($row in $FleetResult.SKUs) {
+    foreach ($row in $InventoryResult.SKUs) {
         $capacityColor = switch ($row.Capacity) {
             'OK'                    { 'Green' }
             'LIMITED'               { 'Yellow' }
@@ -48,7 +51,7 @@ function Write-FleetReadinessSummary {
     Write-Host ("-" * 100) -ForegroundColor Gray
 
     $allPass = $true
-    foreach ($q in $FleetResult.Quotas) {
+    foreach ($q in $InventoryResult.Quotas) {
         $passStr = if ($null -eq $q.Pass) { '?' } elseif ($q.Pass) { 'YES' } else { 'NO' }
         $passColor = if ($null -eq $q.Pass) { 'Yellow' } elseif ($q.Pass) { 'Green' } else { 'Red' }
         if ($q.Pass -eq $false) { $allPass = $false }
@@ -60,11 +63,11 @@ function Write-FleetReadinessSummary {
 
     Write-Host ""
     if ($allPass) {
-        Write-Host "FLEET READINESS: PASS" -ForegroundColor Green -BackgroundColor Black
-        Write-Host "All SKUs have capacity and quota covers the fleet demand." -ForegroundColor Green
+        Write-Host "INVENTORY READINESS: PASS" -ForegroundColor Green -BackgroundColor Black
+        Write-Host "All SKUs have capacity and quota covers the inventory demand." -ForegroundColor Green
     }
     else {
-        Write-Host "FLEET READINESS: FAIL" -ForegroundColor Red -BackgroundColor Black
+        Write-Host "INVENTORY READINESS: FAIL" -ForegroundColor Red -BackgroundColor Black
         Write-Host "One or more SKUs have capacity issues or insufficient quota." -ForegroundColor Red
         Write-Host "Request quota increase: https://aka.ms/ProdportalCRP/?#create/Microsoft.Support/Parameters/" -ForegroundColor Yellow
     }
