@@ -38,18 +38,26 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
 CRAWL — "Where Can I Deploy?"    (~15 min)  Scenarios 1-4
 WALK  — "What Should I Deploy?"  (~15 min)  Scenarios 5-7
 RUN   — "Automation & Export"    (~5 min)   Scenario 8
-Closing: Recap + Q&A              (~5 min)
+Closing: Contribution + Q&A       (~5 min)
 ```
+
+> **Presenter note — 5S Anchors:** Every idea worth remembering hits at least three of Winston's five stickiness factors. They're called out per scenario below. **Symbol** = the color-coded table (green/yellow/red = instant status read, no explanation needed). **Slogan** = one-liner per scenario. **Surprise** = placement scores, 40-80% spot discounts. **Salient** = specific stats (5 regions in 5 seconds, 100-point scoring rubric). **Story** = the customer-problem frame that opens every scenario. The strongest scenarios — 4 and 7 — hit all five.
 
 ---
 
 ## Opening (1 minute)
 
-### Talking Points
+> **Presenter note — Empowerment Promise:** Lead with what they will be able to *do* after this demo, not with what the tool *is*. State the promise explicitly within the first 60 seconds so every person in the room has a reason to stay. Don't start with a joke. Don't start with bios. Start here.
 
-> "How many times have you tried to deploy a VM and gotten a capacity error? Or a customer calls and says 'I need a D4s_v5 in East US' — and you have no idea if it's available, constrained, or restricted in their subscription?"
+### Empowerment Promise (say this first)
+
+> "By the end of this demo you'll be able to answer three questions that right now take you 20 minutes of portal-clicking or a support call: **Where can I deploy this VM? What should I migrate to if it's constrained? And exactly what will it cost?** — from a single PowerShell command, in under 30 seconds."
+
+### Setup (say this second)
+
+> "How many times have you tried to deploy a VM and gotten a capacity error with no explanation? Or a customer calls and says 'I need a D4s_v5 in East US' and you have no idea if it's available, constrained, or restricted in their subscription?"
 >
-> "This tool answers that question in seconds. It scans Azure regions for VM SKU availability, capacity status, quota, pricing, and image compatibility — all from a single PowerShell command."
+> "This tool answers those questions in seconds — capacity status, quota, pricing, image compatibility, and ranked alternatives — all from one command."
 >
 > "Let me show you."
 
@@ -60,6 +68,9 @@ Closing: Recap + Q&A              (~5 min)
 ### Scenario 1: Interactive Prompt Mode (~5 min, LIVE)
 
 **The story:** First-time user, no idea what parameters exist. Just run it.
+
+> **5S:** Symbol (color-coded table), Story (first time user), Salient (zero parameters needed)
+> **Slogan:** *"If you can type a region name, you can use this tool."*
 
 ```powershell
 .\Get-AzVMAvailability.ps1
@@ -154,6 +165,9 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 ### Scenario 4: Placement Scores (~3 min, LIVE)
 
 **The story:** Capacity says OK, but you've seen allocations fail anyway. Placement scores give you Azure's confidence level.
+
+> **5S:** Surprise (the thing you didn't know you needed), Salient (High/Medium/Low from Azure's own API), Story (capacity says OK but deploys still fail), Symbol (the new column that changes the decision), Slogan below
+> **Slogan:** *"Capacity tells you the SKU exists. Placement tells you if Azure will actually give it to you."*
 
 ```powershell
 .\Get-AzVMAvailability.ps1 -Region "eastus","westus2","uksouth" -SkuFilter "Standard_D4s_v5","Standard_D8s_v5","Standard_D16s_v5" -ShowPlacement -DesiredCount 5 -NoPrompt
@@ -255,6 +269,15 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 
 **The story:** Customer calls: "My Standard_D4s_v3 is capacity constrained in East US. What do I do?"
 
+> **5S:** Story (support call everyone has gotten), Surprise (scored ranking they didn't expect), Salient (100-point rubric, ranked in 30 seconds), Symbol (Score column), Slogan below
+> **Slogan:** *"Stop guessing. Get a ranked list of alternatives in 30 seconds."*
+
+> **Presenter note — Near Miss:** Before running the tool, show the *almost-right* answer — the thing people do today. This contrast is what locks the value in permanently.
+>
+> The near miss: a customer submits `az vm create --size Standard_D4s_v3` and gets back `AllocationFailed: Requested operation cannot be performed because SKU 'Standard_D4s_v3' is not available for requested region East US`. They guess `D4s_v4`. Also constrained. They try `D4s_v5`. Available — but is it the right fit? Is it cheaper or more expensive? Will it run their software? They don't know. They're guessing.
+>
+> *That* is the near miss. Everything they tried was almost right. Now show what right actually looks like.
+
 ```powershell
 .\Get-AzVMAvailability.ps1 -Recommend "Standard_D4s_v3" -Region "eastus","westus2" -ShowPricing -TopN 10 -NoPrompt
 ```
@@ -332,9 +355,19 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 
 ## Closing (5 minutes)
 
-### Recap
+### Contribution Statement (say this — don't recap)
 
-> "Let me quickly recap what we covered:"
+> **Presenter note:** Winston's rule: end with a contribution, not a summary. Don't tell them what you showed them. Tell them what they now *have* that they didn't have when they walked in.
+
+> "An hour ago, if a customer called and said 'I need a D4s_v5 in East US' — you'd open the portal, click through five blades, maybe call support, and still not know if the allocation would succeed."
+>
+> "Right now, you can answer that call in 30 seconds. You know which regions have capacity, which alternatives score closest to what they need, what those alternatives cost, whether their image is compatible, and how likely Azure is to actually fulfill the request — all before you deploy a single resource."
+>
+> "That's not a nice-to-have. That's the difference between a 40-minute support call and a 30-second answer."
+
+---
+
+### Reference: What We Covered
 
 | Capability | How |
 |---|---|

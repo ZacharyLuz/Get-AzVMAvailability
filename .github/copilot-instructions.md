@@ -173,10 +173,21 @@ have been replaced with `throw` (error paths) and `return` (user-initiated cance
 The script no longer kills the caller's session when dot-sourced or called from another script.
 
 ### Pipeline Composability (zero pipeline output)
-The script emits nothing to the pipeline — all data rendered via `Write-Host`.
-`$familyDetails` (built at L3470) and the output contracts contain properly
-structured `[PSCustomObject]` arrays but are never emitted. The minimal fix is
-adding `$familyDetails` output after the processing loop for non-JSON mode.
+The script emits `$familyDetails` to the pipeline only when `[Console]::IsOutputRedirected`
+is true (piped, assigned to variable, or redirected to file). In interactive terminal mode,
+objects are suppressed to preserve the clean Write-Host UX. This was fixed in the
+Best-of-Breed tournament (Mar 2026) after unconditional emit produced 2,255+ noisy
+`@{...}` lines when output was captured (`*>&1`, `Tee-Object`, transcript).
+
+**v2.0.0 requirement:** Pipeline emit must be **opt-in only** (e.g., `-PassThru`
+switch). The Best-of-Breed tournament (Mar 2026) proved that unconditional emit
+of `$familyDetails` after Write-Host rendering produces 2,255+ noisy
+`@{...}` lines when output is captured (`*>&1`, `Tee-Object`, transcript).
+This breaks the clean terminal UX contract. Do NOT merge unconditional pipeline
+emit into main. Options for v2.0.0:
+- `-PassThru` switch: explicit opt-in, zero surprise
+- Auto-detect `[Console]::IsOutputRedirected`: emit only when piped
+- Module conversion: objects become primary output, Write-Host secondary
 
 ### Module Conversion — Function Extraction Order (v2.0.0)
 Extract in this order to minimize risk:

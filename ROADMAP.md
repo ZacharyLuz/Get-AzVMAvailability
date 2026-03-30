@@ -188,6 +188,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 - [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent
 - [ ] **Module Manifest + Validation** - Add and validate `.psd1` manifest in CI
 - [ ] **Migration Guidance** - Document script-to-module migration path and examples
+- [ ] **Pipeline Emit as Opt-In** - Add `-PassThru` switch for pipeline output; do NOT emit `$familyDetails` unconditionally (breaks terminal UX when output is captured via `*>&1` or `Tee-Object` — 223 lines → 2,478 lines). In module mode, objects become primary output with Write-Host as secondary display.
 
 ---
 
