@@ -12,6 +12,8 @@ Describe "Write-Host Gating ($script:SuppressConsole)" {
         # Define the override exactly as the main script does
         $script:SuppressConsole = $false
         function Write-Host {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
+                Justification = 'Intentional Write-Host override to test SuppressConsole gating behavior')]
             param(
                 [Parameter(Position = 0, ValueFromPipeline)]
                 [object]$Object = '',
@@ -19,8 +21,10 @@ Describe "Write-Host Gating ($script:SuppressConsole)" {
                 [System.ConsoleColor]$BackgroundColor,
                 [switch]$NoNewline
             )
-            if ($script:SuppressConsole) { return }
-            Microsoft.PowerShell.Utility\Write-Host @PSBoundParameters
+            process {
+                if ($script:SuppressConsole) { return }
+                Microsoft.PowerShell.Utility\Write-Host @PSBoundParameters
+            }
         }
     }
 

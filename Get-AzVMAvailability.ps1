@@ -356,6 +356,8 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 # Module-qualified delegation preserves original behavior when not suppressed.
 $script:SuppressConsole = $false
 function Write-Host {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
+        Justification = 'Intentional override to gate Write-Host output when -JsonOutput is active')]
     param(
         [Parameter(Position = 0, ValueFromPipeline)]
         [object]$Object = '',
@@ -363,8 +365,10 @@ function Write-Host {
         [System.ConsoleColor]$BackgroundColor,
         [switch]$NoNewline
     )
-    if ($script:SuppressConsole) { return }
-    Microsoft.PowerShell.Utility\Write-Host @PSBoundParameters
+    process {
+        if ($script:SuppressConsole) { return }
+        Microsoft.PowerShell.Utility\Write-Host @PSBoundParameters
+    }
 }
 $script:SuppressConsole = $JsonOutput.IsPresent
 
@@ -3335,6 +3339,7 @@ try {
 
         $scanRegionScript = {
             param($region, $skuFilterCopy, $maxRetries, $armUrl, $bearerToken, $retryPattern)
+            $boundRetryPattern = $retryPattern
 
             # Inline retry — parallel runspaces cannot see script-scope functions
             $retryCall = {
@@ -3347,7 +3352,7 @@ try {
                     catch {
                         $attempt++
                         $msg = $_.Exception.Message
-                        $isThrottle = $msg -match $retryPattern
+                        $isThrottle = $msg -match $boundRetryPattern
                         if ($isThrottle -and $attempt -le $Retries) {
                             $baseDelay = [math]::Pow(2, $attempt)
                             $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)

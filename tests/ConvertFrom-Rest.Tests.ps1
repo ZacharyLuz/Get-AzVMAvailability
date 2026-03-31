@@ -1,3 +1,6 @@
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '',
+    Justification = 'Variables set in Pester BeforeAll blocks are used in child It and Context blocks')]
+param()
 # ConvertFrom-Rest.Tests.ps1
 # Pester tests for ConvertFrom-RestSku and ConvertFrom-RestQuota normalization helpers
 # Run with: Invoke-Pester .\tests\ConvertFrom-Rest.Tests.ps1 -Output Detailed
