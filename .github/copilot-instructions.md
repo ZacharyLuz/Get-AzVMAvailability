@@ -172,19 +172,17 @@ All 9 original `exit` calls (Lines 394, 2611, 2691, 2697, 2733, 2762, 2793, 3597
 have been replaced with `throw` (error paths) and `return` (user-initiated cancellation).
 The script no longer kills the caller's session when dot-sourced or called from another script.
 
-### Pipeline Composability (zero pipeline output)
-The script emits `$familyDetails` to the pipeline only when `[Console]::IsOutputRedirected`
-is true (piped, assigned to variable, or redirected to file). In interactive terminal mode,
-objects are suppressed to preserve the clean Write-Host UX. This was fixed in the
-Best-of-Breed tournament (Mar 2026) after unconditional emit produced 2,255+ noisy
+### Pipeline Composability
+The script currently emits `$familyDetails` to the pipeline only when
+`[Console]::IsOutputRedirected` is true (piped, assigned to variable, or
+redirected to file). In interactive terminal mode, objects are suppressed to
+preserve the clean Write-Host UX. This guard was added after the Best-of-Breed
+tournament (Mar 2026) showed that unconditional emit produced 2,255+ noisy
 `@{...}` lines when output was captured (`*>&1`, `Tee-Object`, transcript).
 
-**v2.0.0 requirement:** Pipeline emit must be **opt-in only** (e.g., `-PassThru`
-switch). The Best-of-Breed tournament (Mar 2026) proved that unconditional emit
-of `$familyDetails` after Write-Host rendering produces 2,255+ noisy
-`@{...}` lines when output is captured (`*>&1`, `Tee-Object`, transcript).
-This breaks the clean terminal UX contract. Do NOT merge unconditional pipeline
-emit into main. Options for v2.0.0:
+**v2.0.0 requirement:** Pipeline emit must become **opt-in only** (e.g.,
+`-PassThru` switch). Do NOT merge unconditional pipeline emit into main.
+Options for v2.0.0:
 - `-PassThru` switch: explicit opt-in, zero surprise
 - Auto-detect `[Console]::IsOutputRedirected`: emit only when piped
 - Module conversion: objects become primary output, Write-Host secondary

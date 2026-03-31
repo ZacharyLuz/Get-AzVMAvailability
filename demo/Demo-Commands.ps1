@@ -46,7 +46,10 @@ Get-Module Az.Compute -ListAvailable | Select-Object Name, Version -First 1
 # Without this you open three portal browser tabs, navigate to Quotas in each,
 # and still don't have a side-by-side answer.
 # This does all three in 5 seconds — one command, one table, one decision.
-1
+.\Get-AzVMAvailability.ps1 `
+    -Region "eastus", "westus2", "centralus" `
+    -FamilyFilter "D" `
+    -NoPrompt
 #endregion Scenario 2
 
 #region Scenario 3 — Region Presets (~2 min)
