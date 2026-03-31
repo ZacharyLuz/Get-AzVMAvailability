@@ -10,7 +10,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 **Theme: Scan Engine Hardening & Pipeline Safety**
 
 ### Completed Features
-- ✅ **Write-Host gating** — module-qualified `Write-Host` override; `-JsonOutput` and `-Quiet` suppress all console output via `$script:SuppressConsole` flag
+- ✅ **Write-Host gating** — module-qualified `Write-Host` override; `-JsonOutput` suppresses all console output via `$script:SuppressConsole` flag
 - ✅ **Pipeline emit guard** — objects only emitted to pipeline when `[Console]::IsOutputRedirected` is true; prevents terminal noise when output is captured
 - ✅ **HttpClient REST scan engine** — concurrent SKU+quota first-page fetch via `System.Net.Http.HttpClient`; parallel region scan via runspaces; ~20% faster scans
 - ✅ **O(1) capability lookup** — `_CapIndex` hashtable in `Get-CapValue` replaces `Where-Object` linear scan (~18,000 calls per scan)

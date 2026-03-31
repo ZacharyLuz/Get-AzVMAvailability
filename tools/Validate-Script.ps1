@@ -244,18 +244,18 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
     }
 
     # Check AzVMAvailability/AzVMAvailability.psd1 ModuleVersion
+    # Import-PowerShellDataFile is used instead of regex so the check is robust
+    # to whitespace, quote style, and comment variations in the manifest.
     $psd1Path = Join-Path $repoRoot 'AzVMAvailability' 'AzVMAvailability.psd1'
     if (Test-Path $psd1Path) {
         try {
-            $psd1Content = Get-Content $psd1Path -Raw -ErrorAction Stop
-            if ($psd1Content -match "ModuleVersion\s*=\s*'([\d.]+)'") {
-                $psd1Ver = $matches[1]
-                if ($psd1Ver -ne $scriptVer) {
-                    $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1 ModuleVersion: $psd1Ver"
-                }
+            $psd1Data = Import-PowerShellDataFile -Path $psd1Path -ErrorAction Stop
+            $psd1Ver  = $psd1Data.ModuleVersion
+            if ($null -eq $psd1Ver) {
+                $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: ModuleVersion key not found"
             }
-            else {
-                $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: ModuleVersion pattern not found"
+            elseif ($psd1Ver -ne $scriptVer) {
+                $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1 ModuleVersion: $psd1Ver"
             }
         }
         catch {
