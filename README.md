@@ -5,7 +5,7 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.12.4-brightgreen)
+![Version](https://img.shields.io/badge/Version-1.12.5-brightgreen)
 
 ## Disclosure & Disclaimer
 
@@ -70,7 +70,24 @@ The script automatically detects your Azure environment and uses the correct API
 
 **No configuration required** - the script reads your current `Az` context and resolves endpoints automatically.
 
-## Installation
+## Using GitHub Codespaces
+A pre-configured codespace that automatically installs the required modules when first created has been defined in the `.devcontainer` folder of this repo.  This means no downloading or installing of any code on your local machine.  Simply follow these steps: 
+- In GitHub, select the **Codespaces** tab from the **Code** dropdown in GitHub on the Repo's (or your fork's) main page.
+- Click on the plus (+) icon to create a new codespace
+- Wait for the codespace to finish installing/creating
+- Run the following commands
+
+```powershell
+# Use this instead if calling from a codespace
+Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere -UseDeviceAuthentication
+
+# Interactive mode - prompts for all options
+.\Get-AzVMAvailability.ps1
+
+# See further in this document for other examples outside of interactive mode
+```
+
+## Local Installation
 
 ```powershell
 # Clone the repository
@@ -78,16 +95,29 @@ git clone https://github.com/zacharyluz/Get-AzVMAvailability.git
 cd Get-AzVMAvailability
 
 # Install required Azure modules (if needed)
-Install-Module -Name Az.Compute -Scope CurrentUser
-Install-Module -Name Az.Resources -Scope CurrentUser
+# Windows only: enable running scripts from the PowerShell Gallery in your profile
+if ($IsWindows) {
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+}
+Install-Module -Name Az.Compute -Scope CurrentUser -Repository PSGallery -Force
+Install-Module -Name Az.Resources -Scope CurrentUser -Repository PSGallery -Force
 
 # Optional: Install ImportExcel for styled exports
-Install-Module -Name ImportExcel -Scope CurrentUser
+Install-Module -Name ImportExcel -Scope CurrentUser -Repository PSGallery -Force
+
+# Register a local PowerShell repository for this repo (idempotent)
+if (-not (Get-PSRepository -Name Get-AzVMAvailability -ErrorAction SilentlyContinue)) {
+    Register-PSRepository -Name Get-AzVMAvailability -SourceLocation . -InstallationPolicy Trusted
+}
+
 ```
 
 ## Quick Start
 
 ```powershell
+# Interactive Login to Azure
+Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere
+
 # Interactive mode - prompts for all options
 .\Get-AzVMAvailability.ps1
 
@@ -399,7 +429,7 @@ SKUs that are available but **incompatible** with your image are shown in dark y
 ### Console Output (with Pricing)
 ```
 ====================================================================================
-GET-AZVMAVAILABILITY v1.12.4
+GET-AZVMAVAILABILITY v1.12.5
 ====================================================================================
 SKU Filter: Standard_D2s_v5 | Pricing: Enabled
 
