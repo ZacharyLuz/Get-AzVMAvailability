@@ -3723,6 +3723,12 @@ if ($JsonOutput) {
     return
 }
 
+# Emit structured objects to pipeline only when output is redirected (piped, assigned to variable, or sent to file).
+# In interactive terminal mode, objects are suppressed to preserve the clean Write-Host UX.
+if (-not $JsonOutput -and $familyDetails.Count -gt 0 -and [Console]::IsOutputRedirected) {
+    $familyDetails
+}
+
 #region Drill-Down (if enabled)
 
 if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
