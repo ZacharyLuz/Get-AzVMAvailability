@@ -252,18 +252,18 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
             $psd1Data = Import-PowerShellDataFile -Path $psd1Path -ErrorAction Stop
             $psd1Ver  = $psd1Data.ModuleVersion
             if ($null -eq $psd1Ver) {
-                $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: ModuleVersion key not found"
+                $versionMismatches += "$psd1Path: ModuleVersion key not found"
             }
             elseif ($psd1Ver -ne $scriptVer) {
-                $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1 ModuleVersion: $psd1Ver"
+                $versionMismatches += "$psd1Path ModuleVersion: $psd1Ver"
             }
         }
         catch {
-            $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: failed to read — $($_.Exception.Message)"
+            $versionMismatches += "$psd1Path: failed to read — $($_.Exception.Message)"
         }
     }
     else {
-        $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: file not found"
+        $versionMismatches += "$psd1Path: file not found"
     }
 
     # Scan git-tracked .md files under docs/ for backtick-wrapped version literals.
