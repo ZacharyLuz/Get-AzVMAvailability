@@ -352,6 +352,22 @@ param(
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
 
+# Console suppression: always-defined Write-Host override with runtime flag check.
+# Module-qualified delegation preserves original behavior when not suppressed.
+$script:SuppressConsole = $false
+function Write-Host {
+    param(
+        [Parameter(Position = 0, ValueFromPipeline)]
+        [object]$Object = '',
+        [System.ConsoleColor]$ForegroundColor,
+        [System.ConsoleColor]$BackgroundColor,
+        [switch]$NoNewline
+    )
+    if ($script:SuppressConsole) { return }
+    Microsoft.PowerShell.Utility\Write-Host @PSBoundParameters
+}
+$script:SuppressConsole = $JsonOutput.IsPresent
+
 #region GenerateFleetTemplate
 if ($GenerateFleetTemplate) {
     if ($JsonOutput) { throw "Cannot use -GenerateFleetTemplate with -JsonOutput. Template generation writes files to disk, not JSON to stdout." }
