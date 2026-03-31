@@ -236,4 +236,34 @@ public class InvokeWithRetryFakeThrottledException : Exception {
             Should -Invoke Start-Sleep -Times 1 -ParameterFilter { $Seconds -ge 60 }
         }
     }
+
+    Context "Retryable errors (500)" {
+        It "Retries on HTTP 500 Internal Server Error message" {
+            $script:attempt500 = 0
+            $result = Invoke-WithRetry -ScriptBlock {
+                $script:attempt500++
+                if ($script:attempt500 -lt 2) {
+                    throw "500 Internal Server Error"
+                }
+                "recovered-500"
+            } -MaxRetries 3 -OperationName "500 test"
+
+            $result | Should -Be "recovered-500"
+            $script:attempt500 | Should -Be 2
+        }
+
+        It "Retries on InternalServerError .NET enum name" {
+            $script:attemptISE = 0
+            $result = Invoke-WithRetry -ScriptBlock {
+                $script:attemptISE++
+                if ($script:attemptISE -lt 2) {
+                    throw "InternalServerError"
+                }
+                "recovered-ise"
+            } -MaxRetries 3 -OperationName "ISE test"
+
+            $result | Should -Be "recovered-ise"
+            $script:attemptISE | Should -Be 2
+        }
+    }
 }
