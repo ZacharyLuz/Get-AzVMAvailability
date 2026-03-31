@@ -243,6 +243,26 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
         }
     }
 
+    # Check AzVMAvailability/AzVMAvailability.psd1 ModuleVersion
+    $psd1Path = Join-Path $repoRoot 'AzVMAvailability' 'AzVMAvailability.psd1'
+    if (Test-Path $psd1Path) {
+        try {
+            $psd1Content = Get-Content $psd1Path -Raw -ErrorAction Stop
+            if ($psd1Content -match "ModuleVersion\s*=\s*'([\d.]+)'") {
+                $psd1Ver = $matches[1]
+                if ($psd1Ver -ne $scriptVer) {
+                    $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1 ModuleVersion: $psd1Ver"
+                }
+            }
+            else {
+                $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: ModuleVersion pattern not found"
+            }
+        }
+        catch {
+            $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: failed to read — $($_.Exception.Message)"
+        }
+    }
+
     # Scan git-tracked .md files under docs/ for backtick-wrapped version literals.
     # This catches prose examples (e.g. `1.10.2`) that weren't in the explicit list above.
     # Uses git ls-files instead of Get-ChildItem so only committed/staged files are scanned —

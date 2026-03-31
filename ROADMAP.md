@@ -1,8 +1,26 @@
 # Roadmap
 
-## Current Release: v1.12.5
+## Current Release: v1.13.0
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
+
+---
+
+## Version 1.13.0 (Released)
+**Theme: Scan Engine Hardening & Pipeline Safety**
+
+### Completed Features
+- ✅ **Write-Host gating** — module-qualified `Write-Host` override; `-JsonOutput` and `-Quiet` suppress all console output via `$script:SuppressConsole` flag
+- ✅ **Pipeline emit guard** — objects only emitted to pipeline when `[Console]::IsOutputRedirected` is true; prevents terminal noise when output is captured
+- ✅ **HttpClient REST scan engine** — concurrent SKU+quota first-page fetch via `System.Net.Http.HttpClient`; parallel region scan via runspaces; ~20% faster scans
+- ✅ **O(1) capability lookup** — `_CapIndex` hashtable in `Get-CapValue` replaces `Where-Object` linear scan (~18,000 calls per scan)
+- ✅ **HTTP 500 retry** — `Invoke-WithRetry` now retries `InternalServerError`/`500` in addition to `429`/`503`
+- ✅ **Regex injection fix** — SKU filter replaced `-match` (user input as regex) with `-like` operator + input validation
+- ✅ **Scan timer fix** — per-subscription timer now excludes one-time pricing phase
+
+### Test Coverage Added
+- `ConvertFrom-Rest.Tests.ps1`, `WriteHost-Gating.Tests.ps1`, `Invoke-WithRetry.Tests.ps1`
+- 61 new test assertions in `HelperFunctions.Tests.ps1`
 
 ---
 
@@ -192,15 +210,25 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
-## Version 1.12.0 (Future)
+## Version 1.12.0 / 1.12.1 (Released)
 **Theme: Fleet Planning**
 
-- [ ] **Fleet Planning** - Distribute vCPU requirements across regions (`-FleetSize`)
-- [ ] **Workload Profiles** - Pre-tuned scoring weights for MemoryOptimized, ComputeOptimized, GPU
-- [ ] **VMSS Script Generation** - Generate deployment scripts for regional fleet allocation
-- [ ] **Fleet Strategy Modes** - Balanced/HighAvailability/CostOptimized/MaxSavings
-- [ ] **Azure Compute Fleet Integration** - Evaluate `Microsoft.AzureFleet/fleets` API for mixed Spot+on-demand fleet deployments (requires `Compute Fleet Contributor` role `2bed379c`) <!-- short GUID is intentional — roadmap reference, not RBAC assignment code -->
-- [ ] **Programmatic Quota Management** - Evaluate `Microsoft.ComputeLimit` API for automated quota increase requests (requires `Compute Limit Operator` role `980cf6f7`) <!-- short GUID is intentional — roadmap reference, not RBAC assignment code -->
+### Shipped in v1.12.0
+- ✅ **`-Fleet` Hashtable** — Validate a multi-SKU fleet against real capacity data via BOM hashtable
+- ✅ **`Get-FleetReadiness`** — Per-SKU capacity status across all requested regions
+- ✅ **`Write-FleetReadinessSummary`** — Color-coded fleet summary with zone and quota details
+- ✅ **Fuzzy quota matching** — Match quota family names to SKU families without exact naming alignment
+
+### Shipped in v1.12.1
+- ✅ **`-FleetFile`** — CSV/JSON input for fleet bill of materials
+- ✅ **`-GenerateFleetTemplate`** — Generate starter fleet template in CSV or JSON format
+- ✅ **Input validation** — `-LiteralPath`, whitespace trimming, quantity guard
+
+### Deferred to Future Release
+- [ ] **Fleet Strategy Modes** — Balanced/HighAvailability/CostOptimized/MaxSavings allocation strategies
+- [ ] **VMSS Script Generation** — Generate regional deployment scripts from fleet allocation results
+- [ ] **Azure Compute Fleet Integration** — Evaluate `Microsoft.AzureFleet/fleets` API for mixed Spot+on-demand fleet deployments (requires `Compute Fleet Contributor` role `2bed379c`) <!-- short GUID is intentional — roadmap reference, not RBAC assignment code -->
+- [ ] **Programmatic Quota Management** — Evaluate `Microsoft.ComputeLimit` API for automated quota increase requests (requires `Compute Limit Operator` role `980cf6f7`) <!-- short GUID is intentional — roadmap reference, not RBAC assignment code -->
 
 ---
 

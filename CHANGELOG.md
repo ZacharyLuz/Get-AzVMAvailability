@@ -7,10 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- Added `edited` trigger type to `release-metadata-guard.yml` so PR body checkbox changes re-run the guard without needing an empty commit workaround
+## [1.13.0] - 2026-03-31
+
+### Added
+- **Write-Host gating** — module-qualified `Write-Host` override; `-JsonOutput` and `-Quiet` suppress all console output via `$script:SuppressConsole` flag
+- **Pipeline emit guard** — objects only emitted to pipeline when `[Console]::IsOutputRedirected` is true; prevents noise in interactive terminal sessions
+- New test files: `ConvertFrom-Rest.Tests.ps1`, `WriteHost-Gating.Tests.ps1`, `Invoke-WithRetry.Tests.ps1`
+- 61 new test assertions in `HelperFunctions.Tests.ps1`
 
 ### Changed
+- **HttpClient REST scan engine** — concurrent SKU+quota first-page fetch via `System.Net.Http.HttpClient`; parallel region scan via runspaces; ~20% faster scans
+- **O(1) capability lookup** — `_CapIndex` hashtable in `Get-CapValue` replaces linear scan
+
+### Fixed
+- **HTTP 500 retry** — `Invoke-WithRetry` now retries `InternalServerError`/`500` in addition to `429`/`503`
+- **Scan timer** — per-subscription timer now excludes one-time pricing phase (was inflating reported scan time)
+- **Regex injection** — SKU filter replaced `-match` (user input as regex) with `-like` operator + input validation
+- **Write-Host pipeline bug** — added `process {}` block so piped input is handled per-item
+- Added `edited` trigger type to `release-metadata-guard.yml` so PR body checkbox changes re-run the guard without needing an empty commit workaround
+
+### Changed (continued)
 - Broadened `.gitignore` patterns for session/handoff docs (`docs/*handoff*`, `docs/*session-notes*`)
 - Removed accidentally committed session docs from tracking (local copies preserved in `docs/archive/`)
 
