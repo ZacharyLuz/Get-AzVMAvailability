@@ -2,13 +2,8 @@
 # Pester tests for the Write-Host override / $script:SuppressConsole gating
 # Run with: Invoke-Pester .\tests\WriteHost-Gating.Tests.ps1 -Output Detailed
 
-BeforeAll {
-    Import-Module "$PSScriptRoot\TestHarness.psm1" -Force
-
-    # Extract the Write-Host override definition from the main script
-    # It's not a named function in the function definitions region — it's defined
-    # at script scope after the param block. We test it by dot-sourcing a minimal
-    # reproducer that matches the pattern in the main script.
+AfterAll {
+    Remove-Item function:Write-Host -ErrorAction SilentlyContinue
 }
 
 Describe "Write-Host Gating ($script:SuppressConsole)" {
