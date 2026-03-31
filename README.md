@@ -376,12 +376,12 @@ Requires the `Az.ResourceGraph` module (`Install-Module Az.ResourceGraph -Scope 
 ### What you get
 
 For each SKU in your list:
-1. **Hybrid recommendations (3 AI + 2 weighted)** — Up to 5 alternatives per SKU using a two-tier strategy:
+1. **Hybrid recommendations (3 AI + up to 3 weighted)** — Up to 6 alternatives per SKU using a two-tier strategy:
    - **3 upgrade path recommendations** from a curated knowledge base ([`data/UpgradePath.json`](data/UpgradePath.json)) based on Microsoft's official migration guidance:
      - `Upgrade: Drop-in` — lowest risk replacement (e.g., Dsv5 for Dv2)
      - `Upgrade: Future-proof` — latest generation (e.g., Dsv6 with NVMe)
      - `Upgrade: Cost-optimized` — AMD/alternative architecture at lower cost
-   - **2 weighted recommendations** from the real-time 8-dimension scoring engine, validated against actual region availability, capacity, and quota
+   - **Up to 3 weighted recommendations** from the real-time 8-dimension scoring engine, validated against actual region availability, capacity, and quota
 2. **Lifecycle risk assessment** — High / Medium / Low risk classification
 3. **Quota analysis** — current quota usage vs. limit for both the target SKU family and the recommended replacement's family, factoring in VM quantity (Qty × vCPUs)
 4. **Details column** — explains *why* each recommendation was selected (upgrade path rationale, family/version context, IOPS guarantees, resize impact, requirements like Gen2 OS or NVMe)
