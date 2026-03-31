@@ -262,6 +262,9 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
             $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: failed to read — $($_.Exception.Message)"
         }
     }
+    else {
+        $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: file not found"
+    }
 
     # Scan git-tracked .md files under docs/ for backtick-wrapped version literals.
     # This catches prose examples (e.g. `1.10.2`) that weren't in the explicit list above.

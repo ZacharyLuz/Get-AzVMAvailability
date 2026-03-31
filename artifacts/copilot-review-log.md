@@ -515,20 +515,3 @@ Date: 2026-03-12
 **Action:** Removed `-Quiet` from ROADMAP bullet in c52205c.
 
 ---
-## PR #105 - chore: bump version to 1.13.0
-**Date:** 2026-03-31 | **Branch:** chore/bump-version-1.13.0 | **Reviewed commit:** 261a2b2 | **Fix commit:** c52205c
-
-### Finding 1 - CHANGELOG.md:13
-**Finding:** changelog claims `-Quiet` suppresses console output, no Quiet parameter exists
-**Assessment:** Agree
-**Action:** Removed -Quiet reference in c52205c
-
-### Finding 2 - CHANGELOG.md:31
-**Finding:** duplicate `Changed (continued)` section
-**Assessment:** Agree
-**Action:** Merged into single Changed section in c52205c
-
-### Finding 3 - ROADMAP.md:13
-**Finding:** roadmap bullet claims -Quiet suppresses output (same as Finding 1)
-**Assessment:** Agree
-**Action:** Removed -Quiet from ROADMAP bullet in c52205c
