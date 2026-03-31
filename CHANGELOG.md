@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `tools/Validate-Script.ps1`: added `else` branch so a missing `AzVMAvailability.psd1` now registers as a version mismatch instead of silently skipping validation
+- `artifacts/copilot-review-log.md`: removed duplicate PR #105 triage block
+
 ## [1.13.0] - 2026-03-31
 
 ### Added
