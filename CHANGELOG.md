@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tools/Check-PRReadyToMerge.ps1` — pre-merge gate that lists all unreplied Copilot/bot comment threads on the current PR; exits non-zero if any are open
+- `tools/Audit-AllPRComments.ps1` — audits all merged PRs for unreplied top-level bot threads; used for historical backlog review
+- `tools/Reply-StaleThreads.ps1` — bulk-replies to unreplied bot threads on old PRs with a stale-finding notice
+- **Branch protection**: enabled `required_review_thread_resolution` on main — GitHub now blocks merge until all PR conversation threads are resolved
+
 ### Fixed
 - `tools/Validate-Script.ps1`: added `else` branch so a missing `AzVMAvailability.psd1` now registers as a version mismatch instead of silently skipping validation; error messages now use `$psd1Path` variable instead of hard-coded path string
 - `artifacts/copilot-review-log.md`: removed duplicate PR #105 triage block
