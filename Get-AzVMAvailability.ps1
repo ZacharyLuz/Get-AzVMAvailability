@@ -3231,10 +3231,11 @@ $initialSubscriptionId = if ($initialAzContext -and $initialAzContext.Subscripti
 
 # Outer try/finally ensures Az context is restored even if Ctrl+C or PipelineStoppedException
 # interrupts parallel scanning, results processing, or export
+$scanStartTime = Get-Date
 try {
     try {
         foreach ($subId in $TargetSubIds) {
-        $scanStartTime = Get-Date
+        $subscriptionScanStartTime = Get-Date
         try {
             Use-SubscriptionContextSafely -SubscriptionId $subId | Out-Null
         }
@@ -3387,7 +3388,7 @@ try {
 
         Write-Progress -Activity "Scanning Azure Regions" -Completed
 
-        $scanElapsed = (Get-Date) - $scanStartTime
+        $scanElapsed = (Get-Date) - $subscriptionScanStartTime
         Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
 
         $allSubscriptionData += @{
