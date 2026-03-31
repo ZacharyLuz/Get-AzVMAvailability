@@ -3896,8 +3896,9 @@ if ($JsonOutput) {
     return
 }
 
-# Emit structured objects to pipeline only when output is redirected (piped, assigned to variable, or sent to file).
-# In interactive terminal mode, objects are suppressed to preserve the clean Write-Host UX.
+# Emit structured objects to pipeline only when console stdout is redirected (e.g., > file.txt or Start-Transcript).
+# [Console]::IsOutputRedirected detects console-level redirection only — it does NOT detect PS pipeline usage.
+# For interactive pipeline scenarios, use -JsonOutput. A dedicated -PassThru switch is planned for v2.0.
 if (-not $JsonOutput -and $familyDetails.Count -gt 0 -and [Console]::IsOutputRedirected) {
     $familyDetails
 }
