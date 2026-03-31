@@ -243,6 +243,26 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
         }
     }
 
+    # Check AzVMAvailability/AzVMAvailability.psd1 ModuleVersion
+    # Import-PowerShellDataFile is used instead of regex so the check is robust
+    # to whitespace, quote style, and comment variations in the manifest.
+    $psd1Path = Join-Path $repoRoot 'AzVMAvailability' 'AzVMAvailability.psd1'
+    if (Test-Path $psd1Path) {
+        try {
+            $psd1Data = Import-PowerShellDataFile -Path $psd1Path -ErrorAction Stop
+            $psd1Ver  = $psd1Data.ModuleVersion
+            if ($null -eq $psd1Ver) {
+                $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: ModuleVersion key not found"
+            }
+            elseif ($psd1Ver -ne $scriptVer) {
+                $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1 ModuleVersion: $psd1Ver"
+            }
+        }
+        catch {
+            $versionMismatches += "AzVMAvailability/AzVMAvailability.psd1: failed to read — $($_.Exception.Message)"
+        }
+    }
+
     # Scan git-tracked .md files under docs/ for backtick-wrapped version literals.
     # This catches prose examples (e.g. `1.10.2`) that weren't in the explicit list above.
     # Uses git ls-files instead of Get-ChildItem so only committed/staged files are scanned —

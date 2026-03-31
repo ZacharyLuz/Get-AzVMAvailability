@@ -489,3 +489,46 @@ Date: 2026-03-12
 **Reasoning:** Valid point — the psd1 ReleaseNotes field should describe module-specific changes. However, the module is not published to PSGallery yet (local scaffold only). The ReleaseNotes provide useful context about the v1.12.4 release.
 **Action Taken:** Deferred to v2.0.0 when module ships to PSGallery. Reply posted on GitHub.
 
+
+---
+## PR #105 — chore: bump version to 1.13.0 (minor release — scan engine hardening)
+**Date:** 2026-03-31 | **Branch:** chore/bump-version-1.13.0 | **Reviewed commit:** 261a2b2 | **Fix commit:** c52205c
+
+### Finding 1
+**File:** `CHANGELOG.md:13`
+**Copilot Finding:** "changelog claims `-Quiet` suppresses console output, but there is no Quiet parameter in the script/module"
+**Assessment:** Agree
+**Reasoning:** No `-Quiet` parameter exists anywhere in the codebase; only `-JsonOutput` sets `script:SuppressConsole`. Copy-paste error during version bump.
+**Action:** Removed `-Quiet` reference from CHANGELOG in c52205c.
+
+### Finding 2
+**File:** `CHANGELOG.md:31`
+**Copilot Finding:** "`### Changed (continued)` is a second Changed section inside the same release entry — merge into the existing `### Changed`"
+**Assessment:** Agree
+**Reasoning:** Duplicate section headers violate Keep a Changelog format. The bullets were split because the second batch came from a different source commit being integrated.
+**Action:** Merged into single `### Changed` section in c52205c.
+
+### Finding 3
+**File:** `ROADMAP.md:13`
+**Copilot Finding:** "roadmap bullet claims `-Quiet` suppresses console output, but no Quiet parameter exists"
+**Assessment:** Agree — same root cause as Finding 1
+**Action:** Removed `-Quiet` from ROADMAP bullet in c52205c.
+
+---
+## PR #105 - chore: bump version to 1.13.0
+**Date:** 2026-03-31 | **Branch:** chore/bump-version-1.13.0 | **Reviewed commit:** 261a2b2 | **Fix commit:** c52205c
+
+### Finding 1 - CHANGELOG.md:13
+**Finding:** changelog claims `-Quiet` suppresses console output, no Quiet parameter exists
+**Assessment:** Agree
+**Action:** Removed -Quiet reference in c52205c
+
+### Finding 2 - CHANGELOG.md:31
+**Finding:** duplicate `Changed (continued)` section
+**Assessment:** Agree
+**Action:** Merged into single Changed section in c52205c
+
+### Finding 3 - ROADMAP.md:13
+**Finding:** roadmap bullet claims -Quiet suppresses output (same as Finding 1)
+**Assessment:** Agree
+**Action:** Removed -Quiet from ROADMAP bullet in c52205c
