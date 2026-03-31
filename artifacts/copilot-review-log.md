@@ -515,3 +515,14 @@ Date: 2026-03-12
 **Action:** Removed `-Quiet` from ROADMAP bullet in c52205c.
 
 ---
+## PR #106 — fix: address post-merge Copilot findings from PR #105
+**Date:** 2026-03-31 | **Branch:** fix/post-105-copilot-findings | **Reviewed commit:** aaa110e | **Fix commit:** 2a9a8c7 | **Merged:** 83c2a88
+
+### Finding 1
+**File:** `tools/Validate-Script.ps1:266`
+**Copilot Finding:** "Use the actual psd1 path variable instead of a hard-coded string in the error message — can drift from the real path if the variable or directory structure changes."
+**Assessment:** Agree
+**Reasoning:** All four error messages hard-coded `"AzVMAvailability/AzVMAvailability.psd1"` as a literal string while the actual path was already in `$psd1Path`. Zero extra cost to reference the variable and keeps messages consistent with the actual path being checked.
+**Action:** Replaced hard-coded string with `$psd1Path` in all four messages in 2a9a8c7.
+
+---
