@@ -711,8 +711,12 @@ function Invoke-WithRetry {
                     }
                 }
             }
+            # HTTP 500 — Internal Server Error (transient ARM error)
+            elseif ($statusCode -eq 500 -or $ex.Message -match '500|Internal Server Error|InternalServerError') {
+                $isRetryable = $true
+            }
             # HTTP 503 — Service Unavailable
-            elseif ($statusCode -eq 503 -or $ex.Message -match '503|Service Unavailable') {
+            elseif ($statusCode -eq 503 -or $ex.Message -match '503|ServiceUnavailable|Service Unavailable') {
                 $isRetryable = $true
             }
             # Network errors — timeouts, connection failures
