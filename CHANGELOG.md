@@ -8,9 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `tools/Check-PRReadyToMerge.ps1` — pre-merge gate that lists all unreplied Copilot/bot comment threads on the current PR; exits non-zero if any are open
-- `tools/Audit-AllPRComments.ps1` — audits all merged PRs for unreplied top-level bot threads; used for historical backlog review
-- `tools/Reply-StaleThreads.ps1` — bulk-replies to unreplied bot threads on old PRs with a stale-finding notice
+- `tools/Check-PRReadyToMerge.ps1` — pre-merge gate that lists all unreplied non-owner comment threads on the current PR (paginated, fails closed on API errors); exits non-zero if any are open
+- `tools/Audit-AllPRComments.ps1` — audits all merged PRs (fetched dynamically from GitHub) for unreplied top-level non-owner threads; used for historical backlog review
+- `tools/Reply-StaleThreads.ps1` — bulk-replies to unreplied non-owner threads on old PRs with a stale-finding notice (paginated, fails closed on API errors)
 - **Branch protection**: enabled `required_review_thread_resolution` on main — GitHub now blocks merge until all PR conversation threads are resolved
 
 ### Fixed

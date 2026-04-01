@@ -1,13 +1,31 @@
-# Audit all merged PRs for unreplied top-level bot/Copilot comment threads
-param([string]$Owner = 'ZacharyLuz', [string]$Repo = 'Get-AzVMAvailability')
+# Audit merged PRs for unreplied top-level non-owner comment threads.
+# Fetches the current merged PR list dynamically from GitHub, then checks each one.
+param(
+    [string]$Owner = 'ZacharyLuz',
+    [string]$Repo = 'Get-AzVMAvailability',
+    [int]$Limit = 100
+)
 
-$prs = @(20,21,22,23,24,26,27,29,30,33,35,36,37,38,39,40,42,43,44,45,47,48,49,58,59,60,77,78,79,80,81,82,83,84,85,86,88,89,90,91,93,94,96,97,100,101,104,105,106,107)
+Write-Host "Fetching merged PR list..."
+$prsRaw = gh api "repos/$Owner/$Repo/pulls?state=closed&per_page=$Limit" 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to fetch PR list: $prsRaw"
+    exit 1
+}
+$prObjects = $prsRaw | ConvertFrom-Json | Where-Object { $null -ne $_.merged_at }
+$prs = $prObjects | Select-Object -ExpandProperty number | Sort-Object
+Write-Host "Found $($prs.Count) merged PRs.`n"
 
 $report = @()
 
 foreach ($pr in $prs) {
     Write-Host "Checking PR #$pr..." -NoNewline
-    $all = gh api "repos/$Owner/$Repo/pulls/$pr/comments" 2>$null | ConvertFrom-Json
+    $allRaw = gh api --paginate "repos/$Owner/$Repo/pulls/$pr/comments" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host " (error: $allRaw)" -ForegroundColor Red
+        continue
+    }
+    $all = $allRaw | ConvertFrom-Json
     if (-not $all -or $all.Count -eq 0) {
         Write-Host " (no comments)"
         continue

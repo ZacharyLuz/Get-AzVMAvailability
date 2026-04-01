@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-    Pre-merge gate: verify all Copilot/bot comment threads are replied to before merging.
+    Pre-merge gate: verify all non-owner comment threads are replied to before merging.
 
 .DESCRIPTION
-    Fetches all inline PR comments, identifies top-level bot threads with no owner reply,
-    and blocks merge if any are found. Run this after every push, before merging.
+    Fetches all inline PR comments (paginated), identifies top-level threads from any
+    non-owner user that have no owner reply, and blocks merge if any are found.
+    Run this after every push, before merging.
 
     Branch protection already enforces "required_review_thread_resolution" — this script
     is the local companion that shows you exactly what needs to be addressed so you never
@@ -38,7 +39,12 @@ if ($PRNumber -eq 0) {
         Write-Error "Could not determine current branch. Pass -PRNumber explicitly."
         exit 1
     }
-    $prJson = gh api "repos/$Owner/$Repo/pulls?head=$Owner`:$branch&state=open" 2>$null | ConvertFrom-Json
+    $prRaw = gh api "repos/$Owner/$Repo/pulls?head=$Owner`:$branch&state=open" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to query GitHub API: $prRaw"
+        exit 1
+    }
+    $prJson = $prRaw | ConvertFrom-Json
     if (-not $prJson -or $prJson.Count -eq 0) {
         Write-Host "No open PR found for branch '$branch'." -ForegroundColor Yellow
         Write-Host "If the PR is not open yet, push your branch and create a PR first."
@@ -49,8 +55,13 @@ if ($PRNumber -eq 0) {
 }
 #endregion
 
-#region Fetch comments
-$all = gh api "repos/$Owner/$Repo/pulls/$PRNumber/comments" 2>$null | ConvertFrom-Json
+#region Fetch comments (paginated)
+$allRaw = gh api --paginate "repos/$Owner/$Repo/pulls/$PRNumber/comments" 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to fetch PR comments: $allRaw"
+    exit 1
+}
+$all = $allRaw | ConvertFrom-Json
 if (-not $all -or $all.Count -eq 0) {
     Write-Host ""
     Write-Host "PR #$PRNumber — no inline comments. Ready to merge." -ForegroundColor Green
@@ -66,6 +77,8 @@ foreach ($c in $all) {
     }
 }
 
+# All non-owner top-level threads require a reply — not just bots.
+# Filtering to bots only would leave human reviewer threads unaddressed.
 $open = $all | Where-Object {
     $null -eq $_.in_reply_to_id -and
     $_.user.login -ne $Owner -and

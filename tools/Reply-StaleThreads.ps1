@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Bulk-reply to all unreplied top-level bot/Copilot comment threads across specified PRs.
+    Bulk-reply to all unreplied top-level non-owner comment threads across specified PRs.
 
 .DESCRIPTION
     For each PR, finds top-level comments from non-owner users that have no owner reply,
@@ -36,7 +36,12 @@ $posted = 0
 foreach ($pr in $PRNumbers) {
     Write-Host "PR #$pr..." -NoNewline
 
-    $all = gh api "repos/$Owner/$Repo/pulls/$pr/comments" 2>$null | ConvertFrom-Json
+    $allRaw = gh api --paginate "repos/$Owner/$Repo/pulls/$pr/comments" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host " (error fetching: $allRaw)" -ForegroundColor Red
+        continue
+    }
+    $all = $allRaw | ConvertFrom-Json
     if (-not $all -or $all.Count -eq 0) {
         Write-Host " (no comments)"
         continue
@@ -66,7 +71,6 @@ foreach ($pr in $PRNumbers) {
 
     foreach ($t in $open) {
         $line = if ($t.line) { $t.line } else { $t.original_line }
-        $preview = ($t.body -replace '\r?\n', ' ')[0..79] -join ''
         Write-Host "  → ID $($t.id) | $($t.path):$line | $($t.user.login)"
 
         if (-not $WhatIf) {
