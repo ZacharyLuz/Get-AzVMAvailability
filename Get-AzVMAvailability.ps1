@@ -1305,9 +1305,107 @@ function Get-SkuFamilyVersion {
     return 1
 }
 
+function Get-AdvisorRetirementData {
+    <#
+    .SYNOPSIS
+        Queries Azure Advisor for VM SKU retirement recommendations.
+    .DESCRIPTION
+        Fetches ServiceUpgradeAndRetirement recommendations from the Advisor API
+        and builds a hashtable keyed by VM SKU family for fast lookup. Results are
+        cached in $script:RunContext.Caches.AdvisorRetirement for the session.
+    #>
+    param(
+        [string]$SubscriptionId,
+        [string]$ArmUrl = 'https://management.azure.com',
+        [string]$BearerToken,
+        [int]$MaxRetries = 3
+    )
+
+    # Return cached data if available
+    if ($script:RunContext -and $script:RunContext.Caches.AdvisorRetirement) {
+        return $script:RunContext.Caches.AdvisorRetirement
+    }
+
+    $result = @{}
+    try {
+        $uri = "$($ArmUrl.TrimEnd('/'))/subscriptions/$SubscriptionId/providers/Microsoft.Advisor/recommendations?api-version=2023-01-01&`$filter=Category eq 'HighAvailability'"
+        $headers = @{ Authorization = "Bearer $BearerToken" }
+        $advisorResp = Invoke-WithRetry -ScriptBlock {
+            Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 30 -ErrorAction Stop
+        } -MaxRetries $MaxRetries
+
+        if ($advisorResp.value) {
+            foreach ($rec in $advisorResp.value) {
+                $props = $rec.properties
+                if ($props.extendedProperties.recommendationSubCategory -ne 'ServiceUpgradeAndRetirement') { continue }
+                if ($props.impactedField -notmatch 'VIRTUALMACHINES') { continue }
+
+                $retireDate = $props.extendedProperties.retirementDate
+                $seriesName = $props.extendedProperties.retirementFeatureName
+                $vmName = $props.impactedValue
+                $resourceId = $props.resourceMetadata.resourceId
+                $impact = $props.impact
+
+                # Parse the SKU from the resource ID if available (need separate ARG query for that)
+                # For now, store by series grouping so Get-SkuRetirementInfo can cross-reference
+                if ($seriesName -and $retireDate) {
+                    if (-not $result[$seriesName]) {
+                        $result[$seriesName] = @{
+                            RetireDate = $retireDate
+                            Series     = $seriesName
+                            Impact     = $impact
+                            Status     = if ([datetime]$retireDate -lt [datetime]::UtcNow) { 'Retired' } else { 'Retiring' }
+                            VMs        = [System.Collections.Generic.List[string]]::new()
+                        }
+                    }
+                    $result[$seriesName].VMs.Add($vmName)
+                }
+            }
+        }
+
+        Write-Verbose "Advisor: found $($result.Count) retirement group(s) covering $(@($result.Values | ForEach-Object { $_.VMs.Count } | Measure-Object -Sum).Sum) VM(s)"
+    }
+    catch {
+        Write-Verbose "Advisor retirement query failed (non-fatal, falling back to pattern table): $_"
+    }
+
+    # Cache the result
+    if ($script:RunContext -and $script:RunContext.Caches) {
+        $script:RunContext.Caches.AdvisorRetirement = $result
+    }
+
+    return $result
+}
+
 function Get-SkuRetirementInfo {
     param([string]$SkuName)
 
+    # Check Advisor cache first — Advisor provides authoritative retirement dates from Microsoft
+    if ($script:RunContext -and $script:RunContext.Caches.AdvisorRetirement) {
+        $advisorData = $script:RunContext.Caches.AdvisorRetirement
+        foreach ($group in $advisorData.Values) {
+            # Match SKU name against the series description (e.g., "D, Ds, Dv2, Dsv2 and Ls series")
+            $seriesText = $group.Series
+            if ($SkuName -match '^Standard_([A-Z]+)') {
+                $skuPrefix = $Matches[1]
+                # Extract family+version from SKU for matching
+                $skuVersion = if ($SkuName -match '_v(\d+)') { "v$($Matches[1])" } else { '' }
+                $familyVariants = @($skuPrefix, "${skuPrefix}s", "${skuPrefix}${skuVersion}")
+                foreach ($variant in $familyVariants) {
+                    if ($seriesText -match "\b${variant}\b") {
+                        return @{
+                            Series     = $group.Series
+                            RetireDate = $group.RetireDate
+                            Status     = $group.Status
+                            Source     = 'Advisor'
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    # Fallback: hard-coded pattern table from Microsoft Learn announcements
     # Azure VM series retirement data from official Microsoft announcements
     # https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement/retired-sizes-list
     # Last verified: 2026-03-27
@@ -4449,6 +4547,23 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
         catch {
             Write-Verbose "Failed to load UpgradePath.json: $_"
         }
+    }
+
+    # Fetch retirement data from Azure Advisor (authoritative source, supersedes pattern table)
+    try {
+        $advisorArmUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
+        $advisorTokenResult = Get-AzAccessToken -ResourceUrl $advisorArmUrl -ErrorAction Stop
+        $advisorToken = if ($advisorTokenResult.Token -is [System.Security.SecureString]) {
+            [System.Net.NetworkCredential]::new('', $advisorTokenResult.Token).Password
+        } else { $advisorTokenResult.Token }
+        $advisorRetirement = Get-AdvisorRetirementData -SubscriptionId $subId -ArmUrl $advisorArmUrl -BearerToken $advisorToken -MaxRetries $MaxRetries
+        $advisorToken = $null
+        if ($advisorRetirement.Count -gt 0) {
+            Write-Host "  Advisor: $($advisorRetirement.Count) retirement group(s) detected" -ForegroundColor DarkYellow
+        }
+    }
+    catch {
+        Write-Verbose "Advisor retirement fetch skipped: $_"
     }
 
     foreach ($entry in $lifecycleEntries) {
