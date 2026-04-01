@@ -112,7 +112,7 @@ if ($openCount -gt 0) {
         $i++
     }
     Write-Host "Reply to each thread:" -ForegroundColor Yellow
-    Write-Host '  gh api repos/$Owner/$Repo/pulls/$PRNumber/comments/{id}/replies --method POST -f body="Agree — fixed in this PR."'
+    Write-Host "  gh api repos/$Owner/$Repo/pulls/$PRNumber/comments/{id}/replies --method POST -f body=`"Agree — fixed in this PR.`""
     Write-Host ""
     Write-Host "Then resolve each conversation on GitHub before merging." -ForegroundColor Yellow
     Write-Host ""

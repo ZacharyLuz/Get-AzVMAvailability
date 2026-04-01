@@ -86,12 +86,12 @@ foreach ($pr in $PRNumbers) {
         }
         else {
             Write-Host "    [WhatIf] Would post: $Reply" -ForegroundColor DarkYellow
-            $posted++
         }
     }
 }
 
+$label = if ($WhatIf) { 'would reply to' } else { 'replied to' }
 Write-Host ""
-Write-Host "Done. $posted / $total thread(s) replied to$(if ($WhatIf) { ' (WhatIf mode)' })." -ForegroundColor Cyan
+Write-Host "Done. $posted / $total thread(s) $label." -ForegroundColor Cyan
 Write-Host "Next: open each PR on GitHub and click 'Resolve conversation' on each thread,"
 Write-Host "or use the GraphQL resolveReviewThread mutation to batch-resolve."

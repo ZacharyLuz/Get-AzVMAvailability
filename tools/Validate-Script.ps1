@@ -344,12 +344,18 @@ if (Test-Path $toolsDir) {
             }
             # Skip single-resource GETs (no query string = not a list endpoint),
             # traffic/popular endpoints (GitHub caps these, not paginated),
-            # and lines that implement manual pagination via page= parameter
+            # and lines that implement manual pagination via page= parameter.
+            # NOTE: This heuristic intentionally uses "has ?" as a proxy for list endpoints.
+            # It won't catch every no-query-string list endpoint (e.g. /comments) — that's
+            # acceptable because the copilot-instructions.md rules and Copilot reviewer
+            # provide the authoritative check. This scanner is a fast safety net, not exhaustive.
             if ($ln -match '\bgh\s+api\b' -and ($ln -match '/traffic/' -or $ln -match '[?&]page=' -or ($ln -notmatch '\?' -and $ln -notmatch '--paginate'))) {
                 continue
             }
             # Flag: gh api list call without --paginate (has ? query string = list endpoint)
             # Exclude calls that filter to a specific resource (e.g. ?head=owner:branch returns 0-1 results)
+            # NOTE: This check does not detect missing $LASTEXITCODE checks (multi-line analysis).
+            # That rule is enforced by copilot-instructions.md + Copilot reviewer, not this scanner.
             if ($ln -match '\bgh\s+api\b' -and $ln -match '\?' -and $ln -notmatch '--paginate' -and $ln -notmatch 'graphql' -and $ln -notmatch '\?head=') {
                 $ghHits += "$($ts.Name):$($i+1) — gh api list call missing --paginate"
             }
