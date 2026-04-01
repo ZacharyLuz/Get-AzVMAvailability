@@ -1,6 +1,6 @@
 # Azure VM SKU Upgrade Paths
 
-> **Version:** 1.1.1 | **Last Updated:** 2026-03-31
+> **Version:** 1.0.0 | **Last Updated:** 2026-03-31
 >
 > **Source:** [Microsoft VM Size Retirement Overview](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement-overview) and [Previous-Gen Size Series](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/previous-gen-sizes-list)
 >
