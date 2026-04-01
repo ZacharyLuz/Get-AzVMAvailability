@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.14.0] - 2026-03-27
+## [1.14.0] - 2026-03-31
 
 ### Added
 - **`-SubMap` deployment mapping** — New switch parameter that produces a Subscription Map sheet in the lifecycle XLSX export. Groups affected VMs by subscription with VM count, SKU list, and region list. Works with both `-LifecycleScan` (ARG-based) and `-LifecycleRecommendations` (file-based). Enriches each row with Risk Level and Risk Reasons from lifecycle analysis results, with color-coded cells (red=High, amber=Medium, green=Low).
