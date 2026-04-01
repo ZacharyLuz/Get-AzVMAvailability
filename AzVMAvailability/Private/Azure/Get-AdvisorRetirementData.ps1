@@ -15,8 +15,10 @@ function Get-AdvisorRetirementData {
     )
 
     # Return cached data if available
-    if ($script:RunContext -and $script:RunContext.Caches.AdvisorRetirement) {
-        return $script:RunContext.Caches.AdvisorRetirement
+    # Return cached data if available (keyed by subscription)
+    if ($script:RunContext -and $script:RunContext.Caches.AdvisorRetirement -and
+        $script:RunContext.Caches.AdvisorRetirement.ContainsKey($SubscriptionId)) {
+        return $script:RunContext.Caches.AdvisorRetirement[$SubscriptionId]
     }
 
     $result = @{}
@@ -58,9 +60,12 @@ function Get-AdvisorRetirementData {
         Write-Verbose "Advisor retirement query failed (non-fatal, falling back to pattern table): $_"
     }
 
-    # Cache the result
+    # Cache the result keyed by subscription
     if ($script:RunContext -and $script:RunContext.Caches) {
-        $script:RunContext.Caches.AdvisorRetirement = $result
+        if (-not $script:RunContext.Caches.AdvisorRetirement) {
+            $script:RunContext.Caches.AdvisorRetirement = @{}
+        }
+        $script:RunContext.Caches.AdvisorRetirement[$SubscriptionId] = $result
     }
 
     return $result

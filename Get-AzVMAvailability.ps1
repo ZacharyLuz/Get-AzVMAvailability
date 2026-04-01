@@ -1321,9 +1321,10 @@ function Get-AdvisorRetirementData {
         [int]$MaxRetries = 3
     )
 
-    # Return cached data if available
-    if ($script:RunContext -and $script:RunContext.Caches.AdvisorRetirement) {
-        return $script:RunContext.Caches.AdvisorRetirement
+    # Return cached data if available (keyed by subscription)
+    if ($script:RunContext -and $script:RunContext.Caches.AdvisorRetirement -and
+        $script:RunContext.Caches.AdvisorRetirement.ContainsKey($SubscriptionId)) {
+        return $script:RunContext.Caches.AdvisorRetirement[$SubscriptionId]
     }
 
     $result = @{}
@@ -1369,9 +1370,12 @@ function Get-AdvisorRetirementData {
         Write-Verbose "Advisor retirement query failed (non-fatal, falling back to pattern table): $_"
     }
 
-    # Cache the result
+    # Cache the result keyed by subscription
     if ($script:RunContext -and $script:RunContext.Caches) {
-        $script:RunContext.Caches.AdvisorRetirement = $result
+        if (-not $script:RunContext.Caches.AdvisorRetirement) {
+            $script:RunContext.Caches.AdvisorRetirement = @{}
+        }
+        $script:RunContext.Caches.AdvisorRetirement[$SubscriptionId] = $result
     }
 
     return $result
@@ -1382,22 +1386,23 @@ function Get-SkuRetirementInfo {
 
     # Check Advisor cache first — Advisor provides authoritative retirement dates from Microsoft
     if ($script:RunContext -and $script:RunContext.Caches.AdvisorRetirement) {
-        $advisorData = $script:RunContext.Caches.AdvisorRetirement
-        foreach ($group in $advisorData.Values) {
-            # Match SKU name against the series description (e.g., "D, Ds, Dv2, Dsv2 and Ls series")
-            $seriesText = $group.Series
-            if ($SkuName -match '^Standard_([A-Z]+)') {
-                $skuPrefix = $Matches[1]
-                # Extract family+version from SKU for matching
-                $skuVersion = if ($SkuName -match '_v(\d+)') { "v$($Matches[1])" } else { '' }
-                $familyVariants = @($skuPrefix, "${skuPrefix}s", "${skuPrefix}${skuVersion}")
-                foreach ($variant in $familyVariants) {
-                    if ($seriesText -match "\b${variant}\b") {
-                        return @{
-                            Series     = $group.Series
-                            RetireDate = $group.RetireDate
-                            Status     = $group.Status
-                            Source     = 'Advisor'
+        foreach ($subCache in $script:RunContext.Caches.AdvisorRetirement.Values) {
+            foreach ($group in $subCache.Values) {
+                # Match SKU name against the series description (e.g., "D, Ds, Dv2, Dsv2 and Ls series")
+                $seriesText = $group.Series
+                if ($SkuName -match '^Standard_([A-Z]+)') {
+                    $skuPrefix = $Matches[1]
+                    # Extract family+version from SKU for matching
+                    $skuVersion = if ($SkuName -match '_v(\d+)') { "v$($Matches[1])" } else { '' }
+                    $familyVariants = @($skuPrefix, "${skuPrefix}s", "${skuPrefix}${skuVersion}")
+                    foreach ($variant in $familyVariants) {
+                        if ($seriesText -match "\b${variant}\b") {
+                            return @{
+                                Series     = $group.Series
+                                RetireDate = $group.RetireDate
+                                Status     = $group.Status
+                                Source     = 'Advisor'
+                            }
                         }
                     }
                 }
