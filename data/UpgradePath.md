@@ -20,9 +20,9 @@ Each family entry provides up to three upgrade recommendations:
 
 ## General Purpose
 
-### Av1 — Entry-Level *(Retired 2024-08-31)*
+### Av1 — Entry-Level *(Retiring 2028-11-15)*
 
-Original A-series (A0–A11, Basic_A). No direct D-family successor — workloads should
+Original A-series (A0–A11, Basic_A). Capacity-limited since 2024. No direct D-family successor — workloads should
 move to B-series (burstable) or D-series (general purpose).
 
 | Path | Target Series | Example (4 vCPU) | Requirements | Rationale |
@@ -33,9 +33,9 @@ move to B-series (burstable) or D-series (general purpose).
 
 ---
 
-### Dv1 — General Purpose *(Retired 2024-08-31)*
+### Dv1 — General Purpose *(Retiring 2028-05-01)*
 
-Original D-series (D1–D14, DS1–DS14).
+Original D-series (D1–D14, DS1–DS14). Capacity-limited since 2024.
 
 | Path | Target Series | Example (4 vCPU) | Requirements | Rationale |
 |------|--------------|-------------------|--------------|-----------|
@@ -81,9 +81,9 @@ Memory-optimized (8 GiB per vCPU) for databases, caching, in-memory analytics.
 
 ---
 
-### Gv1 / GSv1 — Memory + Storage *(Retired 2025-03-31)*
+### Gv1 / GSv1 — Memory + Storage *(Retiring 2028-11-15)*
 
-G/GS-series retired. No G-series successor — move to E-series (memory) or M-series
+G/GS-series capacity-limited since 2025. No G-series successor — move to E-series (memory) or M-series
 (large memory / SAP).
 
 | Path | Target Series | Example (8 vCPU) | Requirements | Rationale |
@@ -108,9 +108,9 @@ M-series v1 for SAP HANA and large-memory databases.
 
 ## Compute Optimized
 
-### Fv1 — Compute Optimized *(Retiring 2027-09-30)*
+### Fv1 — Compute Optimized *(Retiring 2028-11-15)*
 
-Fs-series (compute-optimized with Premium SSD).
+F/Fs-series (compute-optimized with Premium SSD).
 
 | Path | Target Series | Example (4 vCPU) | Requirements | Rationale |
 |------|--------------|-------------------|--------------|-----------|
@@ -121,9 +121,9 @@ Fs-series (compute-optimized with Premium SSD).
 
 ## Storage Optimized
 
-### Lv1 — Storage Optimized *(Retired 2024-08-31)*
+### Lv1 — Storage Optimized *(Retiring 2028-05-01)*
 
-Ls-series with local NVMe storage.
+Ls-series with local NVMe storage. Capacity-limited since 2024.
 
 | Path | Target Series | Example (16 vCPU) | Requirements | Rationale |
 |------|--------------|-------------------|--------------|-----------|
@@ -197,9 +197,9 @@ Tesla P100 GPU retired.
 
 ---
 
-### NCv3 — GPU Compute *(Retiring 2025-09-30)*
+### NCv3 — GPU Compute *(Retired 2025-09-30)*
 
-Tesla V100 GPU retiring.
+Tesla V100 GPU retired.
 
 | Path | Target Series | Example | Requirements | Rationale |
 |------|--------------|---------|--------------|-----------|
