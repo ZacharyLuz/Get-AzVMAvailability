@@ -1,0 +1,75 @@
+name: Stale Branch Cleanup
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 9 AM UTC
+  workflow_dispatch:       # Manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete stale branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const protectedBranches = ['main', 'traffic-data'];
+            const staleDays = 30;
+            const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000);
+
+            // Paginate to handle repos with >100 branches
+            const branches = await github.paginate(github.rest.repos.listBranches, {
+              owner, repo, per_page: 100
+            });
+
+            let deleted = 0;
+            let kept = 0;
+            let errors = 0;
+
+            for (const branch of branches) {
+              if (protectedBranches.includes(branch.name)) {
+                console.log(`KEEP (protected): ${branch.name}`);
+                kept++;
+                continue;
+              }
+
+              // Check for open PRs using this branch
+              const { data: prs } = await github.rest.pulls.list({
+                owner, repo, head: `${owner}:${branch.name}`, state: 'open'
+              });
+
+              if (prs.length > 0) {
+                console.log(`KEEP (open PR #${prs[0].number}): ${branch.name}`);
+                kept++;
+                continue;
+              }
+
+              // Check last commit date
+              const { data: commit } = await github.rest.repos.getCommit({
+                owner, repo, ref: branch.commit.sha
+              });
+              const commitDate = new Date(commit.commit.committer.date);
+
+              if (commitDate < cutoff) {
+                try {
+                  console.log(`DELETE (last commit ${commitDate.toISOString().slice(0,10)}): ${branch.name}`);
+                  await github.rest.git.deleteRef({
+                    owner, repo, ref: `heads/${branch.name}`
+                  });
+                  deleted++;
+                } catch (e) {
+                  console.log(`ERROR deleting ${branch.name}: ${e.message}`);
+                  errors++;
+                }
+              } else {
+                console.log(`KEEP (recent activity): ${branch.name}`);
+                kept++;
+              }
+            }
+
+            console.log(`\nSummary: ${deleted} deleted, ${kept} kept, ${errors} errors`);

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **README audit** — Added "What's New" section; expanded Features list with lifecycle, placement, spot, JSON output, inventory, and deployment mapping; added 8 missing parameters to Parameters table (`-ShowSpot`, `-ShowPlacement`, `-DesiredCount`, `-NoQuota`, `-SubMap`, `-RGMap`, `-AllowMixedArch`, `-MaxRetries`); added `Az.ResourceGraph` to Requirements; added lifecycle/retirement and inventory use cases; added lifecycle row to Quick Comparison table
+- **ROADMAP audit** — Marked 9 shipped backlog items as complete (Fleet Planning, Agent Integration, Module Structure, Backward-Compatible Wrapper, ARG Current VM Inventory, Cross-Subscription Discovery, Deployment Density, Spot Pricing)
+- **Branch cleanup** — Deleted 19 stale remote branches (15 squash-merged, 4 abandoned); enabled `delete_branch_on_merge` repo setting to auto-delete PR branches after merge
+
+### Added
+- `.github/workflows/stale-branches.yml` — Weekly scheduled workflow that auto-deletes branches older than 30 days with no open PRs (protects `main` and `traffic-data`)
+
 ## [1.14.0] - 2026-04-01
 
 ### Added
