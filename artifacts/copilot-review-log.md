@@ -56,7 +56,9 @@
 **Assessment:** Agree
 **Reasoning:** Global scope mocks persist across Pester test files and can cause execution-order-dependent failures.
 **Action Taken:** Removed `global:` prefix — function now scoped to the test's BeforeEach block.
+
 ---
+
 ## PR #42 | branch: fix/v1.11.2-patch | commit: c9bfc1e0287173517640b33ac5d795a42118c627
 Date: 2026-03-12
 
