@@ -45,7 +45,7 @@ Original D-series (D1–D14, DS1–DS14).
 
 ---
 
-### Dv2 / DSv2 — General Purpose *(Retiring 2027-03-31)*
+### Dv2 / DSv2 — General Purpose *(Retiring 2028-05-01)*
 
 Workhorse D-series v2 with Premium SSD support.
 
@@ -57,7 +57,7 @@ Workhorse D-series v2 with Premium SSD support.
 
 ---
 
-### Dv3 / Dsv3 — General Purpose *(Retiring 2027-09-30)*
+### Dv3 / Dsv3 — General Purpose *(Old Generation)*
 
 | Path | Target Series | Example (4 vCPU) | Requirements | Rationale |
 |------|--------------|-------------------|--------------|-----------|
@@ -69,7 +69,7 @@ Workhorse D-series v2 with Premium SSD support.
 
 ## Memory Optimized
 
-### Ev3 / Esv3 — Memory Optimized *(Retiring 2027-09-30)*
+### Ev3 / Esv3 — Memory Optimized *(Old Generation)*
 
 Memory-optimized (8 GiB per vCPU) for databases, caching, in-memory analytics.
 

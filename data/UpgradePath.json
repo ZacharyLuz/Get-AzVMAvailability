@@ -98,8 +98,8 @@
       "family": "D",
       "version": 2,
       "status": "Retiring",
-      "retireDate": "2027-03-31",
-      "summary": "Dv2/DSv2 series retiring March 2027. Microsoft recommends Dsv5 as primary replacement, Dsv6 for modernization.",
+      "retireDate": "2028-05-01",
+      "summary": "Dv2/DSv2 series retiring May 2028. Microsoft recommends Dsv5 as primary replacement, Dsv6 for modernization.",
       "dropIn": {
         "family": "D",
         "series": "Dsv5",
@@ -144,9 +144,8 @@
     "Dv3": {
       "family": "D",
       "version": 3,
-      "status": "Retiring",
-      "retireDate": "2027-09-30",
-      "summary": "Dv3/Dsv3 series retiring September 2027. Move to Dsv5 (safe) or Dsv6 (modern).",
+      "status": "OldGen",
+      "summary": "Dv3/Dsv3 old generation. No retirement announced. Move to Dsv5 (safe) or Dsv6 (modern) for better performance.",
       "dropIn": {
         "family": "D",
         "series": "Dsv5",
@@ -196,9 +195,8 @@
     "Ev3": {
       "family": "E",
       "version": 3,
-      "status": "Retiring",
-      "retireDate": "2027-09-30",
-      "summary": "Ev3/Esv3 series retiring September 2027. Memory-optimized workloads should move to Esv5 or Esv6.",
+      "status": "OldGen",
+      "summary": "Ev3/Esv3 old generation. No retirement announced. Memory-optimized workloads should move to Esv5 or Esv6 for better performance.",
       "dropIn": {
         "family": "E",
         "series": "Esv5",
