@@ -2,7 +2,7 @@
 
 > **Version:** 1.1.0 | **Last Updated:** 2026-07-21
 >
-> **Source:** [Microsoft VM Migration Guides](https://learn.microsoft.com/azure/virtual-machines/sizes/migration-guides)
+> **Source:** [Microsoft VM Size Retirement Overview](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement-overview) and [Previous-Gen Size Series](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/previous-gen-sizes-list)
 >
 > **Programmatic companion:** [`UpgradePath.json`](./UpgradePath.json)
 
@@ -405,5 +405,5 @@ and improved performance.
 ## Maintenance Notes
 
 - **Update frequency:** Review quarterly or when Microsoft announces new retirements
-- **Sources:** [Azure VM migration guides](https://learn.microsoft.com/azure/virtual-machines/sizes/migration-guides), [Azure Updates](https://azure.microsoft.com/updates/)
+- **Sources:** [Azure VM size retirement overview](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement-overview), [Previous-gen sizes](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/previous-gen-sizes-list), [Azure Updates](https://azure.microsoft.com/updates/)
 - **JSON companion:** Keep [`UpgradePath.json`](./UpgradePath.json) in sync with this file
