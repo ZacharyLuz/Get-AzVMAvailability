@@ -7,6 +7,33 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Version](https://img.shields.io/badge/Version-1.14.0-brightgreen)
 
+## What's New
+
+### v1.14.0 — Lifecycle & Deployment Mapping (April 2026)
+- **Lifecycle Recommendations** — feed a CSV/JSON/XLSX of deployed VMs and get retirement risk analysis with up to 6 upgrade alternatives per SKU, powered by a curated upgrade-path knowledge base
+- **`-SubMap` / `-RGMap`** — new deployment mapping sheets in XLSX exports, grouping affected VMs by subscription or resource group with risk-level enrichment
+- **`-Tag` filter** — filter live VM inventory scans by Azure resource tags (key=value or key=`*`)
+- **`-RateOptimization`** — opt-in Savings Plan and Reserved Instance pricing columns alongside PAYG
+
+### v1.13.0 — Performance & JSON Output (March 2026)
+- **HttpClient scan engine** — concurrent SKU+quota fetch via `System.Net.Http.HttpClient` with runspace parallelism (~20% faster scans)
+- **`-JsonOutput`** — suppresses all `Write-Host` output for clean JSON pipeline consumption
+- **O(1) capability lookup** — hashtable index replaces linear scan in `Get-CapValue`
+
+### v1.12.5 — Codespaces Support (March 2026)
+- GitHub Codespaces support and documentation updates
+
+### v1.12.1–1.12.4 — Fleet Readiness & Module Extraction (March 2026)
+- **`-FleetFile`** — load fleet BOM from CSV/JSON for capacity and quota validation
+- **`-GenerateFleetTemplate`** — scaffolds example fleet template files
+- **Module extraction** — 34 functions extracted to `AzVMAvailability/` module with inline fallback
+- **`exit` → `throw`** — script no longer kills the caller's session when dot-sourced
+
+### v1.12.0 — Fleet Readiness MVP (March 2026)
+- **`-Fleet` hashtable** — BOM-level capacity and quota validation with per-family pass/fail verdicts
+
+> Full history: [CHANGELOG.md](CHANGELOG.md)
+
 ## Disclosure & Disclaimer
 
 The author is a Microsoft employee; however, this is a **personal open-source project**. It is **not** an official Microsoft product, nor is it endorsed, sponsored, or supported by Microsoft.
@@ -22,15 +49,22 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 
 ## Features
 
-- **Multi-Region Parallel Scanning** - Scan 10+ regions in ~15 seconds
+- **Multi-Region Parallel Scanning** - Scan 10+ regions in ~15 seconds using concurrent HttpClient-based REST calls
 - **SKU Filtering** - Filter to specific SKUs with wildcard support (e.g., `Standard_D*_v5`)
-- **Pricing Information** - Show hourly/monthly pricing (retail or negotiated EA/MCA rates)
+- **Lifecycle Recommendations** - Analyze deployed VMs for retirement risk; get up to 6 upgrade alternatives per SKU from a curated knowledge base + real-time scoring engine
+- **Live Lifecycle Scan** - Pull VM inventory directly from Azure via Resource Graph with management group, resource group, and tag filters
+- **Deployment Mapping** - `-SubMap` / `-RGMap` sheets group affected VMs by subscription or resource group with risk enrichment
+- **Pricing Information** - Show hourly/monthly pricing (retail or negotiated EA/MCA rates) with optional Savings Plan and Reserved Instance comparisons
+- **Spot VM Pricing** - Include Spot pricing alongside on-demand rates
+- **Placement Scores** - Show allocation likelihood (High/Medium/Low) for each SKU via Azure Spot Placement API
 - **Image Compatibility** - Verify Gen1/Gen2 and x64/ARM64 requirements
 - **Zone Availability** - Per-zone availability details
 - **Quota Tracking** - Available vCPU quota per family
 - **Multi-Region Matrix** - Color-coded comparison view
 - **Interactive Drill-Down** - Explore specific families and SKUs
 - **Export Options** - CSV and styled XLSX with conditional formatting
+- **JSON Output** - Structured JSON for AI agent integration and automation pipelines
+- **Inventory Readiness** - Validate capacity and quota for an entire VM BOM in one command
 - **Compatibility-Validated Recommendations** - Alternatives are validated to meet or exceed the target SKU's NICs, accelerated networking, premium IO, disk interface, ephemeral OS disk, and Ultra SSD requirements. Data disks and IOPS are scored as soft dimensions
 
 ## Quick Comparison
@@ -42,13 +76,16 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 | Compare pricing across regions | Separate calculator     | Integrated           |
 | Filter to specific SKUs        | Scroll through hundreds | Wildcard filtering   |
 | Check image compatibility      | Manual research         | Automated validation |
+| Analyze VM retirement risk     | Azure Advisor + manual  | Single command       |
 | Export results                 | Manual copy/paste       | One command          |
 
 ## Use Cases
 
+- **VM Lifecycle & Retirement Planning** - Identify old-gen and retiring SKUs across your fleet and get validated upgrade paths
 - **Disaster Recovery Planning** - Identify backup regions with capacity
 - **Multi-Region Deployments** - Find regions where all required SKUs are available
 - **GPU/HPC Workloads** - NC, ND, NV series are often constrained; find where they're available
+- **Inventory Readiness Validation** - Verify capacity and quota for an entire VM BOM before deployment
 - **Image Compatibility** - Verify SKUs support your Gen2 or ARM64 images before deployment
 - **Troubleshooting Deployments** - Quickly identify why a deployment might be failing
 
@@ -57,6 +94,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 - **PowerShell 7.0+** (required)
 - **Azure PowerShell Modules**: `Az.Compute`, `Az.Resources`
 - **Optional**: `ImportExcel` module for styled XLSX export
+- **Optional**: `Az.ResourceGraph` module for `-LifecycleScan` live VM inventory
 
 ## Supported Cloud Environments
 
@@ -203,10 +241,14 @@ Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere
 | `-FamilyFilter`         | String[] | Filter to specific VM families                                                                                            |
 | `-SkuFilter`            | String[] | Filter to specific SKUs (supports wildcards)                                                                              |
 | `-ShowPricing`          | Switch   | Show pricing (auto-detects negotiated EA/MCA/CSP rates, falls back to retail)                                             |
+| `-ShowSpot`             | Switch   | Include Spot VM pricing in output. Requires `-ShowPricing`                                                                |
+| `-ShowPlacement`        | Switch   | Show allocation likelihood scores (High/Medium/Low) for each SKU via Azure Spot Placement API                            |
+| `-DesiredCount`         | Int      | Number of VMs to evaluate for placement scores (default 1). Affects allocation likelihood thresholds                      |
 | `-RateOptimization`     | Switch   | Include Savings Plan and Reserved Instance savings columns in lifecycle reports. Requires `-ShowPricing`. Shows fleet-wide savings vs PAYG for each commitment term |
 | `-ImageURN`             | String   | Check SKU compatibility with image (format: Publisher:Offer:Sku:Version)                                                  |
 | `-CompactOutput`        | Switch   | Use compact output for narrow terminals                                                                                   |
 | `-NoPrompt`             | Switch   | Skip interactive prompts                                                                                                  |
+| `-NoQuota`              | Switch   | Skip quota API calls in lifecycle modes. Useful when analyzing customer VM exports without subscription access             |
 | `-OutputFormat`         | String   | 'Auto', 'CSV', or 'XLSX'                                                                                                  |
 | `-UseAsciiIcons`        | Switch   | Force ASCII instead of Unicode icons                                                                                      |
 | `-Recommend`            | String   | Find alternatives for a target SKU. Works interactively too — prompted after scan/drill-down if not specified             |
@@ -214,6 +256,8 @@ Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere
 | `-MinvCPU`              | Int      | Minimum vCPU count filter for recommended alternatives (optional)                                                         |
 | `-MinMemoryGB`          | Int      | Minimum memory (GB) filter for recommended alternatives (optional)                                                        |
 | `-MinScore`             | Int      | Minimum similarity score (0-100) for recommended alternatives; set 0 to show all (default 50)                             |
+| `-AllowMixedArch`       | Switch   | Allow x64/ARM64 cross-architecture recommendations (excluded by default)                                                  |
+| `-MaxRetries`           | Int      | Maximum retry attempts for transient API errors (default 3). Uses exponential backoff                                     |
 | `-JsonOutput`           | Switch   | Emit structured JSON for the [AzVMAvailability-Agent](https://github.com/ZacharyLuz/AzVMAvailability-Agent) or automation |
 | `-SkipRegionValidation` | Switch   | Skip Azure region metadata validation (use only when Azure metadata lookup is unavailable)                                |
 | `-Inventory`            | Hashtable| Inventory BOM as hashtable: `@{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}` — validates capacity + quota for entire inventory     |
@@ -224,6 +268,8 @@ Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere
 | `-ManagementGroup`      | String[] | Scope `-LifecycleScan` to specific management group(s) for cross-subscription scanning |
 | `-ResourceGroup`        | String[] | Filter `-LifecycleScan` to specific resource group(s) |
 | `-Tag`                  | Hashtable| Filter `-LifecycleScan` to VMs with specific tags. Hashtable of key=value pairs (e.g., `@{Environment='prod'}`). Use `'*'` as value to match any VM that has the tag key regardless of value |
+| `-SubMap`               | Switch   | Include a Subscription Map sheet in lifecycle XLSX exports, grouping affected VMs by subscription with risk-level enrichment |
+| `-RGMap`                | Switch   | Include a Resource Group Map sheet in lifecycle XLSX exports, grouping affected VMs by subscription + resource group with risk-level enrichment |
 
 > **Backward compatibility:** The previous parameter names `-Fleet`, `-FleetFile`, and `-GenerateFleetTemplate` still work as aliases.
 

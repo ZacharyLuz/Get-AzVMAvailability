@@ -185,21 +185,21 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 ## Future Enhancements (Backlog)
 
 ### Capacity Recommender Enhancements
-- [ ] **Fleet Planning** - Distribute vCPU requirements across regions (`-FleetSize`)
+- [x] **Fleet Planning** - Shipped in v1.12.0 as `-Fleet`/`-Inventory` hashtable and `-InventoryFile` CSV/JSON input
 - [ ] **Workload Profiles** - Pre-tuned scoring weights for MemoryOptimized, ComputeOptimized, GPU
 - [ ] **`-AnyRegion`** - Scan all public regions automatically
 - [ ] **`-RegionGeo`** - Filter by geography (US, Europe, AsiaPacific)
-- [ ] **Agent Integration** - `find_alternatives` tool in AzVMAvailability-Agent
+- [x] **Agent Integration** - Shipped in v1.11.1 as Copilot skill (`.github/skills/azure-vm-availability/SKILL.md`)
 
 ### PowerShell Module Refactoring
-- [ ] **Module Structure** - Refactor into `AzVMAvailability` module with Public/Private functions
-- [ ] **Backward-Compatible Wrapper** - Keep `Get-AzVMAvailability.ps1` as entry point
-- [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent
+- [x] **Module Structure** - Partially shipped in v1.12.3: 34 functions extracted to `AzVMAvailability/` module with Private/ subdirectory layout. Full module conversion deferred to v2.0.0
+- [x] **Backward-Compatible Wrapper** - Shipped in v1.12.4: inline function fallback when module directory is absent
+- [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent (v2.0.0)
 
 ### Azure Resource Graph Integration
-- [ ] **Current VM Inventory** - Show existing VMs deployed per region/SKU family
-- [ ] **Cross-Subscription Discovery** - Use ARG to discover all accessible subscriptions faster
-- [ ] **Deployment Density** - Visualize how many VMs are already in each region
+- [x] **Current VM Inventory** - Shipped in v1.14.0 as `-LifecycleScan`
+- [x] **Cross-Subscription Discovery** - Shipped in v1.14.0 via `-ManagementGroup` parameter
+- [x] **Deployment Density** - Shipped in v1.14.0 as `-SubMap`/`-RGMap` deployment mapping
 - [ ] **Compare Available vs Deployed** - Side-by-side view of capacity vs current usage
 
 ### Enhanced Reporting
@@ -209,7 +209,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ### Pricing Enhancements
 - [ ] **Windows Pricing** - Add `-PricingType` parameter for Windows/Linux/Both
-- [ ] **Spot Pricing** - Include spot instance pricing comparison
+- [x] **Spot Pricing** - Shipped in v1.11.0 as `-ShowSpot` parameter
 - [ ] **Monthly Estimates** - Show projected monthly costs
 
 ### Advanced Monitoring
