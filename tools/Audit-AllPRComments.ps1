@@ -7,7 +7,7 @@ param(
 )
 
 Write-Host "Fetching merged PR list..."
-$prsRaw = gh api "repos/$Owner/$Repo/pulls?state=closed&per_page=$Limit" 2>&1
+$prsRaw = gh api --paginate "repos/$Owner/$Repo/pulls?state=closed&per_page=$Limit" 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to fetch PR list: $prsRaw"
     exit 1

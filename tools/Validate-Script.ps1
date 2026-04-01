@@ -2,8 +2,9 @@
 .SYNOPSIS
     Pre-commit validation script for Get-AzVMAvailability.
 .DESCRIPTION
-    Runs five checks in sequence: syntax validation, PSScriptAnalyzer linting,
-    Pester tests, AI-comment pattern scan, and version consistency.
+    Runs six checks in sequence: syntax validation, PSScriptAnalyzer linting,
+    Pester tests, AI-comment pattern scan, version consistency, and gh CLI
+    anti-pattern detection in tools/ scripts.
     Run this before every commit.
 
     Exit code 0 = all checks passed. Non-zero = at least one check failed.
@@ -29,7 +30,7 @@ Write-Host " GET-AZVMAVAILABILITY VALIDATION" -ForegroundColor Cyan
 Write-Host "========================================`n" -ForegroundColor Cyan
 
 # ── Check 1: Syntax Validation ──────────────────────────────────────
-Write-Host "[1/5] Syntax Check" -ForegroundColor Yellow
+Write-Host "[1/6] Syntax Check" -ForegroundColor Yellow
 try {
     $content = Get-Content $mainScript -Raw -ErrorAction Stop
     [scriptblock]::Create($content) | Out-Null
@@ -41,7 +42,7 @@ catch {
 }
 
 # ── Check 2: PSScriptAnalyzer ───────────────────────────────────────
-Write-Host "[2/5] PSScriptAnalyzer" -ForegroundColor Yellow
+Write-Host "[2/6] PSScriptAnalyzer" -ForegroundColor Yellow
 $hasAnalyzer = Get-Module -ListAvailable PSScriptAnalyzer -ErrorAction SilentlyContinue
 if (-not $hasAnalyzer) {
     Write-Host "  SKIP  PSScriptAnalyzer not installed (Install-Module PSScriptAnalyzer)" -ForegroundColor DarkYellow
@@ -69,7 +70,7 @@ else {
 }
 
 # ── Check 3: Pester Tests ──────────────────────────────────────────
-Write-Host "[3/5] Pester Tests" -ForegroundColor Yellow
+Write-Host "[3/6] Pester Tests" -ForegroundColor Yellow
 if ($SkipTests) {
     Write-Host "  SKIP  -SkipTests specified" -ForegroundColor DarkYellow
 }
@@ -97,7 +98,7 @@ else {
 }
 
 # ── Check 4: AI Comment Pattern Scan ───────────────────────────────
-Write-Host "[4/5] AI Comment Pattern Scan" -ForegroundColor Yellow
+Write-Host "[4/6] AI Comment Pattern Scan" -ForegroundColor Yellow
 $aiPatterns = @(
     @{ Pattern = '# Must be (after|before|placed)'; Desc = 'Instructional placement comment' }
     @{ Pattern = '# Note:.*see (below|above)'; Desc = 'Cross-reference instruction' }
@@ -131,7 +132,7 @@ else {
 }
 
 # ── Check 5: Version Consistency ────────────────────────────────────
-Write-Host "[5/5] Version Consistency" -ForegroundColor Yellow
+Write-Host "[5/6] Version Consistency" -ForegroundColor Yellow
 $versionMismatches = @()
 
 # Extract $ScriptVersion from the main script (source of truth)
@@ -325,6 +326,52 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
 }
 else {
     Write-Host "  SKIP  Could not find \$ScriptVersion in script" -ForegroundColor DarkYellow
+}
+
+# ── Check 6: gh CLI Anti-Pattern Scan ──────────────────────────────
+Write-Host "[6/6] gh CLI Anti-Pattern Scan" -ForegroundColor Yellow
+$toolsDir = Join-Path $repoRoot 'tools'
+$ghHits = @()
+if (Test-Path $toolsDir) {
+    $toolScripts = Get-ChildItem $toolsDir -Filter '*.ps1' -ErrorAction SilentlyContinue
+    foreach ($ts in $toolScripts) {
+        $tsLines = Get-Content $ts.FullName
+        for ($i = 0; $i -lt $tsLines.Count; $i++) {
+            $ln = $tsLines[$i]
+            # Skip lines that are comments, Write-Host examples, or POST/PUT/PATCH/DELETE mutations
+            if ($ln -match '^\s*#' -or $ln -match 'Write-Host' -or $ln -match '--(method|input)\s+(POST|PUT|PATCH|DELETE)' -or $ln -match '-X\s+(POST|PUT|PATCH|DELETE)') {
+                continue
+            }
+            # Skip single-resource GETs (no query string = not a list endpoint),
+            # traffic/popular endpoints (GitHub caps these, not paginated),
+            # and lines that implement manual pagination via page= parameter
+            if ($ln -match '\bgh\s+api\b' -and ($ln -match '/traffic/' -or $ln -match '[?&]page=' -or ($ln -notmatch '\?' -and $ln -notmatch '--paginate'))) {
+                continue
+            }
+            # Flag: gh api list call without --paginate (has ? query string = list endpoint)
+            # Exclude calls that filter to a specific resource (e.g. ?head=owner:branch returns 0-1 results)
+            if ($ln -match '\bgh\s+api\b' -and $ln -match '\?' -and $ln -notmatch '--paginate' -and $ln -notmatch 'graphql' -and $ln -notmatch '\?head=') {
+                $ghHits += "$($ts.Name):$($i+1) — gh api list call missing --paginate"
+            }
+            # Flag: stderr suppressed with 2>$null on gh commands
+            if ($ln -match '\bgh\s+(api|pr|issue)\b' -and $ln -match '2>\s*\$null') {
+                $ghHits += "$($ts.Name):$($i+1) — gh command uses 2>`$null (use 2>&1 + check `$LASTEXITCODE)"
+            }
+        }
+    }
+    if ($ghHits.Count -eq 0) {
+        Write-Host "  PASS  No gh CLI anti-patterns in tools/" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  FAIL  $($ghHits.Count) gh CLI anti-pattern(s) found:" -ForegroundColor Red
+        foreach ($hit in $ghHits) {
+            Write-Host "         $hit" -ForegroundColor Red
+        }
+        $failCount++
+    }
+}
+else {
+    Write-Host "  SKIP  tools/ directory not found" -ForegroundColor DarkYellow
 }
 
 # ── Summary ─────────────────────────────────────────────────────────

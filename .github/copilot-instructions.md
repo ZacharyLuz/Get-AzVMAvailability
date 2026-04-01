@@ -92,7 +92,7 @@ Run the validation script to catch issues before they reach GitHub:
 ```powershell
 .\tools\Validate-Script.ps1
 ```
-This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests, AI-comment pattern scan, and version consistency.
+This runs six checks: syntax validation, PSScriptAnalyzer linting, Pester tests, AI-comment pattern scan, version consistency, and gh CLI anti-pattern detection.
 
 ### Linting
 - PSScriptAnalyzer settings are in `PSScriptAnalyzerSettings.psd1` at the repo root.
@@ -112,6 +112,14 @@ This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests
 ### Error Handling
 - Every `catch` block must have at least `Write-Verbose` — no silent `catch { }`.
 - API calls should use `Invoke-WithRetry` for transient error resilience (429, 503, timeouts).
+
+### gh CLI Script Patterns
+Scripts in `tools/` that call `gh api` or `gh pr` must follow these rules:
+- Every `gh api` call MUST use `--paginate` unless you explicitly want only page 1.
+- Every `gh api` / `gh pr` call MUST capture output to a variable, then check `$LASTEXITCODE -ne 0` before proceeding.
+- Never use `2>$null` on `gh` commands — use `2>&1` and inspect the error.
+- CI gate scripts MUST be fail-closed: any API error → `exit 1`, never silently `exit 0`.
+- Remove debug/preview variables before committing — PSScriptAnalyzer catches unused assignments.
 
 ---
 
