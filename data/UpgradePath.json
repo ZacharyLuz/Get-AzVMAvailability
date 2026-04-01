@@ -10,9 +10,9 @@
     "Av1": {
       "family": "A",
       "version": 1,
-      "status": "Retired",
-      "retireDate": "2024-08-31",
-      "summary": "Original A-series (A0-A11, Basic_A) retired. No direct successor; workloads should move to B-series (burstable) or D-series (general purpose).",
+      "status": "Retiring",
+      "retireDate": "2028-11-15",
+      "summary": "Original A-series (A0-A11, Basic_A) capacity-limited since 2024. Final retirement 2028-11-15. Workloads should move to B-series (burstable) or D-series (general purpose).",
       "dropIn": {
         "family": "B",
         "series": "Bsv2",
@@ -53,9 +53,9 @@
     "Dv1": {
       "family": "D",
       "version": 1,
-      "status": "Retired",
-      "retireDate": "2024-08-31",
-      "summary": "Original D-series (D1-D14, DS1-DS14) retired. Microsoft recommends Dsv5 as drop-in, Dsv6 for future-proofing.",
+      "status": "Retiring",
+      "retireDate": "2028-05-01",
+      "summary": "Original D-series (D1-D14, DS1-DS14) capacity-limited since 2024. Final retirement 2028-05-01. Microsoft recommends Dsv5 as drop-in, Dsv6 for future-proofing.",
       "dropIn": {
         "family": "D",
         "series": "Dsv5",
@@ -249,8 +249,8 @@
       "family": "F",
       "version": 1,
       "status": "Retiring",
-      "retireDate": "2027-09-30",
-      "summary": "Fs-series (compute-optimized v1 with Premium SSD) retiring September 2027. Move to Fsv2 (already current) or Fasv6.",
+      "retireDate": "2028-11-15",
+      "summary": "F/Fs-series (compute-optimized v1 with Premium SSD) retiring November 2028. Move to Fsv2 (established) or Fasv6 (latest).",
       "dropIn": {
         "family": "F",
         "series": "Fsv2",
@@ -285,9 +285,9 @@
     "Gv1": {
       "family": "G",
       "version": 1,
-      "status": "Retired",
-      "retireDate": "2025-03-31",
-      "summary": "G/GS-series (memory+storage optimized) retired. Workloads should move to E-series (memory) or M-series (large memory/SAP).",
+      "status": "Retiring",
+      "retireDate": "2028-11-15",
+      "summary": "G/GS-series (memory+storage optimized) capacity-limited since 2025. Final retirement 2028-11-15. Workloads should move to E-series (memory) or M-series (large memory/SAP).",
       "dropIn": {
         "family": "E",
         "series": "Esv5",
@@ -436,9 +436,9 @@
     "Lv1": {
       "family": "L",
       "version": 1,
-      "status": "Retired",
-      "retireDate": "2024-08-31",
-      "summary": "Ls-series (storage-optimized v1) retired. Move to Lsv3 or Lasv3.",
+      "status": "Retiring",
+      "retireDate": "2028-05-01",
+      "summary": "Ls-series (storage-optimized v1) capacity-limited since 2024. Final retirement 2028-05-01. Move to Lsv3 or Lasv3.",
       "dropIn": {
         "family": "L",
         "series": "Lsv3",
@@ -618,9 +618,9 @@
     "NCv3": {
       "family": "NC",
       "version": 3,
-      "status": "Retiring",
+      "status": "Retired",
       "retireDate": "2025-09-30",
-      "summary": "NCv3 (Tesla V100 GPU) retiring September 2025. Move to NCadsA10v4 or H100-based for AI/ML.",
+      "summary": "NCv3 (Tesla V100 GPU) retired September 2025. Move to NCadsA10v4 or H100-based for AI/ML.",
       "dropIn": {
         "family": "NC",
         "series": "NCadsA10v4",
