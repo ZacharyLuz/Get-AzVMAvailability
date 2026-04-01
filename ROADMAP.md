@@ -2,7 +2,27 @@
 
 ## Current Release: v1.13.0
 
+> **Repository Freeze Notice (2026-03-31):** After v1.14.0 ships, the repo enters a feature freeze for v2.0.0 module conversion. During freeze: no new feature work, bug fixes only via hotfix branches, module work on `feat/v2-module` branch.
+
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
+
+---
+
+## Version 1.14.0 (In Progress — [PR #109](https://github.com/ZacharyLuz/Get-AzVMAvailability/pull/109))
+**Theme: Lifecycle Management**
+
+### New Features
+- [ ] **Lifecycle Recommendations (`-LifecycleRecommendations`)** — CSV/JSON/XLSX input for deployed VM SKU analysis with compatibility-validated replacement recommendations
+- [ ] **Live Scan (`-LifecycleScan`)** — Pull VM inventory directly from Azure via Resource Graph with `-ManagementGroup`, `-ResourceGroup`, `-Tag` filters
+- [ ] **Hybrid Recommendation Strategy (3+3)** — 3 upgrade path recs from curated knowledge base + 3 weighted recs from real-time scoring engine
+- [ ] **Upgrade Path Knowledge Base** — `data/UpgradePath.json` covering 19 VM families (11 retired + 8 scheduled)
+- [ ] **Compatibility Gate (`Test-SkuCompatibility`)** — 12 hard requirements enforced before scoring
+- [ ] **VM Retirement Detection (`Get-SkuRetirementInfo`)** — Flags SKUs on Microsoft's published retirement schedule
+- [ ] **`-RateOptimization`** — SP/RI savings columns in lifecycle reports
+- [ ] **`-SubMap` / `-RGMap`** — Deployment mapping for lifecycle reports
+
+### Bug Fixes
+- [ ] **#51** — ShowPlacement RBAC prerequisite documentation and proactive validation
 
 ---
 
