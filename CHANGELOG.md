@@ -23,20 +23,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pricing comparison** — monthly cost delta (`Price Diff`) and fleet-wide impact (`Total`) columns in console. XLSX adds 4 dedicated columns: `SP 1-Year`, `SP 3-Year`, `RI 1-Year`, `RI 3-Year` showing per-unit full-term costs for each alternative. Uses Azure Retail Pricing API `api-version=2023-01-01-preview`. Requires `-ShowPricing`.
 - **VM retirement detection** — `Get-SkuRetirementInfo` flags SKUs on Microsoft's published retirement schedule as High risk. Shows "Retired YYYY-MM-DD" or "Retiring YYYY-MM-DD" in Risk Reasons.
 
+### Added
+- `tools/Check-PRReadyToMerge.ps1` — pre-merge gate that lists all unreplied non-owner comment threads on the current PR (paginated, fails closed on API errors); exits non-zero if any are open
+- `tools/Audit-AllPRComments.ps1` — audits all merged PRs (fetched dynamically from GitHub) for unreplied top-level non-owner threads; used for historical backlog review
+- `tools/Reply-StaleThreads.ps1` — bulk-replies to unreplied non-owner threads on old PRs with a stale-finding notice (paginated, fails closed on API errors)
+- **Branch protection**: enabled `required_review_thread_resolution` on main — GitHub now blocks merge until all PR conversation threads are resolved
+
 ### Fixed
-- Added `edited` trigger type to `release-metadata-guard.yml` so PR body checkbox changes re-run the guard without needing an empty commit workaround
-- **Corrected retirement dates** — Updated `Get-SkuRetirementInfo` with verified dates from Microsoft Learn: Dv1 (2028-05-01), Dv2 (2028-05-01), Fsv1 (2028-11-15), NVv3 (2026-09-30). Added Bv1 (2028-11-15) and Lsv2 (2028-11-15). Removed Dv3/Ev3 (no retirement announced). Marked NCv3 as Retired.
-- **Lifecycle modes exempt from 5-region limit** — `-LifecycleRecommendations` and `-LifecycleScan` now scan all deployed regions regardless of the 5-region cap. Previously, `-NoPrompt` auto-truncated to 5 regions, causing missing pricing data for SKUs deployed in truncated regions.
-- **Upgrade path recommendations now show real scan data** — Upgrade path target SKUs (v5, v6, AMD variants) are included in the Azure SKU scan filter and looked up from raw scan data when they fail the compatibility gate against the source SKU. Previously all upgrade recs showed "Not scanned" with missing fields; now they show real capacity status, vCPU/memory/disk/IOPS deltas, and pricing from the deployed region.
-- Current-gen SKUs (v4+) no longer flagged High risk when no alternatives exist and no capacity/retirement issues present
-- `Group-Object SKU` deduplication no longer reorders recommendations — explicit score sort before selection
-- Quota-only current-gen SKUs correctly show "Request quota increase" instead of alternative SKUs
-- XLSX High/Medium Risk sheets correctly filter by parent risk level, not row-level risk
-- Lifecycle Summary sort stability via explicit group/row sequence numbers
+- `tools/Validate-Script.ps1`: added `else` branch so a missing `AzVMAvailability.psd1` now registers as a version mismatch instead of silently skipping validation; error messages now use `$psd1Path` variable instead of hard-coded path string
+- `artifacts/copilot-review-log.md`: removed duplicate PR #105 triage block
+
+## [1.13.0] - 2026-03-31
+
+### Added
+- **Write-Host gating** — module-qualified `Write-Host` override; `-JsonOutput` suppresses all console output via `$script:SuppressConsole` flag
+- **Pipeline emit guard** — objects only emitted to pipeline when `[Console]::IsOutputRedirected` is true; prevents noise in interactive terminal sessions
+- New test files: `ConvertFrom-Rest.Tests.ps1`, `WriteHost-Gating.Tests.ps1`, `Invoke-WithRetry.Tests.ps1`
+- 61 new test assertions in `HelperFunctions.Tests.ps1`
 
 ### Changed
-- Similarity scoring rebalanced to 8 dimensions (added disk IOPS 8pts, data disk count 7pts). JSON contract includes `maxDisks`, `maxNICs`, `iops` fields.
-- Broadened `.gitignore` for session/handoff docs
+- **HttpClient REST scan engine** — concurrent SKU+quota first-page fetch via `System.Net.Http.HttpClient`; parallel region scan via runspaces; ~20% faster scans
+- **O(1) capability lookup** — `_CapIndex` hashtable in `Get-CapValue` replaces linear scan
+- Broadened `.gitignore` patterns for session/handoff docs (`docs/*handoff*`, `docs/*session-notes*`)
+- Removed accidentally committed session docs from tracking (local copies preserved in `docs/archive/`)
+
+### Fixed
+- **HTTP 500 retry** — `Invoke-WithRetry` now retries `InternalServerError`/`500` in addition to `429`/`503`
+- **Scan timer** — per-subscription timer now excludes one-time pricing phase (was inflating reported scan time)
+- **Regex injection** — SKU filter replaced `-match` (user input as regex) with `-like` operator + input validation
+- **Write-Host pipeline bug** — added `process {}` block so piped input is handled per-item
+- Added `edited` trigger type to `release-metadata-guard.yml` so PR body checkbox changes re-run the guard without needing an empty commit workaround
+
+## [1.12.5] - 2026-03-27
+- Adding GitHub Codespaces Support
+- Updating Documentation
 
 ## [1.12.4] - 2026-03-21
 

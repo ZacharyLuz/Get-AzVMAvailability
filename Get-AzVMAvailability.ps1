@@ -392,11 +392,31 @@ param(
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
 
-#region GenerateInventoryTemplate
-if ($GenerateInventoryTemplate) {
-    if ($JsonOutput) { throw "Cannot use -GenerateInventoryTemplate with -JsonOutput. Template generation writes files to disk, not JSON to stdout." }
-    $csvPath = Join-Path $PWD 'inventory-template.csv'
-    $jsonPath = Join-Path $PWD 'inventory-template.json'
+# Console suppression: always-defined Write-Host override with runtime flag check.
+# Module-qualified delegation preserves original behavior when not suppressed.
+$script:SuppressConsole = $false
+function Write-Host {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
+        Justification = 'Intentional override to gate Write-Host output when -JsonOutput is active')]
+    param(
+        [Parameter(Position = 0, ValueFromPipeline)]
+        [object]$Object = '',
+        [System.ConsoleColor]$ForegroundColor,
+        [System.ConsoleColor]$BackgroundColor,
+        [switch]$NoNewline
+    )
+    process {
+        if ($script:SuppressConsole) { return }
+        Microsoft.PowerShell.Utility\Write-Host @PSBoundParameters
+    }
+}
+$script:SuppressConsole = $JsonOutput.IsPresent
+
+#region GenerateFleetTemplate
+if ($GenerateFleetTemplate) {
+    if ($JsonOutput) { throw "Cannot use -GenerateFleetTemplate with -JsonOutput. Template generation writes files to disk, not JSON to stdout." }
+    $csvPath = Join-Path $PWD 'fleet-template.csv'
+    $jsonPath = Join-Path $PWD 'fleet-template.json'
     $csvContent = @"
 SKU,Qty
 Standard_D2s_v5,10
@@ -1094,8 +1114,12 @@ function Invoke-WithRetry {
                     }
                 }
             }
+            # HTTP 500 — Internal Server Error (transient ARM error)
+            elseif ($statusCode -eq 500 -or $ex.Message -match '500|Internal Server Error|InternalServerError') {
+                $isRetryable = $true
+            }
             # HTTP 503 — Service Unavailable
-            elseif ($statusCode -eq 503 -or $ex.Message -match '503|Service Unavailable') {
+            elseif ($statusCode -eq 503 -or $ex.Message -match '503|ServiceUnavailable|Service Unavailable') {
                 $isRetryable = $true
             }
             # Network errors — timeouts, connection failures
@@ -1257,6 +1281,9 @@ function Get-AzureEndpoints {
 
 function Get-CapValue {
     param([object]$Sku, [string]$Name)
+    if ($Sku.PSObject.Properties['_CapIndex'] -and $null -ne $Sku._CapIndex) {
+        return $Sku._CapIndex[$Name]
+    }
     $cap = $Sku.Capabilities | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
     if ($cap) { return $cap.Value }
     return $null
@@ -1873,7 +1900,8 @@ function Test-SkuMatchesFilter {
         Tests if a SKU name matches any of the filter patterns.
     .DESCRIPTION
         Supports exact matches and wildcard patterns (e.g., Standard_D*_v5).
-        Case-insensitive matching.
+        Case-insensitive matching. Uses -like operator to eliminate ReDoS risk.
+        Validates patterns via length limit and character whitelist before matching.
     #>
     param([string]$SkuName, [string[]]$FilterPatterns)
 
@@ -1881,10 +1909,17 @@ function Test-SkuMatchesFilter {
         return $true  # No filter = include all
     }
 
-    foreach ($pattern in $FilterPatterns) {
-        # Convert wildcard pattern to regex
-        $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
-        if ($SkuName -match $regexPattern) {
+    foreach ($pattern in @($FilterPatterns)) {
+        if ([string]::IsNullOrWhiteSpace($pattern)) { continue }
+        if ($pattern.Length -gt 128) {
+            Write-Warning "SKU filter pattern too long (>128 chars), skipping: $($pattern.Substring(0,50))..."
+            continue
+        }
+        if ($pattern -notmatch '^[A-Za-z0-9_\-\*\?]+$') {
+            Write-Warning "SKU filter pattern contains invalid characters, skipping: $pattern"
+            continue
+        }
+        if ($SkuName -like $pattern) {
             return $true
         }
     }
@@ -2983,242 +3018,21 @@ function Test-ImageSkuCompatibility {
     }
 }
 
-function Get-AzVMPricing {
-    <#
-    .SYNOPSIS
-        Fetches VM pricing from Azure Retail Prices API.
-    .DESCRIPTION
-        Retrieves pay-as-you-go Linux pricing for VM SKUs in a given region.
-        Uses the public Azure Retail Prices API (no auth required).
-        Implements caching to minimize API calls.
-    #>
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Region,
-
-        [int]$MaxRetries = 3,
-
-        [int]$HoursPerMonth = 730,
-
-        [hashtable]$AzureEndpoints,
-
-        [string]$TargetEnvironment = 'AzureCloud',
-
-        [System.Collections.IDictionary]$Caches = @{}
-    )
-
-    if (-not $Caches.Pricing) {
-        $Caches.Pricing = @{}
-    }
-
-    $armLocation = $Region.ToLower() -replace '\s', ''
-
-    # Return cached pricing if already fetched this region
-    if ($Caches.Pricing.ContainsKey($armLocation) -and $Caches.Pricing[$armLocation]) {
-        return $Caches.Pricing[$armLocation]
-    }
-
-    # Get environment-specific endpoints (supports sovereign clouds)
-    if (-not $AzureEndpoints) {
-        $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
-    }
-
-    # Build filter for the API - get Linux consumption and reservation pricing
-    $filter = "armRegionName eq '$armLocation' and serviceName eq 'Virtual Machines'"
-
-    $regularPrices = @{}
-    $spotPrices = @{}
-    $savingsPlan1YrPrices = @{}
-    $savingsPlan3YrPrices = @{}
-    $reservation1YrPrices = @{}
-    $reservation3YrPrices = @{}
-    $apiUrl = "$($AzureEndpoints.PricingApiUrl)?api-version=2023-01-01-preview&`$filter=$([uri]::EscapeDataString($filter))"
-
-    try {
-        $nextLink = $apiUrl
-        $pageCount = 0
-        $maxPages = 20  # Fetch up to 20 pages (~20,000 price entries)
-
-        while ($nextLink -and $pageCount -lt $maxPages) {
-            $uri = $nextLink
-            $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Retail Pricing API (page $($pageCount + 1))" -ScriptBlock {
-                Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 30
-            }
-            $pageCount++
-
-            foreach ($item in $response.Items) {
-                # Filter for Linux pricing, skip Windows, Low Priority, and DevTest
-                if ($item.productName -match 'Windows' -or
-                    $item.skuName -match 'Low Priority' -or
-                    $item.meterName -match 'Low Priority' -or
-                    $item.type -eq 'DevTestConsumption') {
-                    continue
-                }
-
-                # Extract the VM size from armSkuName
-                $vmSize = $item.armSkuName
-                if (-not $vmSize) { continue }
-
-                if ($item.type -eq 'Reservation') {
-                    if ($item.reservationTerm -eq '1 Year' -and -not $reservation1YrPrices[$vmSize]) {
-                        $reservation1YrPrices[$vmSize] = @{
-                            Total    = [math]::Round($item.retailPrice, 2)
-                            Monthly  = [math]::Round($item.retailPrice / 12, 2)
-                            Currency = $item.currencyCode
-                        }
-                    }
-                    elseif ($item.reservationTerm -eq '3 Years' -and -not $reservation3YrPrices[$vmSize]) {
-                        $reservation3YrPrices[$vmSize] = @{
-                            Total    = [math]::Round($item.retailPrice, 2)
-                            Monthly  = [math]::Round($item.retailPrice / 36, 2)
-                            Currency = $item.currencyCode
-                        }
-                    }
-                    continue
-                }
-
-                $isSpot = ($item.skuName -match 'Spot' -or $item.meterName -match 'Spot')
-                $targetMap = if ($isSpot) { $spotPrices } else { $regularPrices }
-
-                if (-not $targetMap[$vmSize]) {
-                    $targetMap[$vmSize] = @{
-                        Hourly   = [math]::Round($item.retailPrice, 4)
-                        Monthly  = [math]::Round($item.retailPrice * $HoursPerMonth, 2)
-                        Currency = $item.currencyCode
-                        Meter    = $item.meterName
-                    }
-                }
-
-                # Capture savings plan pricing from consumption items
-                if (-not $isSpot -and $item.savingsPlan) {
-                    foreach ($sp in $item.savingsPlan) {
-                        if ($sp.term -eq '1 Year' -and -not $savingsPlan1YrPrices[$vmSize]) {
-                            $savingsPlan1YrPrices[$vmSize] = @{
-                                Hourly   = [math]::Round($sp.retailPrice, 4)
-                                Monthly  = [math]::Round($sp.retailPrice * $HoursPerMonth, 2)
-                                Total    = [math]::Round($sp.retailPrice * $HoursPerYear, 2)
-                                Currency = $item.currencyCode
-                            }
-                        }
-                        elseif ($sp.term -eq '3 Years' -and -not $savingsPlan3YrPrices[$vmSize]) {
-                            $savingsPlan3YrPrices[$vmSize] = @{
-                                Hourly   = [math]::Round($sp.retailPrice, 4)
-                                Monthly  = [math]::Round($sp.retailPrice * $HoursPerMonth, 2)
-                                Total    = [math]::Round($sp.retailPrice * $HoursPer3Years, 2)
-                                Currency = $item.currencyCode
-                            }
-                        }
-                    }
-                }
-            }
-
-            $nextLink = $response.NextPageLink
-        }
-
-        $result = [ordered]@{
-            Regular          = $regularPrices
-            Spot             = $spotPrices
-            SavingsPlan1Yr   = $savingsPlan1YrPrices
-            SavingsPlan3Yr   = $savingsPlan3YrPrices
-            Reservation1Yr   = $reservation1YrPrices
-            Reservation3Yr   = $reservation3YrPrices
-        }
-
-        $Caches.Pricing[$armLocation] = $result
-
-        return $result
-    }
-    catch {
-        Write-Verbose "Failed to fetch pricing for region $Region`: $_"
-        return [ordered]@{
-            Regular          = @{}
-            Spot             = @{}
-            SavingsPlan1Yr   = @{}
-            SavingsPlan3Yr   = @{}
-            Reservation1Yr   = @{}
-            Reservation3Yr   = @{}
+foreach ($pricingHelper in @(
+        'Private\Azure\Get-AzVMPricing.ps1',
+        'Private\Azure\Get-RegularPricingMap.ps1',
+        'Private\Azure\Get-SpotPricingMap.ps1',
+        'Private\Azure\Get-SavingsPlanPricingMap.ps1',
+        'Private\Azure\Get-ReservationPricingMap.ps1',
+        'Private\Azure\Get-AzActualPricing.ps1'
+    )) {
+    $pricingFunctionName = [System.IO.Path]::GetFileNameWithoutExtension($pricingHelper)
+    if (-not (Get-Command $pricingFunctionName -ErrorAction SilentlyContinue)) {
+        $pricingHelperPath = Join-Path $script:ModuleRoot $pricingHelper
+        if (Test-Path $pricingHelperPath) {
+            . $pricingHelperPath
         }
     }
-}
-
-function Get-RegularPricingMap {
-    param(
-        [Parameter(Mandatory = $false)]
-        [object]$PricingContainer
-    )
-
-    if ($null -eq $PricingContainer) {
-        return @{}
-    }
-
-    if ($PricingContainer -is [array]) {
-        $PricingContainer = $PricingContainer[0]
-    }
-
-    if ($PricingContainer -is [System.Collections.IDictionary] -and $PricingContainer.Contains('Regular')) {
-        return $PricingContainer.Regular
-    }
-
-    return $PricingContainer
-}
-
-function Get-SpotPricingMap {
-    param(
-        [Parameter(Mandatory = $false)]
-        [object]$PricingContainer
-    )
-
-    if ($null -eq $PricingContainer) {
-        return @{}
-    }
-
-    if ($PricingContainer -is [array]) {
-        $PricingContainer = $PricingContainer[0]
-    }
-
-    if ($PricingContainer -is [System.Collections.IDictionary] -and $PricingContainer.Contains('Spot')) {
-        return $PricingContainer.Spot
-    }
-
-    return @{}
-}
-
-function Get-SavingsPlanPricingMap {
-    param(
-        [Parameter(Mandatory = $false)]
-        [object]$PricingContainer,
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('1Yr','3Yr')]
-        [string]$Term
-    )
-
-    if ($null -eq $PricingContainer) { return @{} }
-    if ($PricingContainer -is [array]) { $PricingContainer = $PricingContainer[0] }
-
-    $key = "SavingsPlan$Term"
-    if ($PricingContainer -is [System.Collections.IDictionary] -and $PricingContainer.Contains($key)) {
-        return $PricingContainer[$key]
-    }
-    return @{}
-}
-
-function Get-ReservationPricingMap {
-    param(
-        [Parameter(Mandatory = $false)]
-        [object]$PricingContainer,
-        [Parameter(Mandatory = $true)]
-        [ValidateSet('1Yr','3Yr')]
-        [string]$Term
-    )
-
-    if ($null -eq $PricingContainer) { return @{} }
-    if ($PricingContainer -is [array]) { $PricingContainer = $PricingContainer[0] }
-
-    $key = "Reservation$Term"
-    if ($PricingContainer -is [System.Collections.IDictionary] -and $PricingContainer.Contains($key)) {
-        return $PricingContainer[$key]
-    }
-    return @{}
 }
 
 function Get-PlacementScores {
@@ -3322,121 +3136,17 @@ function Get-PlacementScores {
     return $scores
 }
 
-function Get-AzActualPricing {
-    <#
-    .SYNOPSIS
-        Fetches actual negotiated pricing from Azure Cost Management API.
-    .DESCRIPTION
-        Retrieves your organization's actual negotiated rates including EA/MCA/CSP discounts.
-        Requires Billing Reader or Cost Management Reader role on the billing scope.
-    .NOTES
-        This function queries the Azure Cost Management Query API to get actual meter rates.
-        It requires appropriate RBAC permissions on the billing account/subscription.
-    #>
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$SubscriptionId,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Region,
-
-        [int]$MaxRetries = 3,
-
-        [int]$HoursPerMonth = 730,
-
-        [hashtable]$AzureEndpoints,
-
-        [string]$TargetEnvironment = 'AzureCloud',
-
-        [System.Collections.IDictionary]$Caches = @{}
-    )
-
-    if (-not $Caches.ActualPricing) {
-        $Caches.ActualPricing = @{}
+if (-not (Get-Command ConvertFrom-RestSku -ErrorAction SilentlyContinue)) {
+    $restSkuHelperPath = Join-Path $script:ModuleRoot 'Private\Utility\ConvertFrom-RestSku.ps1'
+    if (Test-Path $restSkuHelperPath) {
+        . $restSkuHelperPath
     }
-    $cacheKey = "$SubscriptionId-$Region"
+}
 
-    if ($Caches.ActualPricing.ContainsKey($cacheKey)) {
-        return $Caches.ActualPricing[$cacheKey]
-    }
-
-    $armLocation = $Region.ToLower() -replace '\s', ''
-    $allPrices = @{}
-
-    try {
-        # Get environment-specific endpoints (supports sovereign clouds)
-        if (-not $AzureEndpoints) {
-            $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
-        }
-        $armUrl = $AzureEndpoints.ResourceManagerUrl
-
-        # Get access token for Azure Resource Manager (uses environment-specific URL)
-        $token = (Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop).Token
-        $headers = @{
-            'Authorization' = "Bearer $token"
-            'Content-Type'  = 'application/json'
-        }
-
-        # Query Cost Management API for price sheet data
-        # Using the consumption price sheet endpoint with environment-specific ARM URL
-        # OData exact match (eq) instead of contains() to avoid forcing a full backend scan.
-        # URL-encode the filter so spaces and quotes are valid across all HTTP clients/environments.
-        $odataFilter = [uri]::EscapeDataString("meterCategory eq 'Virtual Machines'")
-        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=$odataFilter"
-
-        try {
-            $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API" -ScriptBlock {
-                Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
-            }
-        }
-        finally {
-            $headers['Authorization'] = $null
-            $token = $null
-        }
-
-        if ($response.properties.pricesheets) {
-            foreach ($item in $response.properties.pricesheets) {
-                # Match VM SKUs by meter name pattern
-                if ($item.meterCategory -eq 'Virtual Machines' -and
-                    $item.meterRegion -eq $armLocation -and
-                    $item.meterSubCategory -notmatch 'Windows') {
-
-                    # Extract VM size from meter details
-                    $vmSize = $item.meterDetails.meterName -replace ' .*$', ''
-                    if ($vmSize -match '^[A-Z]') {
-                        $vmSize = "Standard_$vmSize"
-                    }
-
-                    if ($vmSize -and -not $allPrices.ContainsKey($vmSize)) {
-                        $allPrices[$vmSize] = @{
-                            Hourly       = [math]::Round($item.unitPrice, 4)
-                            Monthly      = [math]::Round($item.unitPrice * $HoursPerMonth, 2)
-                            Currency     = $item.currencyCode
-                            Meter        = $item.meterName
-                            IsNegotiated = $true
-                        }
-                    }
-                }
-            }
-        }
-
-        $Caches.ActualPricing[$cacheKey] = $allPrices
-        return $allPrices
-    }
-    catch {
-        $errorMsg = $_.Exception.Message
-        if ($errorMsg -match '403|401|Forbidden|Unauthorized') {
-            Write-Warning "Cost Management API access denied. Requires Billing Reader or Cost Management Reader role."
-            Write-Warning "Falling back to retail pricing."
-        }
-        elseif ($errorMsg -match '404|NotFound') {
-            Write-Warning "Cost Management price sheet not available for this subscription type."
-            Write-Warning "This feature requires EA, MCA, or CSP billing. Falling back to retail pricing."
-        }
-        else {
-            Write-Verbose "Failed to fetch actual pricing: $errorMsg"
-        }
-        return $null  # Return null to signal fallback needed
+if (-not (Get-Command ConvertFrom-RestQuota -ErrorAction SilentlyContinue)) {
+    $restQuotaHelperPath = Join-Path $script:ModuleRoot 'Private\Utility\ConvertFrom-RestQuota.ps1'
+    if (Test-Path $restQuotaHelperPath) {
+        . $restQuotaHelperPath
     }
 }
 
@@ -4006,10 +3716,11 @@ $initialSubscriptionId = if ($initialAzContext -and $initialAzContext.Subscripti
 
 # Outer try/finally ensures Az context is restored even if Ctrl+C or PipelineStoppedException
 # interrupts parallel scanning, results processing, or export
+$scanStartTime = Get-Date
 try {
     try {
         foreach ($subId in $TargetSubIds) {
-        $scanStartTime = Get-Date
+        $subscriptionScanStartTime = Get-Date
         try {
             Use-SubscriptionContextSafely -SubscriptionId $subId | Out-Null
         }
@@ -4025,8 +3736,12 @@ try {
         $regionCount = $Regions.Count
         Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $regionCount region(s) in parallel..." -PercentComplete 0
 
+        # Shared retry error pattern for all scan paths
+        $retryErrorPattern = '429|Too Many Requests|500|Internal Server Error|InternalServerError|503|ServiceUnavailable|Service Unavailable'
+
         $scanRegionScript = {
-            param($region, $skuFilterCopy, $maxRetries, $skipQuota)
+            param($region, $skuFilterCopy, $maxRetries, $armUrl, $bearerToken, $retryPattern)
+            $boundRetryPattern = $retryPattern
 
             # Inline retry — parallel runspaces cannot see script-scope functions
             $retryCall = {
@@ -4039,8 +3754,7 @@ try {
                     catch {
                         $attempt++
                         $msg = $_.Exception.Message
-                        $isThrottle = $msg -match '429' -or $msg -match 'Too Many Requests' -or
-                        $msg -match '503' -or $msg -match 'ServiceUnavailable'
+                        $isThrottle = $msg -match $boundRetryPattern
                         if ($isThrottle -and $attempt -le $Retries) {
                             $baseDelay = [math]::Pow(2, $attempt)
                             $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
@@ -4053,39 +3767,62 @@ try {
             }
 
             try {
-                $allSkus = & $retryCall -Action {
-                    Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
-                    Where-Object { $_.ResourceType -eq 'virtualMachines' }
-                } -Retries $maxRetries
+                $headers = @{ 'Authorization' = "Bearer $bearerToken"; 'Content-Type' = 'application/json' }
+
+                $skuUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
+                $quotaUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
+
+                # Fetch SKUs with pagination
+                $skuResult = [System.Collections.Generic.List[object]]::new()
+                $nextLink = $skuUri
+                while ($nextLink) {
+                    $capturedLink = $nextLink
+                    $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedLink -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
+                    foreach ($item in $resp.value) { $skuResult.Add($item) }
+                    $nextLink = $resp.nextLink
+                }
+
+                # Fetch quotas
+                $capturedQuotaUri = $quotaUri
+                $quotaResp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedQuotaUri -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
+                $quotaResult = $quotaResp.value
+
+                # Filter to virtualMachines only
+                $allSkus = @($skuResult | Where-Object { $_.resourceType -eq 'virtualMachines' })
 
                 # Apply SKU filter if specified
                 if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
-                    $allSkus = $allSkus | Where-Object {
-                        $skuName = $_.Name
+                    $allSkus = @($allSkus | Where-Object {
+                        $skuName = $_.name
                         $isMatch = $false
                         foreach ($pattern in $skuFilterCopy) {
-                            $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
-                            if ($skuName -match $regexPattern) {
+                            if ($skuName -like $pattern) {
                                 $isMatch = $true
                                 break
                             }
                         }
                         $isMatch
-                    }
+                    })
                 }
 
-                $quotas = if ($skipQuota) { @() } else {
-                    & $retryCall -Action {
-                        Get-AzVMUsage -Location $region -ErrorAction Stop
-                    } -Retries $maxRetries
-                }
+                # Normalize REST response objects to match cmdlet output shape
+                $normalizedSkus = foreach ($sku in $allSkus) { ConvertFrom-RestSku -RestSku $sku }
+                $normalizedQuotas = foreach ($q in $quotaResult) { ConvertFrom-RestQuota -RestQuota $q }
 
-                @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
+                @{ Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
             }
             catch {
                 @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
             }
         }
+
+        # Get bearer token for REST calls
+        $armUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
+        $armUrl = $armUrl.TrimEnd('/')
+        $tokenResult = Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop
+        $bearerToken = if ($tokenResult.Token -is [System.Security.SecureString]) {
+            [System.Net.NetworkCredential]::new('', $tokenResult.Token).Password
+        } else { $tokenResult.Token }
 
         $canUseParallel = $PSVersionTable.PSVersion.Major -ge 7
         if ($canUseParallel) {
@@ -4094,7 +3831,10 @@ try {
                     $region = [string]$_
                     $skuFilterCopy = $using:SkuFilter
                     $maxRetries = $using:MaxRetries
-                    $skipQuota = $using:NoQuota
+                    $armUrl = $using:armUrl
+                    $bearerToken = $using:bearerToken
+                    $subId = $using:subId
+                    $retryPattern = $using:retryErrorPattern
 
                     # Inline retry — parallel runspaces cannot see script-scope functions or external scriptblocks
                     $retryCall = {
@@ -4107,8 +3847,7 @@ try {
                             catch {
                                 $attempt++
                                 $msg = $_.Exception.Message
-                                $isThrottle = $msg -match '429' -or $msg -match 'Too Many Requests' -or
-                                $msg -match '503' -or $msg -match 'ServiceUnavailable' -or $msg -match 'Service Unavailable'
+                                $isThrottle = $msg -match $retryPattern
                                 if ($isThrottle -and $attempt -le $Retries) {
                                     $baseDelay = [math]::Pow(2, $attempt)
                                     $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
@@ -4121,33 +3860,106 @@ try {
                     }
 
                     try {
-                        $allSkus = & $retryCall -Action {
-                            Get-AzComputeResourceSku -Location $region -ErrorAction Stop |
-                            Where-Object { $_.ResourceType -eq 'virtualMachines' }
-                        } -Retries $maxRetries
+                        $headers = @{ 'Authorization' = "Bearer $bearerToken"; 'Content-Type' = 'application/json' }
+
+                        $skuUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
+                        $quotaUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
+
+                        # Concurrent first-page fetch: HttpClient fires SKU + quota in parallel
+                        $client = [System.Net.Http.HttpClient]::new()
+                        $client.DefaultRequestHeaders.TryAddWithoutValidation('Authorization', "Bearer $bearerToken") | Out-Null
+                        $skuTask   = $client.GetStringAsync($skuUri)
+                        $quotaTask = $client.GetStringAsync($quotaUri)
+                        [System.Threading.Tasks.Task]::WaitAll(@($skuTask, $quotaTask))
+                        $client.Dispose()
+
+                        if ($skuTask.IsFaulted)   { throw $skuTask.Exception.GetBaseException() }
+                        if ($quotaTask.IsFaulted) { throw $quotaTask.Exception.GetBaseException() }
+
+                        $skuJson   = $skuTask.Result   | ConvertFrom-Json
+                        $quotaJson = $quotaTask.Result | ConvertFrom-Json
+
+                        $skuItems = [System.Collections.Generic.List[object]]::new()
+                        foreach ($item in $skuJson.value) { $skuItems.Add($item) }
+
+                        # Paginate remaining SKU pages sequentially
+                        $nextLink = $skuJson.nextLink
+                        while ($nextLink) {
+                            $capturedUri = $nextLink
+                            $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedUri -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
+                            foreach ($item in $resp.value) { $skuItems.Add($item) }
+                            $nextLink = $resp.nextLink
+                        }
+
+                        # Filter to virtualMachines
+                        $allSkus = @($skuItems | Where-Object { $_.resourceType -eq 'virtualMachines' })
 
                         if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
-                            $allSkus = $allSkus | Where-Object {
-                                $skuName = $_.Name
+                            $allSkus = @($allSkus | Where-Object {
+                                $skuName = $_.name
                                 $isMatch = $false
                                 foreach ($pattern in $skuFilterCopy) {
-                                    $regexPattern = '^' + [regex]::Escape($pattern).Replace('\*', '.*').Replace('\?', '.') + '$'
-                                    if ($skuName -match $regexPattern) {
+                                    if ($skuName -like $pattern) {
                                         $isMatch = $true
                                         break
                                     }
                                 }
                                 $isMatch
+                            })
+                        }
+
+                        # Normalize REST response inline (can't call script-scope functions from parallel runspace)
+                        $normalizedSkus = foreach ($sku in $allSkus) {
+                            $locInfo = if ($sku.locationInfo) {
+                                foreach ($li in $sku.locationInfo) {
+                                    [pscustomobject]@{ Location = $li.location; Zones = @($li.zones) }
+                                }
+                            } else { @() }
+
+                            $restrictions = if ($sku.restrictions) {
+                                foreach ($r in $sku.restrictions) {
+                                    [pscustomobject]@{
+                                        Type            = $r.type
+                                        ReasonCode      = $r.reasonCode
+                                        RestrictionInfo = if ($r.restrictionInfo) {
+                                            [pscustomobject]@{ Zones = @($r.restrictionInfo.zones); Locations = @($r.restrictionInfo.locations) }
+                                        } else { $null }
+                                    }
+                                }
+                            } else { @() }
+
+                            $caps = if ($sku.capabilities) {
+                                foreach ($c in $sku.capabilities) {
+                                    [pscustomobject]@{ Name = $c.name; Value = $c.value }
+                                }
+                            } else { @() }
+
+                            $capIndex = @{}
+                            foreach ($c in $caps) { $capIndex[$c.Name] = $c.Value }
+
+                            [pscustomobject]@{
+                                Name         = $sku.name
+                                ResourceType = $sku.resourceType
+                                Family       = $sku.family
+                                LocationInfo = @($locInfo)
+                                Restrictions = @($restrictions)
+                                Capabilities = @($caps)
+                                _CapIndex    = $capIndex
                             }
                         }
 
-                        $quotas = if ($skipQuota) { @() } else {
-                            & $retryCall -Action {
-                                Get-AzVMUsage -Location $region -ErrorAction Stop
-                            } -Retries $maxRetries
+                        $normalizedQuotas = foreach ($q in $quotaJson.value) {
+                            [pscustomobject]@{
+                                Name = [pscustomobject]@{
+                                    Value          = $q.name.value
+                                    LocalizedValue = $q.name.localizedValue
+                                }
+                                CurrentValue = $q.currentValue
+                                Limit        = $q.limit
+                            }
                         }
 
-                        @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
+                        @{ Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
                     }
                     catch {
                         @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
@@ -4163,13 +3975,16 @@ try {
 
         if (-not $canUseParallel) {
             $regionData = foreach ($region in $Regions) {
-                & $scanRegionScript -region ([string]$region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -skipQuota $NoQuota.IsPresent
+                & $scanRegionScript -region ([string]$region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern
             }
         }
 
+        # Zero out bearer token after use
+        $bearerToken = $null
+
         Write-Progress -Activity "Scanning Azure Regions" -Completed
 
-        $scanElapsed = (Get-Date) - $scanStartTime
+        $scanElapsed = (Get-Date) - $subscriptionScanStartTime
         Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
 
         $allSubscriptionData += @{
@@ -5524,6 +5339,13 @@ $script:RunContext.ScanOutput = New-ScanOutputContract -SubscriptionData $allSub
 if ($JsonOutput) {
     $script:RunContext.ScanOutput | ConvertTo-Json -Depth 8
     return
+}
+
+# Emit structured objects to pipeline only when console stdout is redirected (e.g., > file.txt or Start-Transcript).
+# [Console]::IsOutputRedirected detects console-level redirection only — it does NOT detect PS pipeline usage.
+# For interactive pipeline scenarios, use -JsonOutput. A dedicated -PassThru switch is planned for v2.0.
+if (-not $JsonOutput -and $familyDetails.Count -gt 0 -and [Console]::IsOutputRedirected) {
+    $familyDetails
 }
 
 #region Drill-Down (if enabled)

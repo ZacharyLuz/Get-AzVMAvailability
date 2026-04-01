@@ -1,0 +1,15 @@
+{
+  "name": "PowerShell Codespace",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/powershell:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.powershell"
+      ]
+    }
+  },
+  "postCreateCommand": "pwsh -File .devcontainer/install-modules.ps1"
+}

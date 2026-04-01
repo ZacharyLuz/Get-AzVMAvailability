@@ -49,6 +49,8 @@
         'Get-SafeString'
         'Get-GeoGroup'
         'Get-QuotaAvailable'
+        'ConvertFrom-RestSku'
+        'ConvertFrom-RestQuota'
         'ConvertTo-ExcelColumnLetter'
         'Use-SubscriptionContextSafely'
         'Restore-OriginalSubscriptionContext'

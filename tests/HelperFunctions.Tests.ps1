@@ -74,6 +74,46 @@ Describe "Get-CapValue" {
         $emptySku = [PSCustomObject]@{ Name = 'Standard_B1s'; Capabilities = @() }
         Get-CapValue -Sku $emptySku -Name 'vCPUs' | Should -BeNullOrEmpty
     }
+
+    Context "_CapIndex fast path" {
+        It "Returns value from _CapIndex hashtable when present" {
+            $indexedSku = [PSCustomObject]@{
+                Name         = 'Standard_D4s_v5'
+                Capabilities = @()
+                _CapIndex    = @{ vCPUs = '4'; MemoryGB = '16' }
+            }
+            Get-CapValue -Sku $indexedSku -Name 'vCPUs' | Should -Be '4'
+            Get-CapValue -Sku $indexedSku -Name 'MemoryGB' | Should -Be '16'
+        }
+
+        It "Returns null from _CapIndex for missing capability" {
+            $indexedSku = [PSCustomObject]@{
+                Name         = 'Standard_D4s_v5'
+                Capabilities = @()
+                _CapIndex    = @{ vCPUs = '4' }
+            }
+            Get-CapValue -Sku $indexedSku -Name 'GPUCount' | Should -BeNullOrEmpty
+        }
+
+        It "Handles _CapIndex with value of zero correctly" {
+            $indexedSku = [PSCustomObject]@{
+                Name         = 'Standard_D4s_v5'
+                Capabilities = @()
+                _CapIndex    = @{ GPUCount = '0' }
+            }
+            Get-CapValue -Sku $indexedSku -Name 'GPUCount' | Should -Be '0'
+        }
+
+        It "Falls back to array scan when _CapIndex is absent" {
+            $noIndexSku = [PSCustomObject]@{
+                Name         = 'Standard_D2s_v3'
+                Capabilities = @(
+                    [PSCustomObject]@{ Name = 'vCPUs'; Value = '2' }
+                )
+            }
+            Get-CapValue -Sku $noIndexSku -Name 'vCPUs' | Should -Be '2'
+        }
+    }
 }
 
 Describe "Get-SkuFamily" {
@@ -254,6 +294,27 @@ Describe "Test-SkuMatchesFilter" {
 
         It "Returns false when no pattern matches" {
             Test-SkuMatchesFilter -SkuName 'Standard_D2s_v3' -FilterPatterns @('Standard_E*', 'Standard_F*') | Should -BeFalse
+        }
+    }
+
+    Context "Input validation — length limit" {
+        It "Rejects patterns longer than 128 characters" {
+            $longPattern = 'Standard_' + ('A' * 120)
+            Test-SkuMatchesFilter -SkuName 'Standard_D2s_v3' -FilterPatterns @($longPattern) | Should -BeFalse
+        }
+    }
+
+    Context "Input validation — character whitelist" {
+        It "Rejects patterns with regex metacharacters" {
+            Test-SkuMatchesFilter -SkuName 'Standard_D2s_v3' -FilterPatterns @('Standard_(D|E)*') | Should -BeFalse
+        }
+
+        It "Rejects patterns with semicolons" {
+            Test-SkuMatchesFilter -SkuName 'Standard_D2s_v3' -FilterPatterns @('Standard_D2s_v3;drop') | Should -BeFalse
+        }
+
+        It "Accepts valid patterns with wildcards, hyphens, underscores" {
+            Test-SkuMatchesFilter -SkuName 'Standard_D2s_v3' -FilterPatterns @('Standard_D*_v?') | Should -BeTrue
         }
     }
 }

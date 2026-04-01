@@ -92,7 +92,7 @@ Run the validation script to catch issues before they reach GitHub:
 ```powershell
 .\tools\Validate-Script.ps1
 ```
-This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests, AI-comment pattern scan, and version consistency.
+This runs six checks: syntax validation, PSScriptAnalyzer linting, Pester tests, AI-comment pattern scan, version consistency, and gh CLI anti-pattern detection.
 
 ### Linting
 - PSScriptAnalyzer settings are in `PSScriptAnalyzerSettings.psd1` at the repo root.
@@ -112,6 +112,14 @@ This runs five checks: syntax validation, PSScriptAnalyzer linting, Pester tests
 ### Error Handling
 - Every `catch` block must have at least `Write-Verbose` — no silent `catch { }`.
 - API calls should use `Invoke-WithRetry` for transient error resilience (429, 503, timeouts).
+
+### gh CLI Script Patterns
+Scripts in `tools/` that call `gh api` or `gh pr` must follow these rules:
+- Every `gh api` call MUST use `--paginate` unless you explicitly want only page 1.
+- Every `gh api` / `gh pr` call MUST capture output to a variable, then check `$LASTEXITCODE -ne 0` before proceeding.
+- Never use `2>$null` on `gh` commands — use `2>&1` and inspect the error.
+- CI gate scripts MUST be fail-closed: any API error → `exit 1`, never silently `exit 0`.
+- Remove debug/preview variables before committing — PSScriptAnalyzer catches unused assignments.
 
 ---
 
@@ -172,11 +180,20 @@ All 9 original `exit` calls (Lines 394, 2611, 2691, 2697, 2733, 2762, 2793, 3597
 have been replaced with `throw` (error paths) and `return` (user-initiated cancellation).
 The script no longer kills the caller's session when dot-sourced or called from another script.
 
-### Pipeline Composability (zero pipeline output)
-The script emits nothing to the pipeline — all data rendered via `Write-Host`.
-`$familyDetails` (built at L3470) and the output contracts contain properly
-structured `[PSCustomObject]` arrays but are never emitted. The minimal fix is
-adding `$familyDetails` output after the processing loop for non-JSON mode.
+### Pipeline Composability
+The script currently emits `$familyDetails` to the pipeline only when
+`[Console]::IsOutputRedirected` is true (piped, assigned to variable, or
+redirected to file). In interactive terminal mode, objects are suppressed to
+preserve the clean Write-Host UX. This guard was added after the Best-of-Breed
+tournament (Mar 2026) showed that unconditional emit produced 2,255+ noisy
+`@{...}` lines when output was captured (`*>&1`, `Tee-Object`, transcript).
+
+**v2.0.0 requirement:** Pipeline emit must become **opt-in only** (e.g.,
+`-PassThru` switch). Do NOT merge unconditional pipeline emit into main.
+Options for v2.0.0:
+- `-PassThru` switch: explicit opt-in, zero surprise
+- Auto-detect `[Console]::IsOutputRedirected`: emit only when piped
+- Module conversion: objects become primary output, Write-Host secondary
 
 ### Module Conversion — Function Extraction Order (v2.0.0)
 Extract in this order to minimize risk:
