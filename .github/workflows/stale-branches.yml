@@ -32,7 +32,7 @@ jobs:
             let errors = 0;
 
             for (const branch of branches) {
-              if (protectedBranches.includes(branch.name)) {
+              if (branch.protected || protectedBranches.includes(branch.name)) {
                 console.log(`KEEP (protected): ${branch.name}`);
                 kept++;
                 continue;
