@@ -8,18 +8,19 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
-## Version 1.14.0 (In Progress — [PR #109](https://github.com/ZacharyLuz/Get-AzVMAvailability/pull/109))
+## Version 1.14.0 (Released)
 **Theme: Lifecycle Management**
 
 ### New Features
-- [ ] **Lifecycle Recommendations (`-LifecycleRecommendations`)** — CSV/JSON/XLSX input for deployed VM SKU analysis with compatibility-validated replacement recommendations
-- [ ] **Live Scan (`-LifecycleScan`)** — Pull VM inventory directly from Azure via Resource Graph with `-ManagementGroup`, `-ResourceGroup`, `-Tag` filters
-- [ ] **Hybrid Recommendation Strategy (3+3)** — 3 upgrade path recs from curated knowledge base + 3 weighted recs from real-time scoring engine
-- [ ] **Upgrade Path Knowledge Base** — `data/UpgradePath.json` covering 19 VM families (11 retired + 8 scheduled)
-- [ ] **Compatibility Gate (`Test-SkuCompatibility`)** — 12 hard requirements enforced before scoring
-- [ ] **VM Retirement Detection (`Get-SkuRetirementInfo`)** — Flags SKUs on Microsoft's published retirement schedule
-- [ ] **`-RateOptimization`** — SP/RI savings columns in lifecycle reports
-- [ ] **`-SubMap` / `-RGMap`** — Deployment mapping for lifecycle reports
+- [x] **Lifecycle Recommendations (`-LifecycleRecommendations`)** — CSV/JSON/XLSX input for deployed VM SKU analysis with compatibility-validated replacement recommendations
+- [x] **Live Scan (`-LifecycleScan`)** — Pull VM inventory directly from Azure via Resource Graph with `-ManagementGroup`, `-ResourceGroup`, `-Tag` filters
+- [x] **Hybrid Recommendation Strategy (3+3)** — 3 upgrade path recs from curated knowledge base + 3 weighted recs from real-time scoring engine
+- [x] **Upgrade Path Knowledge Base** — `data/UpgradePath.json` covering 19 VM families (11 retired + 8 scheduled)
+- [x] **Compatibility Gate (`Test-SkuCompatibility`)** — 12 hard requirements enforced before scoring
+- [x] **VM Retirement Detection (`Get-SkuRetirementInfo`)** — Flags SKUs on Microsoft's published retirement schedule
+- [x] **`-RateOptimization`** — SP/RI savings columns in lifecycle reports
+- [x] **`-SubMap` / `-RGMap`** — Deployment mapping for lifecycle reports
+- [x] **Azure Advisor Retirement Detection (`Get-AdvisorRetirementData`)** — Live retirement data from Advisor API
 
 ### Bug Fixes
 - [ ] **#51** — ShowPlacement RBAC prerequisite documentation and proactive validation

@@ -68,7 +68,7 @@
             Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
             LicenseUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability'
-            ReleaseNotes = 'Restored inline function fallback for standalone single-file downloads. Module scaffold with 34 extracted functions.'
+            ReleaseNotes = 'v1.14.0: Lifecycle Management — recommendations, live scan, upgrade path knowledge base, Azure Advisor retirement detection, compatibility gate, deployment mapping.'
         }
     }
 }
