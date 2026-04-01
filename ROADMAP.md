@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Release: v1.13.0
+## Current Release: v1.14.0
 
 > **Repository Freeze Notice (2026-03-31):** After v1.14.0 ships, the repo enters a feature freeze for v2.0.0 module conversion. During freeze: no new feature work, bug fixes only via hotfix branches, module work on `feat/v2-module` branch.
 

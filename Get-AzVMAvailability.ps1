@@ -125,7 +125,7 @@
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
     Created:        2026-01-21
-    Version:        1.13.0
+    Version:        1.14.0
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -857,7 +857,7 @@ if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
 }
 
 #region Configuration
-$ScriptVersion = "1.13.0"
+$ScriptVersion = "1.14.0"
 
 #region Constants
 $HoursPerMonth = 730
