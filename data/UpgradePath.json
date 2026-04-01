@@ -775,8 +775,8 @@
       "family": "NV",
       "version": 3,
       "status": "Retiring",
-      "retireDate": "2025-09-30",
-      "summary": "NVv3 (Tesla M60 refresh) retiring September 2025. Move to NVadsA10v5.",
+      "retireDate": "2026-09-30",
+      "summary": "NVv3 (Tesla M60 refresh) retiring September 2026. Move to NVadsA10v5.",
       "dropIn": {
         "family": "NV",
         "series": "NVadsA10v5",

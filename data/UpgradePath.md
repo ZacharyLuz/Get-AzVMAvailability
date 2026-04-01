@@ -245,7 +245,7 @@ Tesla M60 GPU retired.
 
 ---
 
-### NVv3 — GPU Visualization *(Retiring 2025-09-30)*
+### NVv3 — GPU Visualization *(Retiring 2026-09-30)*
 
 M60 refresh retiring.
 
