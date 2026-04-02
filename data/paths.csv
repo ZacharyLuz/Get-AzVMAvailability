@@ -149,3 +149,13 @@
 "2026-04-01","/ZacharyLuz/Get-AzVMAvailability/pull/79","fix: inline parallel scan logic to fix ForEach-Object -Parallel scriptblock e...",14,1
 "2026-04-01","/ZacharyLuz/Get-AzVMAvailability/pull/89","feat: module scaffold — extract 34 functions into AzVMAvailability/ module by...",12,1
 "2026-04-01","/ZacharyLuz/Get-AzVMAvailability/releases","Releases · ZacharyLuz/Get-AzVMAvailability",10,5
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability","ZacharyLuz/Get-AzVMAvailability: A comprehensive PowerShell tool for checking...",193,84
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pulls","Pull requests · ZacharyLuz/Get-AzVMAvailability",78,4
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability/blob/main/Get-AzVMAvailability.ps1","Get-AzVMAvailability/Get-AzVMAvailability.ps1 at main · ZacharyLuz/Get-AzVMAv...",24,8
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pull/99","feat: Lifecycle Management — recommendations, live scan, upgrade path knowled...",20,5
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability/issues","GitHub · Where software is built",17,8
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pull/100","Install impr by joelbyford · Pull Request #100 · ZacharyLuz/Get-AzVMAvailabil...",16,4
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pull/99/commits","feat: Lifecycle Management — recommendations, live scan, upgrade path knowled...",14,3
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pull/79","fix: inline parallel scan logic to fix ForEach-Object -Parallel scriptblock e...",14,1
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pull/104","perf/security: scan engine hardening — all 7 goals from multi-model code revi...",13,1
+"2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pull/89","feat: module scaffold — extract 34 functions into AzVMAvailability/ module by...",12,1
