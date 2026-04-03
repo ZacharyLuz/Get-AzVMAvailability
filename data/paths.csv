@@ -159,3 +159,13 @@
 "2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pull/79","fix: inline parallel scan logic to fix ForEach-Object -Parallel scriptblock e...",14,1
 "2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pull/104","perf/security: scan engine hardening — all 7 goals from multi-model code revi...",13,1
 "2026-04-02","/ZacharyLuz/Get-AzVMAvailability/pull/89","feat: module scaffold — extract 34 functions into AzVMAvailability/ module by...",12,1
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability","Overview",246,93
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability/pulls","/pulls",92,4
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability/blob/main/Get-AzVMAvailability.ps1","/blob/main/Get-AzVMAvailability.ps1",27,7
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability/issues","/issues",21,8
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability/pull/99","/pull/99",21,5
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability/pull/104","/pull/104",17,1
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability/pull/100","/pull/100",16,4
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability/pull/99/commits","/pull/99/commits",15,4
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability/tree/main","/tree/main",14,4
+"2026-04-03","/ZacharyLuz/Get-AzVMAvailability/pull/79","/pull/79",14,1
