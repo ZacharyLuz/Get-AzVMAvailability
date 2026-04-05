@@ -2,12 +2,18 @@ name: Collect Traffic Data
 
 on:
   schedule:
-    # Run 4x/day at 00:00, 06:00, 12:00, 18:00 UTC
-    - cron: '0 0,6,12,18 * * *'
+    # Run 2x/day at ~8 AM and ~8 PM ET (12:00 and 00:00 UTC during EDT)
+    - cron: '0 0,12 * * *'
   watch:
-    types: [started]   # star event
-  fork:                # fork event
+    types: [started]   # star event — rebuilds stars.csv immediately
+  fork:                # fork event — updates repo-stats.csv immediately
   workflow_dispatch:   # manual trigger
+
+# Prevent concurrent runs from racing on git push to traffic-data branch.
+# cancel-in-progress discards redundant runs when multiple stars arrive in a burst.
+concurrency:
+  group: collect-traffic
+  cancel-in-progress: true
 
 permissions:
   contents: write
