@@ -92,25 +92,60 @@ $refUniques = ($referrers | ForEach-Object { [int]$_.UniqueVisitors }) | Convert
 $pathLabels = ($paths | ForEach-Object { $_.Path -replace '^/ZacharyLuz/Get-AzVMAvailability', '' -replace '^$', '/' }) | ConvertTo-Json -Compress
 $pathViews  = ($paths | ForEach-Object { [int]$_.TotalViews }) | ConvertTo-Json -Compress
 
-$totalViews14d  = ($views  | ForEach-Object { [int]$_.TotalViews }  | Measure-Object -Sum).Sum
-$uniqueViews14d = ($views  | ForEach-Object { [int]$_.UniqueViews } | Measure-Object -Sum).Sum
-$totalClones14d = ($clones | ForEach-Object { [int]$_.TotalClones } | Measure-Object -Sum).Sum
-$uniqueClones14d= ($clones | ForEach-Object { [int]$_.UniqueClones }| Measure-Object -Sum).Sum
+# All-time totals
+$totalViewsAllTime  = ($views  | ForEach-Object { [int]$_.TotalViews }  | Measure-Object -Sum).Sum
+$uniqueViewsAllTime = ($views  | ForEach-Object { [int]$_.UniqueViews } | Measure-Object -Sum).Sum
+$totalClonesAllTime = ($clones | ForEach-Object { [int]$_.TotalClones } | Measure-Object -Sum).Sum
+$uniqueClonesAllTime= ($clones | ForEach-Object { [int]$_.UniqueClones }| Measure-Object -Sum).Sum
 $totalStars     = if ($stars.Count -gt 0) { ($stars[-1]).CumulativeStars } else { 0 }
 $latestStats    = if ($repoStats.Count -gt 0) { $repoStats[-1] } else { $null }
 $latestReleaseDownloads = if (@($releaseDownloads).Count -gt 0) { @($releaseDownloads)[-1] } else { $null }
 $generatedAt    = (Get-Date).ToString('MMM d, yyyy \a\t h:mm tt')
 $dateRange      = if ($views.Count -gt 0) { "$($views[0].Date) — $($views[-1].Date)" } else { 'No data' }
 
-# Day-over-day change
-$viewDelta = if ($views.Count -ge 2) {
-    $prev = [int]$views[-2].TotalViews; $curr = [int]$views[-1].TotalViews
-    if ($prev -gt 0) { [math]::Round(($curr - $prev) / $prev * 100) } else { 0 }
-} else { 0 }
-$cloneDelta = if ($clones.Count -ge 2) {
-    $prev = [int]$clones[-2].TotalClones; $curr = [int]$clones[-1].TotalClones
-    if ($prev -gt 0) { [math]::Round(($curr - $prev) / $prev * 100) } else { 0 }
-} else { 0 }
+#region Rolling Window Calculations
+function Get-RollingDelta {
+    param(
+        [array]$Data,
+        [string]$ValueProperty,
+        [int]$WindowDays
+    )
+    if ($Data.Count -lt ($WindowDays + 1)) { return @{ Current = 0; Prior = 0; Delta = 0; HasData = $false } }
+    $sorted = $Data | Sort-Object Date
+    $cutoff = ([datetime]$sorted[-1].Date).AddDays(-$WindowDays)
+    $priorCutoff = $cutoff.AddDays(-$WindowDays)
+
+    $current = ($sorted | Where-Object { [datetime]$_.Date -gt $cutoff } |
+        ForEach-Object { [int]$_.$ValueProperty } | Measure-Object -Sum).Sum
+    $prior = ($sorted | Where-Object { [datetime]$_.Date -gt $priorCutoff -and [datetime]$_.Date -le $cutoff } |
+        ForEach-Object { [int]$_.$ValueProperty } | Measure-Object -Sum).Sum
+
+    $delta = if ($prior -gt 0) { [math]::Round(($current - $prior) / $prior * 100) } else { 0 }
+    return @{ Current = $current; Prior = $prior; Delta = $delta; HasData = ($prior -gt 0) }
+}
+
+# Week-over-week (7d vs prior 7d)
+$viewsWoW  = Get-RollingDelta -Data $views  -ValueProperty 'TotalViews'  -WindowDays 7
+$clonesWoW = Get-RollingDelta -Data $clones -ValueProperty 'TotalClones' -WindowDays 7
+
+# 14d vs prior 14d
+$views14d  = Get-RollingDelta -Data $views  -ValueProperty 'TotalViews'  -WindowDays 14
+$clones14d = Get-RollingDelta -Data $clones -ValueProperty 'TotalClones' -WindowDays 14
+
+# Unique counts for current 7d window
+$uniqueViewsWoW  = if ($views.Count -ge 7) {
+    $cutoff = ([datetime]($views | Sort-Object Date | Select-Object -Last 1).Date).AddDays(-7)
+    ($views | Where-Object { [datetime]$_.Date -gt $cutoff } | ForEach-Object { [int]$_.UniqueViews } | Measure-Object -Sum).Sum
+} else { $uniqueViewsAllTime }
+$uniqueClonesWoW = if ($clones.Count -ge 7) {
+    $cutoff = ([datetime]($clones | Sort-Object Date | Select-Object -Last 1).Date).AddDays(-7)
+    ($clones | Where-Object { [datetime]$_.Date -gt $cutoff } | ForEach-Object { [int]$_.UniqueClones } | Measure-Object -Sum).Sum
+} else { $uniqueClonesAllTime }
+
+# Use WoW delta as the primary badge
+$viewDelta  = $viewsWoW.Delta
+$cloneDelta = $clonesWoW.Delta
+#endregion
 #endregion
 
 #region Generate HTML
@@ -383,6 +418,85 @@ $html = @'
   .range-opt .check { font-size: 14px; color: var(--blue); visibility: hidden; }
   .range-opt.active .check { visibility: visible; }
 
+  /* Weekly trend table */
+  .trend-table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 28px 32px;
+    margin-bottom: 16px;
+  }
+  .trend-table-card h3 {
+    font-size: 16px; font-weight: 700;
+    color: var(--text-1);
+    margin: 0 0 4px;
+  }
+  .trend-table-card .tt-sub {
+    font-size: 13px; color: var(--text-3);
+    margin-bottom: 16px;
+  }
+  .trend-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .trend-table th {
+    text-align: left;
+    font-size: 11px; font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .trend-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-2);
+  }
+  .trend-table tr:last-child td { border-bottom: none; }
+  .trend-table tr:hover td { background: var(--surface-raised); }
+  .trend-table .td-up { color: #4ade80; }
+  .trend-table .td-down { color: #fb7185; }
+  .trend-table .td-flat { color: var(--text-3); }
+  .trend-table .td-value { color: var(--text-1); font-weight: 600; }
+
+  /* Insights row */
+  .insights {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 900px) { .insights { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .insights { grid-template-columns: 1fr; } }
+  .insight-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 20px 24px;
+    transition: background 0.2s;
+  }
+  .insight-card:hover { background: var(--surface-raised); }
+  .insight-card .ic-label {
+    font-size: 11px; font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .insight-card .ic-value {
+    font-size: 24px; font-weight: 700;
+    color: var(--text-1);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .insight-card .ic-sub {
+    font-size: 12px; color: var(--text-3);
+    margin-top: 4px;
+  }
+
   /* Entrance animation */
   @keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .reveal { animation: enter 0.4s ease both; }
@@ -414,16 +528,16 @@ $cloneDeltaArrow = if ($cloneDelta -gt 0) { '&#8593;' } elseif ($cloneDelta -lt 
 $html += @"
   <div class="metrics reveal d1">
     <div class="metric">
-      <div class="m-label">Views (14d)</div>
-      <div class="m-value">$totalViews14d</div>
-      <div class="m-sub">$uniqueViews14d unique</div>
-      <div class="m-delta $viewDeltaClass">$viewDeltaArrow ${viewDelta}%</div>
+      <div class="m-label" id="hdr-views-label">Views (7d)</div>
+      <div class="m-value" id="hdr-views-value">$($viewsWoW.Current)</div>
+      <div class="m-sub" id="hdr-views-sub">$uniqueViewsWoW unique &middot; $totalViewsAllTime all-time</div>
+      <div class="m-delta $viewDeltaClass" id="hdr-views-delta">$viewDeltaArrow ${viewDelta}% WoW</div>
     </div>
     <div class="metric">
-      <div class="m-label">Clones (14d)</div>
-      <div class="m-value">$totalClones14d</div>
-      <div class="m-sub">$uniqueClones14d unique</div>
-      <div class="m-delta $cloneDeltaClass">$cloneDeltaArrow ${cloneDelta}%</div>
+      <div class="m-label" id="hdr-clones-label">Clones (7d)</div>
+      <div class="m-value" id="hdr-clones-value">$($clonesWoW.Current)</div>
+      <div class="m-sub" id="hdr-clones-sub">$uniqueClonesWoW unique &middot; $totalClonesAllTime all-time</div>
+      <div class="m-delta $cloneDeltaClass" id="hdr-clones-delta">$cloneDeltaArrow ${cloneDelta}% WoW</div>
     </div>
     <div class="metric">
       <div class="m-label">Stars</div>
@@ -453,7 +567,53 @@ $html += @"
   </div>
 "@
 
-# Charts — top row: 3 columns (Views, Clones, Stars) matching original layout
+# Insights row — computed metrics
+$html += @'
+  <div class="insights reveal d1">
+    <div class="insight-card">
+      <div class="ic-label">View → Clone Rate</div>
+      <div class="ic-value" id="ins-clone-rate">—</div>
+      <div class="ic-sub" id="ins-clone-rate-sub">of visitors clone the repo</div>
+    </div>
+    <div class="insight-card">
+      <div class="ic-label">Avg Daily Views</div>
+      <div class="ic-value" id="ins-avg-views">—</div>
+      <div class="ic-sub" id="ins-avg-views-sub">over selected window</div>
+    </div>
+    <div class="insight-card">
+      <div class="ic-label">Peak Day</div>
+      <div class="ic-value" id="ins-peak-day">—</div>
+      <div class="ic-sub" id="ins-peak-sub">highest single-day views</div>
+    </div>
+    <div class="insight-card">
+      <div class="ic-label">Days Since Last Star</div>
+      <div class="ic-value" id="ins-star-gap">—</div>
+      <div class="ic-sub" id="ins-star-gap-sub">—</div>
+    </div>
+  </div>
+'@
+
+# Weekly trend table
+$html += @'
+  <div class="trend-table-card reveal d2" id="trend-table-section">
+    <h3>Weekly Trends</h3>
+    <div class="tt-sub">Week-over-week totals with % change</div>
+    <table class="trend-table">
+      <thead>
+        <tr>
+          <th>Week</th>
+          <th>Views</th>
+          <th>WoW</th>
+          <th>Clones</th>
+          <th>WoW</th>
+          <th>Clone Rate</th>
+        </tr>
+      </thead>
+      <tbody id="trend-table-body"></tbody>
+    </table>
+  </div>
+'@
+
 # Charts — full-width cards with title/subtitle + summary stat
 $html += @'
   <div class="toolbar reveal d2">
@@ -478,14 +638,14 @@ $html += @"
   <div class="chart-card reveal d2">
     <div class="chart-header">
       <div class="ch-left"><h3>Page Views</h3><div class="ch-sub">Daily views and unique visitors</div></div>
-      <div class="ch-right"><div class="ch-stat-label">Total Views</div><div class="ch-stat-value" id="viewsStat">$totalViews14d</div></div>
+      <div class="ch-right"><div class="ch-stat-label">Total Views</div><div class="ch-stat-value" id="viewsStat">$totalViewsAllTime</div></div>
     </div>
     <canvas id="viewsChart"></canvas>
   </div>
   <div class="chart-card reveal d3">
     <div class="chart-header">
       <div class="ch-left"><h3>Git Clones</h3><div class="ch-sub">Daily clones and unique cloners</div></div>
-      <div class="ch-right"><div class="ch-stat-label">Total Clones</div><div class="ch-stat-value" id="clonesStat">$totalClones14d</div></div>
+      <div class="ch-right"><div class="ch-stat-label">Total Clones</div><div class="ch-stat-value" id="clonesStat">$totalClonesAllTime</div></div>
     </div>
     <canvas id="clonesChart"></canvas>
   </div>
@@ -713,8 +873,172 @@ function buildCharts(days) {
   }
 }
 
+// ── Update header metrics + insights for selected time range ──
+function updateMetrics(days) {
+  const rangeLabel = days === 0 ? 'All Time' : days + 'd';
+
+  // Helper: filter data by days and return { dates, values, uniques }
+  function windowData(src, valKey, uniqKey, windowDays) {
+    if (!windowDays || windowDays === 0) {
+      return { dates: src.dates, values: src[valKey], uniques: src[uniqKey] };
+    }
+    const t = new Date(); t.setDate(t.getDate() - windowDays);
+    const cutoff = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+    const r = { dates: [], values: [], uniques: [] };
+    src.dates.forEach((d, i) => {
+      if (d >= cutoff) { r.dates.push(d); r.values.push(src[valKey][i]); r.uniques.push(src[uniqKey][i]); }
+    });
+    return r;
+  }
+
+  // Helper: compute rolling delta (current window vs prior window of same size)
+  function rollingDelta(src, valKey, windowDays) {
+    if (!windowDays || windowDays === 0) return { current: 0, prior: 0, delta: 0, hasData: false };
+    const t = new Date(); t.setDate(t.getDate() - windowDays);
+    const cutoff = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+    const t2 = new Date(); t2.setDate(t2.getDate() - windowDays * 2);
+    const priorCutoff = t2.getFullYear() + '-' + String(t2.getMonth()+1).padStart(2,'0') + '-' + String(t2.getDate()).padStart(2,'0');
+    let current = 0, prior = 0;
+    src.dates.forEach((d, i) => {
+      if (d > cutoff) current += src[valKey][i];
+      else if (d > priorCutoff) prior += src[valKey][i];
+    });
+    const delta = prior > 0 ? Math.round((current - prior) / prior * 100) : 0;
+    return { current, prior, delta, hasData: prior > 0 };
+  }
+
+  // Current window data
+  const vw = windowData(allData.views, 'total', 'unique', days);
+  const cw = windowData(allData.clones, 'total', 'unique', days);
+
+  const viewsTotal = vw.values.reduce((a,b) => a+b, 0);
+  const viewsUnique = vw.uniques.reduce((a,b) => a+b, 0);
+  const clonesTotal = cw.values.reduce((a,b) => a+b, 0);
+  const clonesUnique = cw.uniques.reduce((a,b) => a+b, 0);
+
+  const allTimeViews = allData.views.total.reduce((a,b) => a+b, 0);
+  const allTimeClones = allData.clones.total.reduce((a,b) => a+b, 0);
+
+  // Delta: compare selected window vs prior window of same size
+  // For "All Time" use 7d WoW as the comparison
+  const compareWindow = days === 0 ? 7 : days;
+  const vDelta = rollingDelta(allData.views, 'total', compareWindow);
+  const cDelta = rollingDelta(allData.clones, 'total', compareWindow);
+  const compareLabel = days === 0 ? 'WoW' : 'vs prior';
+
+  // Update header cards
+  const vCls = vDelta.delta > 0 ? 'up' : vDelta.delta < 0 ? 'down' : 'flat';
+  const vArrow = vDelta.delta > 0 ? '\u2191' : vDelta.delta < 0 ? '\u2193' : '\u2192';
+  document.getElementById('hdr-views-label').textContent = 'Views (' + rangeLabel + ')';
+  document.getElementById('hdr-views-value').textContent = viewsTotal.toLocaleString();
+  document.getElementById('hdr-views-sub').innerHTML = viewsUnique.toLocaleString() + ' unique &middot; ' + allTimeViews.toLocaleString() + ' all-time';
+  const vDeltaEl = document.getElementById('hdr-views-delta');
+  vDeltaEl.className = 'm-delta ' + vCls;
+  vDeltaEl.textContent = vArrow + ' ' + vDelta.delta + '% ' + compareLabel;
+
+  const cCls = cDelta.delta > 0 ? 'up' : cDelta.delta < 0 ? 'down' : 'flat';
+  const cArrow = cDelta.delta > 0 ? '\u2191' : cDelta.delta < 0 ? '\u2193' : '\u2192';
+  document.getElementById('hdr-clones-label').textContent = 'Clones (' + rangeLabel + ')';
+  document.getElementById('hdr-clones-value').textContent = clonesTotal.toLocaleString();
+  document.getElementById('hdr-clones-sub').innerHTML = clonesUnique.toLocaleString() + ' unique &middot; ' + allTimeClones.toLocaleString() + ' all-time';
+  const cDeltaEl = document.getElementById('hdr-clones-delta');
+  cDeltaEl.className = 'm-delta ' + cCls;
+  cDeltaEl.textContent = cArrow + ' ' + cDelta.delta + '% ' + compareLabel;
+
+  // ── Insight cards ──
+  // View → Clone rate
+  const cloneRate = viewsTotal > 0 ? (clonesTotal / viewsTotal * 100).toFixed(1) : '0';
+  document.getElementById('ins-clone-rate').textContent = cloneRate + '%';
+  document.getElementById('ins-clone-rate-sub').textContent = clonesTotal.toLocaleString() + ' clones / ' + viewsTotal.toLocaleString() + ' views';
+
+  // Avg daily views
+  const numDays = vw.dates.length || 1;
+  document.getElementById('ins-avg-views').textContent = Math.round(viewsTotal / numDays).toLocaleString();
+  document.getElementById('ins-avg-views-sub').textContent = numDays + ' days in window';
+
+  // Peak day
+  let peakVal = 0, peakDate = '';
+  vw.values.forEach((v, i) => { if (v > peakVal) { peakVal = v; peakDate = vw.dates[i]; } });
+  document.getElementById('ins-peak-day').textContent = peakVal.toLocaleString();
+  document.getElementById('ins-peak-sub').textContent = peakDate || '—';
+
+  // Days since last star
+  if (allData.stars.dates.length > 0) {
+    const lastStar = allData.stars.dates[allData.stars.dates.length - 1];
+    const diff = Math.floor((new Date() - new Date(lastStar)) / 86400000);
+    document.getElementById('ins-star-gap').textContent = diff;
+    document.getElementById('ins-star-gap-sub').textContent = 'last: ' + allData.stars.users[allData.stars.users.length - 1] + ' on ' + lastStar;
+  } else {
+    document.getElementById('ins-star-gap').textContent = '—';
+    document.getElementById('ins-star-gap-sub').textContent = 'no stars yet';
+  }
+
+  // ── Weekly trend table ──
+  buildWeeklyTrend(vw, cw);
+}
+
+function buildWeeklyTrend(viewWindow, cloneWindow) {
+  // Group data into ISO weeks (Mon–Sun)
+  function toWeekKey(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00'); // noon to avoid timezone edge
+    const day = d.getDay(); // 0=Sun
+    const mon = new Date(d); mon.setDate(d.getDate() - ((day + 6) % 7)); // Monday
+    return mon.getFullYear() + '-' + String(mon.getMonth()+1).padStart(2,'0') + '-' + String(mon.getDate()).padStart(2,'0');
+  }
+
+  // Merge view + clone dates into unified weekly buckets
+  const weeks = {};
+  viewWindow.dates.forEach((d, i) => {
+    const wk = toWeekKey(d);
+    if (!weeks[wk]) weeks[wk] = { views: 0, clones: 0 };
+    weeks[wk].views += viewWindow.values[i];
+  });
+  cloneWindow.dates.forEach((d, i) => {
+    const wk = toWeekKey(d);
+    if (!weeks[wk]) weeks[wk] = { views: 0, clones: 0 };
+    weeks[wk].clones += cloneWindow.values[i];
+  });
+
+  const sortedWeeks = Object.keys(weeks).sort();
+  const tbody = document.getElementById('trend-table-body');
+  let html = '';
+
+  sortedWeeks.forEach((wk, idx) => {
+    const w = weeks[wk];
+    // End date (Sun) = Monday + 6
+    const mon = new Date(wk + 'T12:00:00');
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    const wkLabel = (mon.getMonth()+1) + '/' + mon.getDate() + ' – ' + (sun.getMonth()+1) + '/' + sun.getDate();
+
+    // WoW deltas
+    let vDelta = '', cDelta = '';
+    if (idx > 0) {
+      const prev = weeks[sortedWeeks[idx - 1]];
+      if (prev.views > 0) {
+        const pct = Math.round((w.views - prev.views) / prev.views * 100);
+        const cls = pct > 0 ? 'td-up' : pct < 0 ? 'td-down' : 'td-flat';
+        vDelta = '<span class="' + cls + '">' + (pct > 0 ? '\u2191' : pct < 0 ? '\u2193' : '\u2192') + ' ' + pct + '%</span>';
+      }
+      if (prev.clones > 0) {
+        const pct = Math.round((w.clones - prev.clones) / prev.clones * 100);
+        const cls = pct > 0 ? 'td-up' : pct < 0 ? 'td-down' : 'td-flat';
+        cDelta = '<span class="' + cls + '">' + (pct > 0 ? '\u2191' : pct < 0 ? '\u2193' : '\u2192') + ' ' + pct + '%</span>';
+      }
+    } else {
+      vDelta = '<span class="td-flat">—</span>';
+      cDelta = '<span class="td-flat">—</span>';
+    }
+
+    const rate = w.views > 0 ? (w.clones / w.views * 100).toFixed(1) + '%' : '—';
+    html += '<tr><td>' + wkLabel + '</td><td class="td-value">' + w.views.toLocaleString() + '</td><td>' + vDelta + '</td><td class="td-value">' + w.clones.toLocaleString() + '</td><td>' + cDelta + '</td><td>' + rate + '</td></tr>';
+  });
+
+  tbody.innerHTML = html;
+}
+
 // Initial build
 buildCharts(0);
+updateMetrics(0);
 
 // Referrers (not time-filtered — snapshot data)
 new Chart(document.getElementById('referrersChart'), {
@@ -762,6 +1086,7 @@ function setRange(days, el) {
   document.getElementById('rangeLabel').textContent = el.textContent.replace('✓','').trim();
   document.getElementById('rangeMenu').classList.remove('open');
   buildCharts(days);
+  updateMetrics(days);
 }
 </script>
 </body>
