@@ -266,6 +266,85 @@
   .range-opt .check { font-size: 14px; color: var(--blue); visibility: hidden; }
   .range-opt.active .check { visibility: visible; }
 
+  /* Weekly trend table */
+  .trend-table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 28px 32px;
+    margin-bottom: 16px;
+  }
+  .trend-table-card h3 {
+    font-size: 16px; font-weight: 700;
+    color: var(--text-1);
+    margin: 0 0 4px;
+  }
+  .trend-table-card .tt-sub {
+    font-size: 13px; color: var(--text-3);
+    margin-bottom: 16px;
+  }
+  .trend-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .trend-table th {
+    text-align: left;
+    font-size: 11px; font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .trend-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-2);
+  }
+  .trend-table tr:last-child td { border-bottom: none; }
+  .trend-table tr:hover td { background: var(--surface-raised); }
+  .trend-table .td-up { color: #4ade80; }
+  .trend-table .td-down { color: #fb7185; }
+  .trend-table .td-flat { color: var(--text-3); }
+  .trend-table .td-value { color: var(--text-1); font-weight: 600; }
+
+  /* Insights row */
+  .insights {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 900px) { .insights { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .insights { grid-template-columns: 1fr; } }
+  .insight-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 20px 24px;
+    transition: background 0.2s;
+  }
+  .insight-card:hover { background: var(--surface-raised); }
+  .insight-card .ic-label {
+    font-size: 11px; font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .insight-card .ic-value {
+    font-size: 24px; font-weight: 700;
+    color: var(--text-1);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .insight-card .ic-sub {
+    font-size: 12px; color: var(--text-3);
+    margin-top: 4px;
+  }
+
   /* Entrance animation */
   @keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .reveal { animation: enter 0.4s ease both; }
@@ -279,19 +358,19 @@
   <header class="reveal">
     <div class="tag">Repository Analytics</div>
     <h1>Get-AzVMAvailability</h1>
-    <p>Apr 5, 2026 at 6:58 AM &middot; 2026-02-20 — 2026-04-03</p>
+    <p>Apr 5, 2026 at 8:31 PM &middot; 2026-02-20 — 2026-04-04</p>
   </header>  <div class="metrics reveal d1">
     <div class="metric">
-      <div class="m-label">Views (14d)</div>
-      <div class="m-value">1627</div>
-      <div class="m-sub">476 unique</div>
-      <div class="m-delta up">&#8593; 39%</div>
+      <div class="m-label" id="hdr-views-label">Views (All Time)</div>
+      <div class="m-value" id="hdr-views-value">1640</div>
+      <div class="m-sub" id="hdr-views-sub">482 unique</div>
+      <div class="m-delta up" id="hdr-views-delta">&#8593; 3% WoW</div>
     </div>
     <div class="metric">
-      <div class="m-label">Clones (14d)</div>
-      <div class="m-value">3439</div>
-      <div class="m-sub">1243 unique</div>
-      <div class="m-delta down">&#8595; -60%</div>
+      <div class="m-label" id="hdr-clones-label">Clones (All Time)</div>
+      <div class="m-value" id="hdr-clones-value">3451</div>
+      <div class="m-sub" id="hdr-clones-sub">1251 unique</div>
+      <div class="m-delta up" id="hdr-clones-delta">&#8593; 38% WoW</div>
     </div>
     <div class="metric">
       <div class="m-label">Stars</div>
@@ -318,6 +397,43 @@
       <div class="m-value">5</div>
       <div class="m-sub">referrers</div>
     </div>
+  </div>  <div class="insights reveal d1">
+    <div class="insight-card">
+      <div class="ic-label">View → Clone Rate</div>
+      <div class="ic-value" id="ins-clone-rate">—</div>
+      <div class="ic-sub" id="ins-clone-rate-sub">of visitors clone the repo</div>
+    </div>
+    <div class="insight-card">
+      <div class="ic-label">Avg Daily Views</div>
+      <div class="ic-value" id="ins-avg-views">—</div>
+      <div class="ic-sub" id="ins-avg-views-sub">over selected window</div>
+    </div>
+    <div class="insight-card">
+      <div class="ic-label">Peak Day</div>
+      <div class="ic-value" id="ins-peak-day">—</div>
+      <div class="ic-sub" id="ins-peak-sub">highest single-day views</div>
+    </div>
+    <div class="insight-card">
+      <div class="ic-label">Days Since Last Star</div>
+      <div class="ic-value" id="ins-star-gap">—</div>
+      <div class="ic-sub" id="ins-star-gap-sub">—</div>
+    </div>
+  </div>  <div class="trend-table-card reveal d2" id="trend-table-section">
+    <h3>Weekly Trends</h3>
+    <div class="tt-sub">Week-over-week totals with % change</div>
+    <table class="trend-table">
+      <thead>
+        <tr>
+          <th>Week</th>
+          <th>Views</th>
+          <th>WoW</th>
+          <th>Clones</th>
+          <th>WoW</th>
+          <th>Clone Rate</th>
+        </tr>
+      </thead>
+      <tbody id="trend-table-body"></tbody>
+    </table>
   </div>  <div class="toolbar reveal d2">
     <div class="range-picker">
       <button class="range-btn" onclick="toggleMenu()">
@@ -336,14 +452,14 @@
   </div>  <div class="chart-card reveal d2">
     <div class="chart-header">
       <div class="ch-left"><h3>Page Views</h3><div class="ch-sub">Daily views and unique visitors</div></div>
-      <div class="ch-right"><div class="ch-stat-label">Total Views</div><div class="ch-stat-value" id="viewsStat">1627</div></div>
+      <div class="ch-right"><div class="ch-stat-label">Total Views</div><div class="ch-stat-value" id="viewsStat">1640</div></div>
     </div>
     <canvas id="viewsChart"></canvas>
   </div>
   <div class="chart-card reveal d3">
     <div class="chart-header">
       <div class="ch-left"><h3>Git Clones</h3><div class="ch-sub">Daily clones and unique cloners</div></div>
-      <div class="ch-right"><div class="ch-stat-label">Total Clones</div><div class="ch-stat-value" id="clonesStat">3439</div></div>
+      <div class="ch-right"><div class="ch-stat-label">Total Clones</div><div class="ch-stat-value" id="clonesStat">3451</div></div>
     </div>
     <canvas id="clonesChart"></canvas>
   </div>
@@ -387,8 +503,8 @@
 </div><script>
 // ── All raw data (for time filtering) ──
 const allData = {
-  views:  { dates: ["2026-02-20","2026-02-21","2026-02-22","2026-02-23","2026-02-24","2026-02-25","2026-02-26","2026-02-27","2026-02-28","2026-03-01","2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06","2026-03-07","2026-03-08","2026-03-09","2026-03-10","2026-03-11","2026-03-12","2026-03-13","2026-03-14","2026-03-15","2026-03-16","2026-03-17","2026-03-18","2026-03-19","2026-03-20","2026-03-21","2026-03-22","2026-03-23","2026-03-24","2026-03-25","2026-03-26","2026-03-27","2026-03-28","2026-03-29","2026-03-30","2026-03-31","2026-04-01","2026-04-02","2026-04-03"], total: [25,3,1,25,24,31,39,9,7,3,14,36,36,10,45,6,1,10,43,44,68,70,21,7,20,73,41,99,92,63,17,16,9,13,99,146,2,4,19,71,210,23,32], unique: [16,1,1,10,10,6,13,7,5,3,7,14,16,9,27,6,1,10,18,22,11,23,4,4,12,14,9,6,15,2,1,4,4,6,18,52,2,4,10,10,35,14,14] },
-  clones: { dates: ["2026-02-20","2026-02-21","2026-02-22","2026-02-23","2026-02-24","2026-02-25","2026-02-26","2026-02-27","2026-02-28","2026-03-01","2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06","2026-03-07","2026-03-08","2026-03-09","2026-03-10","2026-03-11","2026-03-12","2026-03-13","2026-03-14","2026-03-15","2026-03-16","2026-03-17","2026-03-18","2026-03-19","2026-03-20","2026-03-21","2026-03-22","2026-03-23","2026-03-24","2026-03-25","2026-03-26","2026-03-27","2026-03-28","2026-03-29","2026-03-30","2026-03-31","2026-04-01","2026-04-02","2026-04-03"], total: [3,12,1,1,9,69,52,32,2,1,119,141,44,3,2,0,1,3,42,4,398,50,30,1,64,192,147,252,250,450,35,17,9,11,45,75,16,18,7,380,423,20,8], unique: [3,4,1,1,8,27,28,19,2,1,40,50,23,3,2,0,1,3,16,4,112,23,13,1,35,65,63,83,73,121,10,9,6,8,35,47,13,14,4,114,147,6,5] },
+  views:  { dates: ["2026-02-20","2026-02-21","2026-02-22","2026-02-23","2026-02-24","2026-02-25","2026-02-26","2026-02-27","2026-02-28","2026-03-01","2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06","2026-03-07","2026-03-08","2026-03-09","2026-03-10","2026-03-11","2026-03-12","2026-03-13","2026-03-14","2026-03-15","2026-03-16","2026-03-17","2026-03-18","2026-03-19","2026-03-20","2026-03-21","2026-03-22","2026-03-23","2026-03-24","2026-03-25","2026-03-26","2026-03-27","2026-03-28","2026-03-29","2026-03-30","2026-03-31","2026-04-01","2026-04-02","2026-04-03","2026-04-04"], total: [25,3,1,25,24,31,39,9,7,3,14,36,36,10,45,6,1,10,43,44,68,70,21,7,20,73,41,99,92,63,17,16,9,13,99,146,2,4,19,71,210,23,32,13], unique: [16,1,1,10,10,6,13,7,5,3,7,14,16,9,27,6,1,10,18,22,11,23,4,4,12,14,9,6,15,2,1,4,4,6,18,52,2,4,10,10,35,14,14,6] },
+  clones: { dates: ["2026-02-20","2026-02-21","2026-02-22","2026-02-23","2026-02-24","2026-02-25","2026-02-26","2026-02-27","2026-02-28","2026-03-01","2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06","2026-03-07","2026-03-08","2026-03-09","2026-03-10","2026-03-11","2026-03-12","2026-03-13","2026-03-14","2026-03-15","2026-03-16","2026-03-17","2026-03-18","2026-03-19","2026-03-20","2026-03-21","2026-03-22","2026-03-23","2026-03-24","2026-03-25","2026-03-26","2026-03-27","2026-03-28","2026-03-29","2026-03-30","2026-03-31","2026-04-01","2026-04-02","2026-04-03","2026-04-04"], total: [3,12,1,1,9,69,52,32,2,1,119,141,44,3,2,0,1,3,42,4,398,50,30,1,64,192,147,252,250,450,35,17,9,11,45,75,16,18,7,380,423,20,8,12], unique: [3,4,1,1,8,27,28,19,2,1,40,50,23,3,2,0,1,3,16,4,112,23,13,1,35,65,63,83,73,121,10,9,6,8,35,47,13,14,4,114,147,6,5,8] },
   stars:  { dates: ["2026-01-28","2026-02-07","2026-02-26","2026-03-13","2026-03-17","2026-03-19","2026-03-26","2026-03-27","2026-03-27"], cumulative: [1,2,3,4,5,6,7,8,9], users: ["SUNDEEPH","cleif","zachbugay","ethanjenkins1","sunnyhira","ArtjomMeijer","bzlowrance","amaiman","derik0709"] }
 };
 
@@ -462,10 +578,10 @@ let viewsChart, clonesChart, starsChart;
 function buildCharts(days) {
   function filterByDays(dates, ...arrays) {
     if (!days || days === 0) return { dates, arrays };
-    // Build cutoff as a local YYYY-MM-DD string to avoid UTC-vs-local timezone mismatch.
-    // new Date("2026-03-05") parses as UTC midnight which can fall before a local-time
-    // cutoff on the same date, causing the boundary day to be excluded incorrectly.
-    const t = new Date();
+    if (!dates.length) return { dates: [], arrays: arrays.map(() => []) };
+    // Anchor cutoff to last available data date (not today) so historical snapshots work.
+    const anchor = new Date(dates[dates.length - 1] + 'T12:00:00');
+    const t = new Date(anchor);
     t.setDate(t.getDate() - days);
     const cutoff = t.getFullYear() + '-' +
       String(t.getMonth() + 1).padStart(2, '0') + '-' +
@@ -568,8 +684,183 @@ function buildCharts(days) {
   }
 }
 
+// ── Update header metrics + insights for selected time range ──
+function updateMetrics(days) {
+  const rangeLabel = days === 0 ? 'All Time' : days + 'd';
+
+  // Helper: filter data by days and return { dates, values, uniques }
+  // Anchors to last data date so historical snapshots work correctly.
+  function windowData(src, valKey, uniqKey, windowDays) {
+    if (!windowDays || windowDays === 0) {
+      return { dates: src.dates, values: src[valKey], uniques: src[uniqKey] };
+    }
+    if (!src.dates.length) return { dates: [], values: [], uniques: [] };
+    const anchor = new Date(src.dates[src.dates.length - 1] + 'T12:00:00');
+    const t = new Date(anchor); t.setDate(t.getDate() - windowDays);
+    const cutoff = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+    const r = { dates: [], values: [], uniques: [] };
+    src.dates.forEach((d, i) => {
+      if (d >= cutoff) { r.dates.push(d); r.values.push(src[valKey][i]); r.uniques.push(src[uniqKey][i]); }
+    });
+    return r;
+  }
+
+  // Helper: compute rolling delta (current window vs prior window of same size)
+  // Anchors to last data date; uses >= / < boundary to match windowData.
+  function rollingDelta(src, valKey, windowDays) {
+    if (!windowDays || windowDays === 0) return { current: 0, prior: 0, delta: 0, hasData: false };
+    if (!src.dates.length) return { current: 0, prior: 0, delta: 0, hasData: false };
+    const anchor = new Date(src.dates[src.dates.length - 1] + 'T12:00:00');
+    const t = new Date(anchor); t.setDate(t.getDate() - windowDays);
+    const cutoff = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+    const t2 = new Date(anchor); t2.setDate(t2.getDate() - windowDays * 2);
+    const priorCutoff = t2.getFullYear() + '-' + String(t2.getMonth()+1).padStart(2,'0') + '-' + String(t2.getDate()).padStart(2,'0');
+    let current = 0, prior = 0;
+    src.dates.forEach((d, i) => {
+      if (d >= cutoff) current += src[valKey][i];
+      else if (d >= priorCutoff && d < cutoff) prior += src[valKey][i];
+    });
+    const delta = prior > 0 ? Math.round((current - prior) / prior * 100) : 0;
+    return { current, prior, delta, hasData: prior > 0 };
+  }
+
+  // Current window data
+  const vw = windowData(allData.views, 'total', 'unique', days);
+  const cw = windowData(allData.clones, 'total', 'unique', days);
+
+  const viewsTotal = vw.values.reduce((a,b) => a+b, 0);
+  const viewsUnique = vw.uniques.reduce((a,b) => a+b, 0);
+  const clonesTotal = cw.values.reduce((a,b) => a+b, 0);
+  const clonesUnique = cw.uniques.reduce((a,b) => a+b, 0);
+
+  const allTimeViews = allData.views.total.reduce((a,b) => a+b, 0);
+  const allTimeClones = allData.clones.total.reduce((a,b) => a+b, 0);
+
+  // Delta: compare selected window vs prior window of same size
+  // For "All Time" use 7d WoW as the comparison
+  const compareWindow = days === 0 ? 7 : days;
+  const vDelta = rollingDelta(allData.views, 'total', compareWindow);
+  const cDelta = rollingDelta(allData.clones, 'total', compareWindow);
+  const compareLabel = days === 0 ? 'WoW' : 'vs prior';
+
+  // Update header cards
+  const vCls = vDelta.delta > 0 ? 'up' : vDelta.delta < 0 ? 'down' : 'flat';
+  const vArrow = vDelta.delta > 0 ? '\u2191' : vDelta.delta < 0 ? '\u2193' : '\u2192';
+  document.getElementById('hdr-views-label').textContent = 'Views (' + rangeLabel + ')';
+  document.getElementById('hdr-views-value').textContent = viewsTotal.toLocaleString();
+  document.getElementById('hdr-views-sub').innerHTML = viewsUnique.toLocaleString() + ' unique &middot; ' + allTimeViews.toLocaleString() + ' all-time';
+  const vDeltaEl = document.getElementById('hdr-views-delta');
+  vDeltaEl.className = 'm-delta ' + vCls;
+  vDeltaEl.textContent = vArrow + ' ' + vDelta.delta + '% ' + compareLabel;
+
+  const cCls = cDelta.delta > 0 ? 'up' : cDelta.delta < 0 ? 'down' : 'flat';
+  const cArrow = cDelta.delta > 0 ? '\u2191' : cDelta.delta < 0 ? '\u2193' : '\u2192';
+  document.getElementById('hdr-clones-label').textContent = 'Clones (' + rangeLabel + ')';
+  document.getElementById('hdr-clones-value').textContent = clonesTotal.toLocaleString();
+  document.getElementById('hdr-clones-sub').innerHTML = clonesUnique.toLocaleString() + ' unique &middot; ' + allTimeClones.toLocaleString() + ' all-time';
+  const cDeltaEl = document.getElementById('hdr-clones-delta');
+  cDeltaEl.className = 'm-delta ' + cCls;
+  cDeltaEl.textContent = cArrow + ' ' + cDelta.delta + '% ' + compareLabel;
+
+  // ── Insight cards ──
+  // View → Clone rate
+  const cloneRate = viewsTotal > 0 ? (clonesTotal / viewsTotal * 100).toFixed(1) : '0';
+  document.getElementById('ins-clone-rate').textContent = cloneRate + '%';
+  document.getElementById('ins-clone-rate-sub').textContent = clonesTotal.toLocaleString() + ' clones / ' + viewsTotal.toLocaleString() + ' views';
+
+  // Avg daily views
+  const numDays = vw.dates.length || 1;
+  document.getElementById('ins-avg-views').textContent = Math.round(viewsTotal / numDays).toLocaleString();
+  document.getElementById('ins-avg-views-sub').textContent = numDays + ' days in window';
+
+  // Peak day
+  let peakVal = 0, peakDate = '';
+  vw.values.forEach((v, i) => { if (v > peakVal) { peakVal = v; peakDate = vw.dates[i]; } });
+  document.getElementById('ins-peak-day').textContent = peakVal.toLocaleString();
+  document.getElementById('ins-peak-sub').textContent = peakDate || '—';
+
+  // Days since last star
+  if (allData.stars.dates.length > 0) {
+    const lastStar = allData.stars.dates[allData.stars.dates.length - 1];
+    const lastStarLocal = new Date(lastStar + 'T12:00:00');
+    const diff = Math.floor((new Date() - lastStarLocal) / 86400000);
+    document.getElementById('ins-star-gap').textContent = diff;
+    document.getElementById('ins-star-gap-sub').textContent = 'last: ' + allData.stars.users[allData.stars.users.length - 1] + ' on ' + lastStar;
+  } else {
+    document.getElementById('ins-star-gap').textContent = '—';
+    document.getElementById('ins-star-gap-sub').textContent = 'no stars yet';
+  }
+
+  // ── Weekly trend table ──
+  buildWeeklyTrend(vw, cw);
+}
+
+function buildWeeklyTrend(viewWindow, cloneWindow) {
+  // Group data into ISO weeks (Mon–Sun)
+  function toWeekKey(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00'); // noon to avoid timezone edge
+    const day = d.getDay(); // 0=Sun
+    const mon = new Date(d); mon.setDate(d.getDate() - ((day + 6) % 7)); // Monday
+    return mon.getFullYear() + '-' + String(mon.getMonth()+1).padStart(2,'0') + '-' + String(mon.getDate()).padStart(2,'0');
+  }
+
+  // Merge view + clone dates into unified weekly buckets
+  const weeks = {};
+  viewWindow.dates.forEach((d, i) => {
+    const wk = toWeekKey(d);
+    if (!weeks[wk]) weeks[wk] = { views: 0, clones: 0 };
+    weeks[wk].views += viewWindow.values[i];
+  });
+  cloneWindow.dates.forEach((d, i) => {
+    const wk = toWeekKey(d);
+    if (!weeks[wk]) weeks[wk] = { views: 0, clones: 0 };
+    weeks[wk].clones += cloneWindow.values[i];
+  });
+
+  const sortedWeeks = Object.keys(weeks).sort();
+  const tbody = document.getElementById('trend-table-body');
+  let html = '';
+
+  sortedWeeks.forEach((wk, idx) => {
+    const w = weeks[wk];
+    // End date (Sun) = Monday + 6
+    const mon = new Date(wk + 'T12:00:00');
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    const wkLabel = (mon.getMonth()+1) + '/' + mon.getDate() + ' – ' + (sun.getMonth()+1) + '/' + sun.getDate();
+
+    // WoW deltas
+    let vDelta = '', cDelta = '';
+    if (idx > 0) {
+      const prev = weeks[sortedWeeks[idx - 1]];
+      if (prev.views > 0) {
+        const pct = Math.round((w.views - prev.views) / prev.views * 100);
+        const cls = pct > 0 ? 'td-up' : pct < 0 ? 'td-down' : 'td-flat';
+        vDelta = '<span class="' + cls + '">' + (pct > 0 ? '\u2191' : pct < 0 ? '\u2193' : '\u2192') + ' ' + pct + '%</span>';
+      } else {
+        vDelta = '<span class="td-flat">\u2014</span>';
+      }
+      if (prev.clones > 0) {
+        const pct = Math.round((w.clones - prev.clones) / prev.clones * 100);
+        const cls = pct > 0 ? 'td-up' : pct < 0 ? 'td-down' : 'td-flat';
+        cDelta = '<span class="' + cls + '">' + (pct > 0 ? '\u2191' : pct < 0 ? '\u2193' : '\u2192') + ' ' + pct + '%</span>';
+      } else {
+        cDelta = '<span class="td-flat">\u2014</span>';
+      }
+    } else {
+      vDelta = '<span class="td-flat">—</span>';
+      cDelta = '<span class="td-flat">—</span>';
+    }
+
+    const rate = w.views > 0 ? (w.clones / w.views * 100).toFixed(1) + '%' : '—';
+    html += '<tr><td>' + wkLabel + '</td><td class="td-value">' + w.views.toLocaleString() + '</td><td>' + vDelta + '</td><td class="td-value">' + w.clones.toLocaleString() + '</td><td>' + cDelta + '</td><td>' + rate + '</td></tr>';
+  });
+
+  tbody.innerHTML = html;
+}
+
 // Initial build
 buildCharts(0);
+updateMetrics(0);
 
 // Referrers (not time-filtered — snapshot data)
 new Chart(document.getElementById('referrersChart'), {
@@ -617,6 +908,7 @@ function setRange(days, el) {
   document.getElementById('rangeLabel').textContent = el.textContent.replace('✓','').trim();
   document.getElementById('rangeMenu').classList.remove('open');
   buildCharts(days);
+  updateMetrics(days);
 }
 </script>
 </body>
