@@ -1344,7 +1344,6 @@ function Get-AdvisorRetirementData {
                 $retireDate = $props.extendedProperties.retirementDate
                 $seriesName = $props.extendedProperties.retirementFeatureName
                 $vmName = $props.impactedValue
-                $resourceId = $props.resourceMetadata.resourceId
                 $impact = $props.impact
 
                 # Parse the SKU from the resource ID if available (need separate ARG query for that)
