@@ -2,9 +2,12 @@ name: Collect Traffic Data
 
 on:
   schedule:
-    # Run daily at 06:00 UTC (1-2 AM ET depending on DST)
-    - cron: '0 6 * * *'
-  workflow_dispatch: # Allow manual trigger
+    # Run 4x/day at 00:00, 06:00, 12:00, 18:00 UTC
+    - cron: '0 0,6,12,18 * * *'
+  watch:
+    types: [started]   # star event
+  fork:                # fork event
+  workflow_dispatch:   # manual trigger
 
 permissions:
   contents: write
