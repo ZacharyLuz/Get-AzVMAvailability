@@ -128,16 +128,6 @@ function Get-RollingDelta {
 $viewsWoW  = Get-RollingDelta -Data $views  -ValueProperty 'TotalViews'  -WindowDays 7
 $clonesWoW = Get-RollingDelta -Data $clones -ValueProperty 'TotalClones' -WindowDays 7
 
-# Unique counts for current 7d window
-$uniqueViewsWoW  = if ($views.Count -ge 7) {
-    $cutoff = ([datetime]($views | Sort-Object Date | Select-Object -Last 1).Date).AddDays(-7)
-    ($views | Where-Object { [datetime]$_.Date -gt $cutoff } | ForEach-Object { [int]$_.UniqueViews } | Measure-Object -Sum).Sum
-} else { $uniqueViewsAllTime }
-$uniqueClonesWoW = if ($clones.Count -ge 7) {
-    $cutoff = ([datetime]($clones | Sort-Object Date | Select-Object -Last 1).Date).AddDays(-7)
-    ($clones | Where-Object { [datetime]$_.Date -gt $cutoff } | ForEach-Object { [int]$_.UniqueClones } | Measure-Object -Sum).Sum
-} else { $uniqueClonesAllTime }
-
 # Use WoW delta as the primary badge
 $viewDelta  = $viewsWoW.Delta
 $cloneDelta = $clonesWoW.Delta
