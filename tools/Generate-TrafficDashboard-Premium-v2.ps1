@@ -49,11 +49,11 @@ $pathsPath     = Join-Path $InputDir 'paths.csv'
 $repoStatsPath = Join-Path $InputDir 'repo-stats.csv'
 $releaseDownloadsPath = Join-Path $InputDir 'release-downloads.csv'
 
-$views     = if (Test-Path $viewsPath)     { @(Import-Csv $viewsPath     | Sort-Object Date) } else { @() }
-$clones    = if (Test-Path $clonesPath)    { @(Import-Csv $clonesPath    | Sort-Object Date) } else { @() }
-$stars     = if (Test-Path $starsPath)     { @(Import-Csv $starsPath     | Sort-Object Date) } else { @() }
-$repoStats = if (Test-Path $repoStatsPath) { @(Import-Csv $repoStatsPath | Sort-Object Date) } else { @() }
-$releaseDownloads = if (Test-Path $releaseDownloadsPath) { @(Import-Csv $releaseDownloadsPath | Sort-Object Date) } else { @() }
+$views     = @(if (Test-Path $viewsPath)     { Import-Csv $viewsPath     | Sort-Object Date })
+$clones    = @(if (Test-Path $clonesPath)    { Import-Csv $clonesPath    | Sort-Object Date })
+$stars     = @(if (Test-Path $starsPath)     { Import-Csv $starsPath     | Sort-Object Date })
+$repoStats = @(if (Test-Path $repoStatsPath) { Import-Csv $repoStatsPath | Sort-Object Date })
+$releaseDownloads = @(if (Test-Path $releaseDownloadsPath) { Import-Csv $releaseDownloadsPath | Sort-Object Date })
 
 $referrers = @()
 if (Test-Path $referrersPath) {
