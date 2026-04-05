@@ -110,7 +110,7 @@ function Get-RollingDelta {
         [string]$ValueProperty,
         [int]$WindowDays
     )
-    if ($Data.Count -lt ($WindowDays + 1)) { return @{ Current = 0; Prior = 0; Delta = 0; HasData = $false } }
+    if ($Data.Count -eq 0) { return @{ Current = 0; Prior = 0; Delta = 0; HasData = $false } }
     $sorted = $Data | Sort-Object Date
     $cutoff = ([datetime]$sorted[-1].Date).AddDays(-$WindowDays)
     $priorCutoff = $cutoff.AddDays(-$WindowDays)
@@ -127,10 +127,6 @@ function Get-RollingDelta {
 # Week-over-week (7d vs prior 7d)
 $viewsWoW  = Get-RollingDelta -Data $views  -ValueProperty 'TotalViews'  -WindowDays 7
 $clonesWoW = Get-RollingDelta -Data $clones -ValueProperty 'TotalClones' -WindowDays 7
-
-# 14d vs prior 14d
-$views14d  = Get-RollingDelta -Data $views  -ValueProperty 'TotalViews'  -WindowDays 14
-$clones14d = Get-RollingDelta -Data $clones -ValueProperty 'TotalClones' -WindowDays 14
 
 # Unique counts for current 7d window
 $uniqueViewsWoW  = if ($views.Count -ge 7) {
@@ -528,15 +524,15 @@ $cloneDeltaArrow = if ($cloneDelta -gt 0) { '&#8593;' } elseif ($cloneDelta -lt 
 $html += @"
   <div class="metrics reveal d1">
     <div class="metric">
-      <div class="m-label" id="hdr-views-label">Views (7d)</div>
-      <div class="m-value" id="hdr-views-value">$($viewsWoW.Current)</div>
-      <div class="m-sub" id="hdr-views-sub">$uniqueViewsWoW unique &middot; $totalViewsAllTime all-time</div>
+      <div class="m-label" id="hdr-views-label">Views (All Time)</div>
+      <div class="m-value" id="hdr-views-value">$totalViewsAllTime</div>
+      <div class="m-sub" id="hdr-views-sub">$uniqueViewsAllTime unique</div>
       <div class="m-delta $viewDeltaClass" id="hdr-views-delta">$viewDeltaArrow ${viewDelta}% WoW</div>
     </div>
     <div class="metric">
-      <div class="m-label" id="hdr-clones-label">Clones (7d)</div>
-      <div class="m-value" id="hdr-clones-value">$($clonesWoW.Current)</div>
-      <div class="m-sub" id="hdr-clones-sub">$uniqueClonesWoW unique &middot; $totalClonesAllTime all-time</div>
+      <div class="m-label" id="hdr-clones-label">Clones (All Time)</div>
+      <div class="m-value" id="hdr-clones-value">$totalClonesAllTime</div>
+      <div class="m-sub" id="hdr-clones-sub">$uniqueClonesAllTime unique</div>
       <div class="m-delta $cloneDeltaClass" id="hdr-clones-delta">$cloneDeltaArrow ${cloneDelta}% WoW</div>
     </div>
     <div class="metric">
@@ -767,10 +763,10 @@ let viewsChart, clonesChart, starsChart;
 function buildCharts(days) {
   function filterByDays(dates, ...arrays) {
     if (!days || days === 0) return { dates, arrays };
-    // Build cutoff as a local YYYY-MM-DD string to avoid UTC-vs-local timezone mismatch.
-    // new Date("2026-03-05") parses as UTC midnight which can fall before a local-time
-    // cutoff on the same date, causing the boundary day to be excluded incorrectly.
-    const t = new Date();
+    if (!dates.length) return { dates: [], arrays: arrays.map(() => []) };
+    // Anchor cutoff to last available data date (not today) so historical snapshots work.
+    const anchor = new Date(dates[dates.length - 1] + 'T12:00:00');
+    const t = new Date(anchor);
     t.setDate(t.getDate() - days);
     const cutoff = t.getFullYear() + '-' +
       String(t.getMonth() + 1).padStart(2, '0') + '-' +
@@ -878,11 +874,14 @@ function updateMetrics(days) {
   const rangeLabel = days === 0 ? 'All Time' : days + 'd';
 
   // Helper: filter data by days and return { dates, values, uniques }
+  // Anchors to last data date so historical snapshots work correctly.
   function windowData(src, valKey, uniqKey, windowDays) {
     if (!windowDays || windowDays === 0) {
       return { dates: src.dates, values: src[valKey], uniques: src[uniqKey] };
     }
-    const t = new Date(); t.setDate(t.getDate() - windowDays);
+    if (!src.dates.length) return { dates: [], values: [], uniques: [] };
+    const anchor = new Date(src.dates[src.dates.length - 1] + 'T12:00:00');
+    const t = new Date(anchor); t.setDate(t.getDate() - windowDays);
     const cutoff = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
     const r = { dates: [], values: [], uniques: [] };
     src.dates.forEach((d, i) => {
@@ -892,16 +891,19 @@ function updateMetrics(days) {
   }
 
   // Helper: compute rolling delta (current window vs prior window of same size)
+  // Anchors to last data date; uses >= / < boundary to match windowData.
   function rollingDelta(src, valKey, windowDays) {
     if (!windowDays || windowDays === 0) return { current: 0, prior: 0, delta: 0, hasData: false };
-    const t = new Date(); t.setDate(t.getDate() - windowDays);
+    if (!src.dates.length) return { current: 0, prior: 0, delta: 0, hasData: false };
+    const anchor = new Date(src.dates[src.dates.length - 1] + 'T12:00:00');
+    const t = new Date(anchor); t.setDate(t.getDate() - windowDays);
     const cutoff = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
-    const t2 = new Date(); t2.setDate(t2.getDate() - windowDays * 2);
+    const t2 = new Date(anchor); t2.setDate(t2.getDate() - windowDays * 2);
     const priorCutoff = t2.getFullYear() + '-' + String(t2.getMonth()+1).padStart(2,'0') + '-' + String(t2.getDate()).padStart(2,'0');
     let current = 0, prior = 0;
     src.dates.forEach((d, i) => {
-      if (d > cutoff) current += src[valKey][i];
-      else if (d > priorCutoff) prior += src[valKey][i];
+      if (d >= cutoff) current += src[valKey][i];
+      else if (d >= priorCutoff && d < cutoff) prior += src[valKey][i];
     });
     const delta = prior > 0 ? Math.round((current - prior) / prior * 100) : 0;
     return { current, prior, delta, hasData: prior > 0 };
@@ -965,7 +967,8 @@ function updateMetrics(days) {
   // Days since last star
   if (allData.stars.dates.length > 0) {
     const lastStar = allData.stars.dates[allData.stars.dates.length - 1];
-    const diff = Math.floor((new Date() - new Date(lastStar)) / 86400000);
+    const lastStarLocal = new Date(lastStar + 'T12:00:00');
+    const diff = Math.floor((new Date() - lastStarLocal) / 86400000);
     document.getElementById('ins-star-gap').textContent = diff;
     document.getElementById('ins-star-gap-sub').textContent = 'last: ' + allData.stars.users[allData.stars.users.length - 1] + ' on ' + lastStar;
   } else {
@@ -1018,11 +1021,15 @@ function buildWeeklyTrend(viewWindow, cloneWindow) {
         const pct = Math.round((w.views - prev.views) / prev.views * 100);
         const cls = pct > 0 ? 'td-up' : pct < 0 ? 'td-down' : 'td-flat';
         vDelta = '<span class="' + cls + '">' + (pct > 0 ? '\u2191' : pct < 0 ? '\u2193' : '\u2192') + ' ' + pct + '%</span>';
+      } else {
+        vDelta = '<span class="td-flat">\u2014</span>';
       }
       if (prev.clones > 0) {
         const pct = Math.round((w.clones - prev.clones) / prev.clones * 100);
         const cls = pct > 0 ? 'td-up' : pct < 0 ? 'td-down' : 'td-flat';
         cDelta = '<span class="' + cls + '">' + (pct > 0 ? '\u2191' : pct < 0 ? '\u2193' : '\u2192') + ' ' + pct + '%</span>';
+      } else {
+        cDelta = '<span class="td-flat">\u2014</span>';
       }
     } else {
       vDelta = '<span class="td-flat">—</span>';
