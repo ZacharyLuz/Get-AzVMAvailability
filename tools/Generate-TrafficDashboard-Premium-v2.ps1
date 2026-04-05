@@ -72,31 +72,31 @@ if (Test-Path $pathsPath) {
 Write-Host "Loaded: $($views.Count) view days, $($clones.Count) clone days, $($stars.Count) stars, $($referrers.Count) referrers, $($paths.Count) paths, $(@($releaseDownloads).Count) release download snapshots" -ForegroundColor Cyan
 #endregion
 
-#region Build JSON
-$viewDates    = ($views  | ForEach-Object { $_.Date })            | ConvertTo-Json -Compress
-$viewTotals   = ($views  | ForEach-Object { [int]$_.TotalViews }) | ConvertTo-Json -Compress
-$viewUniques  = ($views  | ForEach-Object { [int]$_.UniqueViews })| ConvertTo-Json -Compress
+#region Build JSON — use @() to guarantee arrays for ConvertTo-Json
+$viewDates    = @($views  | ForEach-Object { $_.Date })            | ConvertTo-Json -Compress -AsArray
+$viewTotals   = @($views  | ForEach-Object { [int]$_.TotalViews }) | ConvertTo-Json -Compress -AsArray
+$viewUniques  = @($views  | ForEach-Object { [int]$_.UniqueViews })| ConvertTo-Json -Compress -AsArray
 
-$cloneDates   = ($clones | ForEach-Object { $_.Date })             | ConvertTo-Json -Compress
-$cloneTotals  = ($clones | ForEach-Object { [int]$_.TotalClones }) | ConvertTo-Json -Compress
-$cloneUniques = ($clones | ForEach-Object { [int]$_.UniqueClones })| ConvertTo-Json -Compress
+$cloneDates   = @($clones | ForEach-Object { $_.Date })             | ConvertTo-Json -Compress -AsArray
+$cloneTotals  = @($clones | ForEach-Object { [int]$_.TotalClones }) | ConvertTo-Json -Compress -AsArray
+$cloneUniques = @($clones | ForEach-Object { [int]$_.UniqueClones })| ConvertTo-Json -Compress -AsArray
 
-$starDates      = ($stars | ForEach-Object { $_.Date })               | ConvertTo-Json -Compress
-$starCumulative = ($stars | ForEach-Object { [int]$_.CumulativeStars })| ConvertTo-Json -Compress
-$starUsers      = ($stars | ForEach-Object { $_.User })               | ConvertTo-Json -Compress
+$starDates      = @($stars | ForEach-Object { $_.Date })               | ConvertTo-Json -Compress -AsArray
+$starCumulative = @($stars | ForEach-Object { [int]$_.CumulativeStars })| ConvertTo-Json -Compress -AsArray
+$starUsers      = @($stars | ForEach-Object { $_.User })               | ConvertTo-Json -Compress -AsArray
 
-$refLabels  = ($referrers | ForEach-Object { $_.Referrer })           | ConvertTo-Json -Compress
-$refViews   = ($referrers | ForEach-Object { [int]$_.TotalViews })    | ConvertTo-Json -Compress
-$refUniques = ($referrers | ForEach-Object { [int]$_.UniqueVisitors }) | ConvertTo-Json -Compress
+$refLabels  = @($referrers | ForEach-Object { $_.Referrer })           | ConvertTo-Json -Compress -AsArray
+$refViews   = @($referrers | ForEach-Object { [int]$_.TotalViews })    | ConvertTo-Json -Compress -AsArray
+$refUniques = @($referrers | ForEach-Object { [int]$_.UniqueVisitors }) | ConvertTo-Json -Compress -AsArray
 
-$pathLabels = ($paths | ForEach-Object { $_.Path -replace '^/ZacharyLuz/Get-AzVMAvailability', '' -replace '^$', '/' }) | ConvertTo-Json -Compress
-$pathViews  = ($paths | ForEach-Object { [int]$_.TotalViews }) | ConvertTo-Json -Compress
+$pathLabels = @($paths | ForEach-Object { $_.Path -replace '^/ZacharyLuz/Get-AzVMAvailability', '' -replace '^$', '/' }) | ConvertTo-Json -Compress -AsArray
+$pathViews  = @($paths | ForEach-Object { [int]$_.TotalViews }) | ConvertTo-Json -Compress -AsArray
 
-# All-time totals
-$totalViewsAllTime  = ($views  | ForEach-Object { [int]$_.TotalViews }  | Measure-Object -Sum).Sum
-$uniqueViewsAllTime = ($views  | ForEach-Object { [int]$_.UniqueViews } | Measure-Object -Sum).Sum
-$totalClonesAllTime = ($clones | ForEach-Object { [int]$_.TotalClones } | Measure-Object -Sum).Sum
-$uniqueClonesAllTime= ($clones | ForEach-Object { [int]$_.UniqueClones }| Measure-Object -Sum).Sum
+# All-time totals (default to 0 when arrays are empty)
+$totalViewsAllTime  = if ($views.Count -gt 0) { ($views  | ForEach-Object { [int]$_.TotalViews }  | Measure-Object -Sum).Sum } else { 0 }
+$uniqueViewsAllTime = if ($views.Count -gt 0) { ($views  | ForEach-Object { [int]$_.UniqueViews } | Measure-Object -Sum).Sum } else { 0 }
+$totalClonesAllTime = if ($clones.Count -gt 0) { ($clones | ForEach-Object { [int]$_.TotalClones } | Measure-Object -Sum).Sum } else { 0 }
+$uniqueClonesAllTime= if ($clones.Count -gt 0) { ($clones | ForEach-Object { [int]$_.UniqueClones }| Measure-Object -Sum).Sum } else { 0 }
 $totalStars     = if ($stars.Count -gt 0) { ($stars[-1]).CumulativeStars } else { 0 }
 $latestStats    = if ($repoStats.Count -gt 0) { $repoStats[-1] } else { $null }
 $latestReleaseDownloads = if (@($releaseDownloads).Count -gt 0) { @($releaseDownloads)[-1] } else { $null }
