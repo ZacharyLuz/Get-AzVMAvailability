@@ -115,9 +115,9 @@ function Get-RollingDelta {
     $cutoff = ([datetime]$sorted[-1].Date).AddDays(-$WindowDays)
     $priorCutoff = $cutoff.AddDays(-$WindowDays)
 
-    $current = ($sorted | Where-Object { [datetime]$_.Date -gt $cutoff } |
+    $current = ($sorted | Where-Object { [datetime]$_.Date -ge $cutoff } |
         ForEach-Object { [int]$_.$ValueProperty } | Measure-Object -Sum).Sum
-    $prior = ($sorted | Where-Object { [datetime]$_.Date -gt $priorCutoff -and [datetime]$_.Date -le $cutoff } |
+    $prior = ($sorted | Where-Object { [datetime]$_.Date -ge $priorCutoff -and [datetime]$_.Date -lt $cutoff } |
         ForEach-Object { [int]$_.$ValueProperty } | Measure-Object -Sum).Sum
 
     $delta = if ($prior -gt 0) { [math]::Round(($current - $prior) / $prior * 100) } else { 0 }
@@ -506,10 +506,20 @@ $html += @"
 "@
 
 # Metrics — single unified bar with 6 cells, no orphans
-$viewDeltaClass = if ($viewDelta -gt 0) { 'up' } elseif ($viewDelta -lt 0) { 'down' } else { 'flat' }
-$viewDeltaArrow = if ($viewDelta -gt 0) { '&#8593;' } elseif ($viewDelta -lt 0) { '&#8595;' } else { '&#8594;' }
-$cloneDeltaClass = if ($cloneDelta -gt 0) { 'up' } elseif ($cloneDelta -lt 0) { 'down' } else { 'flat' }
-$cloneDeltaArrow = if ($cloneDelta -gt 0) { '&#8593;' } elseif ($cloneDelta -lt 0) { '&#8595;' } else { '&#8594;' }
+$viewDeltaHtml = if ($viewsWoW.HasData) {
+    $cls = if ($viewDelta -gt 0) { 'up' } elseif ($viewDelta -lt 0) { 'down' } else { 'flat' }
+    $arrow = if ($viewDelta -gt 0) { '&#8593;' } elseif ($viewDelta -lt 0) { '&#8595;' } else { '&#8594;' }
+    "<div class=`"m-delta $cls`" id=`"hdr-views-delta`">$arrow ${viewDelta}% WoW</div>"
+} else {
+    '<div class="m-delta flat" id="hdr-views-delta">&mdash;</div>'
+}
+$cloneDeltaHtml = if ($clonesWoW.HasData) {
+    $cls = if ($cloneDelta -gt 0) { 'up' } elseif ($cloneDelta -lt 0) { 'down' } else { 'flat' }
+    $arrow = if ($cloneDelta -gt 0) { '&#8593;' } elseif ($cloneDelta -lt 0) { '&#8595;' } else { '&#8594;' }
+    "<div class=`"m-delta $cls`" id=`"hdr-clones-delta`">$arrow ${cloneDelta}% WoW</div>"
+} else {
+    '<div class="m-delta flat" id="hdr-clones-delta">&mdash;</div>'
+}
 
 $html += @"
   <div class="metrics reveal d1">
@@ -517,13 +527,13 @@ $html += @"
       <div class="m-label" id="hdr-views-label">Views (All Time)</div>
       <div class="m-value" id="hdr-views-value">$totalViewsAllTime</div>
       <div class="m-sub" id="hdr-views-sub">$uniqueViewsAllTime unique</div>
-      <div class="m-delta $viewDeltaClass" id="hdr-views-delta">$viewDeltaArrow ${viewDelta}% WoW</div>
+      $viewDeltaHtml
     </div>
     <div class="metric">
       <div class="m-label" id="hdr-clones-label">Clones (All Time)</div>
       <div class="m-value" id="hdr-clones-value">$totalClonesAllTime</div>
       <div class="m-sub" id="hdr-clones-sub">$uniqueClonesAllTime unique</div>
-      <div class="m-delta $cloneDeltaClass" id="hdr-clones-delta">$cloneDeltaArrow ${cloneDelta}% WoW</div>
+      $cloneDeltaHtml
     </div>
     <div class="metric">
       <div class="m-label">Stars</div>
