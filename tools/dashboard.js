@@ -277,38 +277,46 @@ function updateMetrics(allData, days) {
     document.getElementById('ins-star-gap-sub').textContent = 'no stars yet';
   }
 
-  buildWeeklyTrend(vw, cw);
+  buildWeeklyTrend(allData, vw);
 }
 
-function buildWeeklyTrend(viewWindow, cloneWindow) {
+function buildWeeklyTrend(allData, windowedViews) {
+  // Week = Sunday through Saturday
   function toWeekKey(dateStr) {
     var d = new Date(dateStr + 'T12:00:00');
-    var day = d.getDay();
-    var mon = new Date(d); mon.setDate(d.getDate() - ((day + 6) % 7));
-    return mon.getFullYear() + '-' + String(mon.getMonth() + 1).padStart(2, '0') + '-' + String(mon.getDate()).padStart(2, '0');
+    var day = d.getDay(); // 0=Sun, 6=Sat
+    var sun = new Date(d); sun.setDate(d.getDate() - day); // back to Sunday
+    return sun.getFullYear() + '-' + String(sun.getMonth() + 1).padStart(2, '0') + '-' + String(sun.getDate()).padStart(2, '0');
   }
 
+  // Build weeks from FULL dataset so every week has complete 7-day totals
   var weeks = {};
-  viewWindow.dates.forEach(function(d, i) {
+  allData.views.dates.forEach(function(d, i) {
     var wk = toWeekKey(d);
     if (!weeks[wk]) { weeks[wk] = { views: 0, clones: 0 }; }
-    weeks[wk].views += viewWindow.values[i];
+    weeks[wk].views += allData.views.total[i];
   });
-  cloneWindow.dates.forEach(function(d, i) {
+  allData.clones.dates.forEach(function(d, i) {
     var wk = toWeekKey(d);
     if (!weeks[wk]) { weeks[wk] = { views: 0, clones: 0 }; }
-    weeks[wk].clones += cloneWindow.values[i];
+    weeks[wk].clones += allData.clones.total[i];
   });
 
-  var sortedWeeks = Object.keys(weeks).sort();
+  // Determine which weeks overlap with the selected window
+  var windowDates = {};
+  windowedViews.dates.forEach(function(d) { windowDates[toWeekKey(d)] = true; });
+
+  var sortedWeeks = Object.keys(weeks).sort().filter(function(wk) {
+    return windowDates[wk];
+  });
   var tbody = document.getElementById('trend-table-body');
   var html = '';
 
   sortedWeeks.forEach(function(wk, idx) {
     var w = weeks[wk];
-    var mon = new Date(wk + 'T12:00:00');
-    var sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-    var wkLabel = (mon.getMonth() + 1) + '/' + mon.getDate() + ' \u2013 ' + (sun.getMonth() + 1) + '/' + sun.getDate();
+    var sun = new Date(wk + 'T12:00:00');
+    var sat = new Date(sun); sat.setDate(sun.getDate() + 6);
+    var wkLabel = (sun.getMonth() + 1) + '/' + sun.getDate() + ' \u2013 ' + (sat.getMonth() + 1) + '/' + sat.getDate();
 
     var vDelta = '', cDelta = '';
     if (idx > 0) {
