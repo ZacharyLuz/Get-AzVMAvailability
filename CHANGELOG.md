@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Split README into focused docs/ pages — README is now a concise landing page linking to 11 topic guides under `docs/`
+
 ## [2.0.0] — Module Conversion
 
 ### Changed

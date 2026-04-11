@@ -583,6 +583,20 @@ Date: 2026-03-12
 **Reasoning:** Both doc mismatches are real. (1) `MaxDataDiskCount` is intentionally a soft scoring dimension (7 pts in similarity scoring) — being too strict eliminates viable candidates where users don't use all disk slots. The README incorrectly listed it as a hard gate. (2) "Generation overlap" was the original dimension name; code was refactored to "family version newness" but docs weren't updated.
 **Action Taken:** Fixed — removed "Max data disks" from the hard gate table, renamed "Generation overlap" to "Family version newness" in scoring table, added vCPU ceiling note. Commit 8d24603.
 
+---
+## PR #128 — Split README into focused docs/ pages
+**Date:** 2026-04-11 | **Branch:** readme-split-docs | **Commit:** 8e7da7c
+
+| # | File:Line | Reviewer | Finding | Assessment | Reasoning | Action |
+|---|-----------|----------|---------|------------|-----------|--------|
+| 1 | docs/image-compatibility.md:32 | sourcery-ai | "pre-defined" → "predefined" | **Agree** | Standard compound spelling | Fixed typo in 8e7da7c |
+| 2 | docs/cloud-environments.md:12 | Copilot | Azure Germany marked ✅ but deprecated since Oct 2021 | **Agree** | Inconsistent with region-presets.md | Changed to ⚠️ Deprecated/legacy |
+| 3 | docs/region-presets.md:24 | Copilot | Germany note says "no longer available" — inconsistent | **Agree** | Wording misaligned with cloud-environments.md | Changed to "deprecated legacy sovereign cloud" |
+| 4 | README.md:221 | Copilot | Select-String troubleshooting lacks result explanation | **Agree** | Truncation during rewrite removed explanation | Added match/no-match guidance |
+| 5 | README.md:150 | Copilot | PS 5.1 guidance removed not relocated | **Disagree** | Module requires PS 7+ (stated in Requirements). PS 5.1 guidance is obsolete, not a relocation gap | No action — Requirements section already covers this |
+| 6 | artifacts/copilot-review-log.md:14 | Copilot | PR #128 section prepended instead of appended | **Agree** | Instructions say append-only | Moved to end of file |
+| 7 | README.md:150 | Copilot | Parameters description claims grouping/defaults/aliases but page is a flat table | **Agree** | Description overstates page structure | Changed to "Reference table for all 39 parameters, including names, types, and descriptions" |
+
 ### Comment 4
 **File:** `data/UpgradePath.json:7`
 **Copilot Finding:** "Typo in the `_metadata.usage` string: it says `futurePoof` but the actual key used throughout the file is `futureProof`."
