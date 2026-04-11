@@ -95,6 +95,7 @@ docs/atv-install-incident-report.md
 
 # Archived internal process artifacts (remediation, proposals, session handoffs)
 docs/archive/
+docs/plans/
 
 # AI toolkit / agent skills installed locally
 .github/skills/
