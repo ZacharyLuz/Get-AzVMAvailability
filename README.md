@@ -209,6 +209,26 @@ Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere
 .\Get-AzVMAvailability.ps1 -LifecycleScan -NoPrompt
 ```
 
+## Script vs Module
+
+As of v2.0.0, Get-AzVMAvailability is available as both a standalone script and a PowerShell module. **Existing script users see no changes** — the `.ps1` file still works exactly as before.
+
+| | Script (`.\Get-AzVMAvailability.ps1`) | Module (`Get-AzVMAvailability`) |
+|---|---|---|
+| **Install** | `git clone` or download ZIP | `Install-Module AzVMAvailability` |
+| **Run** | `.\Get-AzVMAvailability.ps1 -Region eastus` | `Get-AzVMAvailability -Region eastus` |
+| **Works from any directory** | No — requires full path or `cd` to repo | Yes — available globally after install |
+| **Update** | `git pull` | `Update-Module AzVMAvailability` |
+| **Tab completion & Get-Help** | Requires dot-sourcing first | Works immediately |
+| **Use in automation scripts** | `. .\Get-AzVMAvailability.ps1` (dot-source) | `Import-Module AzVMAvailability` |
+| **Parameters & output** | Identical | Identical |
+
+### Staying Up to Date
+
+- **Module users**: Run `Update-Module AzVMAvailability` periodically, or check your installed version with `Get-Module AzVMAvailability -ListAvailable`.
+- **Script users**: Run `git pull` to get the latest version.
+- **Release notifications**: Click **Watch** → **Custom** → **Releases** on the [GitHub repo](https://github.com/ZacharyLuz/Get-AzVMAvailability) to be notified of new versions.
+
 ## Usage Examples
 
 > **💡 Tip**: When copying multi-line commands, ensure backticks (`` ` ``) at the end of each line are preserved. If copying from GitHub, use the "Copy" button in code blocks.
