@@ -181,7 +181,23 @@ Write-Verbose "Get-AzVMAvailability wrapper v$ScriptVersion"
 # Import the AzVMAvailability module from the same directory as this script
 $modulePath = Join-Path $PSScriptRoot 'AzVMAvailability'
 if (-not (Test-Path (Join-Path $modulePath 'AzVMAvailability.psd1'))) {
-    throw "AzVMAvailability module not found at '$modulePath'. Ensure the AzVMAvailability folder is alongside this script."
+    throw @"
+AzVMAvailability module not found at '$modulePath'.
+
+To fix this, choose one of the following:
+
+  Option A — Install the module from PSGallery (recommended):
+    Install-Module AzVMAvailability -Repository PSGallery
+    Get-AzVMAvailability -Region eastus -NoPrompt
+
+  Option B — Clone the full repository:
+    git clone https://github.com/ZacharyLuz/Get-AzVMAvailability.git
+    cd Get-AzVMAvailability
+    .\Get-AzVMAvailability.ps1 -Region eastus -NoPrompt
+
+This script requires the AzVMAvailability/ module folder alongside it.
+If you downloaded only the .ps1 file, use Option A instead.
+"@
 }
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction Stop
 
