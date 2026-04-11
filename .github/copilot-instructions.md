@@ -94,7 +94,7 @@ The standalone `Get-AzVMAvailability.ps1` script has been converted into a **pro
 ```powershell
 .\tools\Validate-Script.ps1
 ```
-Runs six checks: syntax validation, PSScriptAnalyzer linting, Pester tests, AI-comment pattern scan, version consistency, and gh CLI anti-pattern detection.
+Runs seven checks: syntax validation, PSScriptAnalyzer linting, Pester tests, AI-comment pattern scan, version consistency, gh CLI anti-pattern detection, and module import validation.
 
 ### Run via Module (recommended)
 ```powershell

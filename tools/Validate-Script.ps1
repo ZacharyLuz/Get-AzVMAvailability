@@ -30,7 +30,14 @@ $logDir = Join-Path $PSScriptRoot 'logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 $timestamp = Get-Date -Format 'yyyy-MM-dd-HHmmss'
 $logFile = Join-Path $logDir "validate-$timestamp.log"
-Start-Transcript -Path $logFile -Append | Out-Null
+$transcriptStarted = $false
+try {
+    Start-Transcript -Path $logFile -Append -ErrorAction Stop | Out-Null
+    $transcriptStarted = $true
+}
+catch {
+    Write-Verbose "Transcript could not be started: $($_.Exception.Message)"
+}
 
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host " GET-AZVMAVAILABILITY VALIDATION" -ForegroundColor Cyan
@@ -427,6 +434,6 @@ else {
 Write-Host "========================================`n" -ForegroundColor Cyan
 
 Write-Host "Log: $logFile" -ForegroundColor DarkGray
-Stop-Transcript | Out-Null
+if ($transcriptStarted) { Stop-Transcript | Out-Null }
 
 exit $failCount

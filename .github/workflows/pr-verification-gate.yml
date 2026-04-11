@@ -1,0 +1,71 @@
+name: PR Verification Gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  verification-gate:
+    name: Verification-First Checklist Present
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR body includes verification checklist markers
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed("This workflow must run on pull_request events.");
+              return;
+            }
+
+            const body = (pr.body || "").trim();
+
+            // Sentinel markers — must match headings in PULL_REQUEST_TEMPLATE.md exactly.
+            const required = [
+              "## Verification Checklist",
+              "### Verified Landmark Table",
+              "| Landmark / Claim | Evidence",
+              "### Behavior Parity",
+              "## Quality Checklist"
+            ];
+
+            const missing = required.filter(m => !body.includes(m));
+
+            // Heuristic: at least one non-header markdown table row with 3 pipe-delimited
+            // columns where the third column contains an evidence tag like [OBSERVED].
+            const tableRowRegex = /^\|\s*[^|\n]+\s*\|\s*[^|\n]+\s*\|\s*\[[A-Z]+\]\s*\|\s*$/m;
+            const hasAtLeastOneLandmarkRow = tableRowRegex.test(body);
+
+            const problems = [];
+            if (missing.length) {
+              problems.push(
+                "Missing markers:\n" + missing.map(m => `  - \`${m}\``).join("\n")
+              );
+            }
+            if (!hasAtLeastOneLandmarkRow) {
+              problems.push(
+                "Verified Landmark Table appears empty — at least one populated row " +
+                "with an evidence tag ([OBSERVED]/[SEARCHED]/[PROVIDED]) is required."
+              );
+            }
+
+            if (problems.length) {
+              core.setFailed(
+                "❌ PR Verification Gate failed.\n\n" +
+                problems.join("\n\n") +
+                "\n\n" +
+                "Fix:\n" +
+                "1. Paste the Verification-First checklist from the PR template into the PR body.\n" +
+                "2. Populate at least one Verified Landmark Table row with evidence.\n\n" +
+                "Why:\n" +
+                "This repo requires evidence-backed structural claims to prevent hallucinations " +
+                "and ensure script-to-module parity.\n"
+              );
+            } else {
+              core.info("✅ Verification checklist and at least one landmark row detected.");
+            }

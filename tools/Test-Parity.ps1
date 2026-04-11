@@ -24,6 +24,7 @@ $logFile = Join-Path $logDir "parity-test-$timestamp.log"
     $ctx = Get-AzContext -ErrorAction SilentlyContinue
     if (-not $ctx) {
         Write-Output "FAIL  No Azure context. Run Connect-AzAccount first."
+        $script:parityFailed = $true
         return
     }
     $subName = $ctx.Subscription.Name
@@ -37,13 +38,13 @@ $logFile = Join-Path $logDir "parity-test-$timestamp.log"
     Write-Output "-- Test 1: -JsonOutput -NoPrompt -Region $region --"
     Write-Output "  Running via wrapper script..."
     $t1 = [System.Diagnostics.Stopwatch]::StartNew()
-    $wrapperJson = & pwsh -NoProfile -Command "Set-Location '$repoRoot'; .\Get-AzVMAvailability.ps1 -JsonOutput -NoPrompt -Region $region 2>`$null"
+    $wrapperJson = & pwsh -NoProfile -Command "Set-Location '$repoRoot'; .\Get-AzVMAvailability.ps1 -JsonOutput -NoPrompt -Region $region" 2>&1 | Where-Object { $_ -is [string] }
     $t1.Stop()
     Write-Output "  Wrapper: $($t1.Elapsed.TotalSeconds.ToString('F1'))s"
 
     Write-Output "  Running via module import..."
     $t2 = [System.Diagnostics.Stopwatch]::StartNew()
-    $moduleJson = & pwsh -NoProfile -Command "Set-Location '$repoRoot'; Import-Module .\AzVMAvailability -Force -DisableNameChecking; Get-AzVMAvailability -JsonOutput -NoPrompt -Region $region 2>`$null"
+    $moduleJson = & pwsh -NoProfile -Command "Set-Location '$repoRoot'; Import-Module .\AzVMAvailability -Force -DisableNameChecking; Get-AzVMAvailability -JsonOutput -NoPrompt -Region $region" 2>&1 | Where-Object { $_ -is [string] }
     $t2.Stop()
     Write-Output "  Module:  $($t2.Elapsed.TotalSeconds.ToString('F1'))s"
 
@@ -51,8 +52,8 @@ $logFile = Join-Path $logDir "parity-test-$timestamp.log"
     $wObj = $wrapperJson | ConvertFrom-Json -ErrorAction SilentlyContinue
     $mObj = $moduleJson | ConvertFrom-Json -ErrorAction SilentlyContinue
 
-    if (-not $wObj) { Write-Output "  FAIL  Wrapper JSON is invalid or empty" }
-    elseif (-not $mObj) { Write-Output "  FAIL  Module JSON is invalid or empty" }
+    if (-not $wObj) { Write-Output "  FAIL  Wrapper JSON is invalid or empty"; $script:parityFailed = $true }
+    elseif (-not $mObj) { Write-Output "  FAIL  Module JSON is invalid or empty"; $script:parityFailed = $true }
     else {
         $checks = @()
         # Schema version
@@ -136,3 +137,6 @@ $logFile = Join-Path $logDir "parity-test-$timestamp.log"
     #endregion
 
 } *>&1 | Tee-Object -FilePath $logFile
+
+# Exit non-zero if any parity check failed
+if ($script:parityFailed) { exit 1 }

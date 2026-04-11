@@ -110,3 +110,8 @@ $logFile = Join-Path $logDir "module-test-$timestamp.log"
     #endregion
 
 } *>&1 | Tee-Object -FilePath $logFile
+
+# Exit with non-zero if any failures detected
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
+$logContent = Get-Content $logFile -Raw
+if ($logContent -match 'RESULT: FAILURES DETECTED') { exit 1 }

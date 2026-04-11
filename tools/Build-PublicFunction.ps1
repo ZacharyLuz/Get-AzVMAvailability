@@ -2,10 +2,26 @@
 # Assembles AzVMAvailability/Public/Get-AzVMAvailability.ps1 from the monolith script.
 # Run from repo root: .\tools\Build-PublicFunction.ps1
 
-param([string]$SourceScript = 'Get-AzVMAvailability.ps1')
+param([string]$SourceScript)
+
+if (-not $SourceScript) {
+    $backupPath = Join-Path $PSScriptRoot '..' 'backups' 'Get-AzVMAvailability.ps1.backup-pre-v2-wrapper'
+    if (Test-Path $backupPath) {
+        $SourceScript = $backupPath
+        Write-Host "Using backup monolith: $backupPath" -ForegroundColor Cyan
+    } else {
+        throw "No -SourceScript specified and backup monolith not found at '$backupPath'. Pass the path to the original monolith script."
+    }
+}
 
 $ErrorActionPreference = 'Stop'
-$src = Get-Content $SourceScript -Encoding UTF8
+if (-not (Test-Path -LiteralPath $SourceScript)) {
+    throw "Source script '$SourceScript' not found."
+}
+$src = Get-Content -LiteralPath $SourceScript -Encoding UTF8
+if ($src.Count -lt 6000) {
+    throw "Source script has $($src.Count) lines — expected the monolith (6000+). The file at '$SourceScript' may be the thin wrapper, not the monolith."
+}
 
 # Verified boundaries [SEARCHED/OBSERVED]:
 #   Lines 1-257:   Comment-based help (<# through #>)
