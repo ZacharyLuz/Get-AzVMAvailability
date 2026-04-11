@@ -200,4 +200,24 @@ Describe 'Get-AzVMAvailability Parameter Parity' {
             $attr.MaxRange | Should -Be 1000
         }
     }
+
+    Context 'Wrapper script param parity' {
+
+        It 'Wrapper script has the same parameters as the module function' {
+            $wrapperPath = Join-Path $PSScriptRoot '..' 'Get-AzVMAvailability.ps1'
+            $wrapperAst = [System.Management.Automation.Language.Parser]::ParseFile($wrapperPath, [ref]$null, [ref]$null)
+            $wrapperParams = $wrapperAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }
+
+            $funcPath = Join-Path $PSScriptRoot '..' 'AzVMAvailability' 'Public' 'Get-AzVMAvailability.ps1'
+            $funcAst = [System.Management.Automation.Language.Parser]::ParseFile($funcPath, [ref]$null, [ref]$null)
+            $funcBlock = $funcAst.FindAll({ $args[0] -is [System.Management.Automation.Language.ParamBlockAst] }, $true) | Select-Object -First 1
+            $funcParams = $funcBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }
+
+            $missingInWrapper = $funcParams | Where-Object { $_ -notin $wrapperParams }
+            $extraInWrapper = $wrapperParams | Where-Object { $_ -notin $funcParams }
+
+            $missingInWrapper | Should -BeNullOrEmpty -Because "wrapper is missing module params: $($missingInWrapper -join ', ')"
+            $extraInWrapper | Should -BeNullOrEmpty -Because "wrapper has extra params not in module: $($extraInWrapper -join ', ')"
+        }
+    }
 }

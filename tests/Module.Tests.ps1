@@ -18,9 +18,11 @@ Describe 'AzVMAvailability Module' {
             $mod | Should -Not -BeNullOrEmpty
         }
 
-        It 'Module version is 2.0.0' {
+        It 'Module version matches manifest' {
             $mod = Get-Module AzVMAvailability
-            $mod.Version.ToString() | Should -Be '2.0.0'
+            $manifestPath = Join-Path $PSScriptRoot '..' 'AzVMAvailability' 'AzVMAvailability.psd1'
+            $expected = (Import-PowerShellDataFile $manifestPath).ModuleVersion
+            $mod.Version.ToString() | Should -Be $expected
         }
 
         It 'Exports exactly Get-AzVMAvailability' {

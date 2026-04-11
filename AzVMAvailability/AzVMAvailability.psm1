@@ -7,6 +7,7 @@ $ModuleRoot = $PSScriptRoot
 $script:SuppressConsole = $false
 
 # Write-Host override: gates console output when -JsonOutput is active.
+# Removing this override will cause Write-Host output to leak into -JsonOutput stdout.
 # Must be at module scope so all dot-sourced Private/ functions see it.
 # Delegates to the original cmdlet via module-qualified name when not suppressed.
 function Write-Host {
