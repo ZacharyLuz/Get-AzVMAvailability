@@ -23,6 +23,7 @@ $logFile = Join-Path $logDir "module-test-$timestamp.log"
 
     #region Module Import
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $importFailed = $false
     Write-Output "-- Section 1: Module Import --"
     Remove-Module AzVMAvailability -ErrorAction SilentlyContinue
     try {
@@ -33,6 +34,7 @@ $logFile = Join-Path $logDir "module-test-$timestamp.log"
     }
     catch {
         Write-Output "  FAIL  Module import failed: $($_.Exception.Message)"
+        $importFailed = $true
     }
     $sw.Stop()
     Write-Output "  Duration: $($sw.Elapsed.TotalSeconds.ToString('F1'))s"
@@ -100,7 +102,7 @@ $logFile = Join-Path $logDir "module-test-$timestamp.log"
     Write-Output "  Total Failed:  $totalFailed"
     Write-Output "  Containers Failed: $containerFailed"
     Write-Output "  Total Duration: $($runStart.Elapsed.TotalSeconds.ToString('F1'))s"
-    if ($totalFailed -eq 0 -and $containerFailed -eq 0) {
+    if ($totalFailed -eq 0 -and $containerFailed -eq 0 -and -not $importFailed) {
         Write-Output "  RESULT: ALL TESTS PASSED"
     } else {
         Write-Output "  RESULT: FAILURES DETECTED"
