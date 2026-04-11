@@ -147,7 +147,7 @@ As of v2.0.0, Get-AzVMAvailability is available as both a standalone script and 
 
 | Topic | Description |
 |-------|-------------|
-| [Parameters](docs/parameters.md) | All 39 parameters organized by group with types, defaults, and aliases |
+| [Parameters](docs/parameters.md) | Reference table for all 39 parameters, including names, types, and descriptions |
 | [Usage Examples](docs/usage-examples.md) | Common scanning patterns — GPU, pricing, export, multi-region |
 | [Inventory Planning](docs/inventory-planning.md) | Validate capacity and quota for an entire VM BOM |
 | [Lifecycle Recommendations](docs/lifecycle-recommendations.md) | Retirement risk analysis with upgrade alternatives |
