@@ -1,6 +1,18 @@
 # Copilot Review Log
 
 ---
+## PR #128 — Split README into focused docs/ pages
+**Date:** 2026-04-11 | **Branch:** readme-split-docs | **Commit:** 8e7da7c
+
+| # | File:Line | Reviewer | Finding | Assessment | Reasoning | Action |
+|---|-----------|----------|---------|------------|-----------|--------|
+| 1 | docs/image-compatibility.md:32 | sourcery-ai | "pre-defined" → "predefined" | **Agree** | Standard compound spelling | Fixed typo in 8e7da7c |
+| 2 | docs/cloud-environments.md:12 | Copilot | Azure Germany marked ✅ but deprecated since Oct 2021 | **Agree** | Inconsistent with region-presets.md | Changed to ⚠️ Deprecated/legacy |
+| 3 | docs/region-presets.md:24 | Copilot | Germany note says "no longer available" — inconsistent | **Agree** | Wording misaligned with cloud-environments.md | Changed to "deprecated legacy sovereign cloud" |
+| 4 | README.md:221 | Copilot | Select-String troubleshooting lacks result explanation | **Agree** | Truncation during rewrite removed explanation | Added match/no-match guidance |
+| 5 | README.md:150 | Copilot | PS 5.1 guidance removed not relocated | **Disagree** | Module requires PS 7+ (stated in Requirements). PS 5.1 guidance is obsolete, not a relocation gap | No action — Requirements section already covers this |
+
+---
 ## PR #33 — feat: v1.11.0 — placement scores, spot pricing, interactive prompts
 **Date:** 2026-03-12 | **Branch:** feature/placement-score-phase1 | **Commit:** c3004ae
 
