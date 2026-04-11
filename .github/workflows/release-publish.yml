@@ -1,0 +1,118 @@
+name: Release & Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PowerShell modules
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Force -SkipPublisherCheck
+          Install-Module Pester -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $settings = if (Test-Path 'PSScriptAnalyzerSettings.psd1') { 'PSScriptAnalyzerSettings.psd1' } else { $null }
+          $results = @()
+          $results += Invoke-ScriptAnalyzer -Path ./Get-AzVMAvailability.ps1 -Settings $settings -Severity Error,Warning
+          $results += Invoke-ScriptAnalyzer -Path ./AzVMAvailability -Recurse -Settings $settings -Severity Error,Warning
+          if ($results.Count -gt 0) {
+            $results | Format-Table -AutoSize
+            throw "PSScriptAnalyzer found $($results.Count) issue(s)"
+          }
+          Write-Host "PSScriptAnalyzer: clean"
+
+      - name: Run Pester (unit tests only)
+        shell: pwsh
+        run: |
+          $unitTests = Get-ChildItem ./tests/*.Tests.ps1 | Where-Object Name -ne 'Integration.Tests.ps1'
+          $config = New-PesterConfiguration
+          $config.Run.Path = $unitTests.FullName
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+
+  publish:
+    name: Publish Module
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify manifest version matches release tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          $tagVersion = $tag -replace '^v', ''
+          $manifest = Import-PowerShellDataFile ./AzVMAvailability/AzVMAvailability.psd1
+          $manifestVersion = $manifest.ModuleVersion
+          if ($manifestVersion -ne $tagVersion) {
+            throw "Version mismatch: manifest=$manifestVersion, tag=$tagVersion. Update AzVMAvailability.psd1 ModuleVersion to match."
+          }
+          Write-Host "Version match confirmed: $manifestVersion"
+
+      - name: Check if version already published (idempotency guard)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          $version = $tag -replace '^v', ''
+          $existing = Find-Module -Name AzVMAvailability -RequiredVersion $version -Repository PSGallery -ErrorAction SilentlyContinue
+          if ($existing) {
+            Write-Host "::warning::Version $version already published to PSGallery. Skipping publish."
+            echo "ALREADY_PUBLISHED=true" >> $env:GITHUB_ENV
+          } else {
+            echo "ALREADY_PUBLISHED=false" >> $env:GITHUB_ENV
+          }
+
+      - name: Package module
+        shell: pwsh
+        run: |
+          $stagingDir = './staging/AzVMAvailability'
+          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
+          Copy-Item -Path ./AzVMAvailability/* -Destination $stagingDir -Recurse -Force
+          Compress-Archive -Path $stagingDir -DestinationPath ./AzVMAvailability.zip -Force
+          Write-Host "Module packaged: AzVMAvailability.zip"
+
+      - name: Publish to PSGallery
+        if: env.ALREADY_PUBLISHED != 'true'
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          if (-not $env:NUGET_API_KEY) {
+            throw "PSGALLERY_API_KEY secret is not set. Add it in repo Settings > Secrets."
+          }
+          Publish-Module -Path ./staging/AzVMAvailability -NuGetApiKey $env:NUGET_API_KEY -Repository PSGallery -Force
+          Write-Host "Published to PSGallery"
+
+      - name: Attach module zip to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" ./AzVMAvailability.zip --clobber
+
+      - name: Verify publication
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          $version = $tag -replace '^v', ''
+          # Allow PSGallery indexing delay
+          Start-Sleep -Seconds 30
+          $found = Find-Module -Name AzVMAvailability -RequiredVersion $version -Repository PSGallery -ErrorAction SilentlyContinue
+          if ($found) {
+            Write-Host "Verified: AzVMAvailability $version is live on PSGallery"
+          } else {
+            Write-Host "::warning::Module not yet visible on PSGallery (indexing may be delayed). Check manually."
+          }

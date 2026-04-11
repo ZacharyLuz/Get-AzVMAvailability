@@ -2,5 +2,11 @@
     // Run PSScriptAnalyzer on save using the repo's shared settings file
     "powershell.scriptAnalysis.enable": true,
     "powershell.scriptAnalysis.settingsPath": "PSScriptAnalyzerSettings.psd1",
-    "specstory.cloudSync.enabled": "never"
+    "specstory.cloudSync.enabled": "never",
+
+    // Prevent VS Code from restoring dead terminals on window reopen
+    "terminal.integrated.persistentSessionReviveProcess": "never",
+
+    // Disable Python .venv auto-activation in terminals (reduces terminal startup overhead)
+    "python.terminal.activateEnvironment": false
 }

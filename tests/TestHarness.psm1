@@ -195,6 +195,22 @@ function Get-MainScriptVariableAssignment {
     )
 
     if (-not $assignmentAst) {
+        # Fallback: search the Public function file (v2.0.0 module layout)
+        $publicPath = Join-Path $PSScriptRoot '..' 'AzVMAvailability' 'Public' 'Get-AzVMAvailability.ps1'
+        if (Test-Path $publicPath) {
+            $publicAst = [System.Management.Automation.Language.Parser]::ParseFile($publicPath, [ref]$null, [ref]$null)
+            $assignmentAst = $publicAst.Find(
+                {
+                    param($node)
+                    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+                    $node.Left.VariablePath.UserPath -eq $VariableName
+                },
+                $true
+            )
+        }
+    }
+    if (-not $assignmentAst) {
         throw "Could not find variable assignment in main script: `$${VariableName}"
     }
 
