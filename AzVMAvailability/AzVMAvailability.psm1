@@ -6,6 +6,9 @@ $ModuleRoot = $PSScriptRoot
 # Module-scope console suppression flag — set per-invocation by Get-AzVMAvailability
 $script:SuppressConsole = $false
 
+# Module-scope flag — ensures update check runs at most once per session
+$script:VersionChecked = $false
+
 # Write-Host override: gates console output when -JsonOutput is active.
 # Removing this override will cause Write-Host output to leak into -JsonOutput stdout.
 # Must be at module scope so all dot-sourced Private/ functions see it.

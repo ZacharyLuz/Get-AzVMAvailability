@@ -1512,6 +1512,9 @@ if ($script:RunContext.ImageReqs) {
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
 
+# Check for newer version on PSGallery (once per session, silent on failure)
+Test-ModuleUpdateAvailable -CurrentVersion $ScriptVersion
+
 # Fetch pricing data if enabled
 $script:RunContext.RegionPricing = @{}
 $script:RunContext.UsingActualPricing = $false
