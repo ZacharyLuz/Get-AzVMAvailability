@@ -33,5 +33,6 @@ function Test-ModuleUpdateAvailable {
     }
     catch {
         # Silent — no network, no PSGallery, no problem
+        Write-Verbose "Update check skipped: $($_.Exception.Message)"
     }
 }
