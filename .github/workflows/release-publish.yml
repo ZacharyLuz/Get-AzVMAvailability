@@ -20,6 +20,9 @@ jobs:
           Set-PSRepository PSGallery -InstallationPolicy Trusted
           Install-Module PSScriptAnalyzer -Force -SkipPublisherCheck
           Install-Module Pester -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+          Install-Module Az.Accounts -Force -SkipPublisherCheck -AllowClobber
+          Install-Module Az.Compute -Force -SkipPublisherCheck -AllowClobber
+          Install-Module Az.Resources -Force -SkipPublisherCheck -AllowClobber
 
       - name: Run PSScriptAnalyzer
         shell: pwsh
@@ -84,6 +87,12 @@ jobs:
           Copy-Item -Path ./AzVMAvailability/* -Destination $stagingDir -Recurse -Force
           Compress-Archive -Path $stagingDir -DestinationPath ./AzVMAvailability.zip -Force
           Write-Host "Module packaged: AzVMAvailability.zip"
+
+      - name: Validate module manifest
+        shell: pwsh
+        run: |
+          $result = Test-ModuleManifest -Path ./staging/AzVMAvailability/AzVMAvailability.psd1 -ErrorAction Stop
+          Write-Host "Manifest valid: $($result.Name) v$($result.Version)"
 
       - name: Publish to PSGallery
         if: env.ALREADY_PUBLISHED != 'true'

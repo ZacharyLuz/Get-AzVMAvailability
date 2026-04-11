@@ -1,7 +1,7 @@
 @{
     RootModule        = 'AzVMAvailability.psm1'
     ModuleVersion     = '2.0.0'
-    GUID              = 'a7f3b2c1-4d5e-6f78-9a0b-1c2d3e4f5a6b'
+    GUID              = '7f42e8d6-e85d-4e31-a541-d9af648a5269'
     Author            = 'Zachary Luz'
     CompanyName       = 'Community'
     Copyright         = '(c) Zachary Luz. All rights reserved. MIT License.'
