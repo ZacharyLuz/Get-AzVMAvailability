@@ -9,7 +9,7 @@
 ### Prerequisites
 
 - PowerShell 7+
-- `Az.Compute`, `Az.Resources` modules installed
+- `Az.Accounts`, `Az.Compute`, `Az.Resources` modules installed
 - Logged in: `Connect-AzAccount`
 - Active subscription with VM quota
 - `ImportExcel` module (optional, for XLSX export in Scenario 7)

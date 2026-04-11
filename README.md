@@ -9,6 +9,13 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 
 ## What's New
 
+### v2.0.0 — Module Conversion (April 2026)
+- **PowerShell module** — install via `Install-Module AzVMAvailability` from PSGallery, or import directly from the repo
+- **No behavior changes** — all 39 parameters, output formats, and interactive prompts are identical to v1.14.0
+- **Thin wrapper** — `Get-AzVMAvailability.ps1` still works as a standalone entry point (imports the module and forwards parameters)
+- **Private functions** — 43 helper functions are now truly private; only `Get-AzVMAvailability` is exported
+- **CI/CD publishing** — automated PSGallery + GitHub Release publishing on merge to main
+
 ### v1.14.0 — Lifecycle & Deployment Mapping (April 2026)
 - **Lifecycle Recommendations** — feed a CSV/JSON/XLSX of deployed VMs and get retirement risk analysis with up to 6 upgrade alternatives per SKU, powered by a curated upgrade-path knowledge base
 - **`-SubMap` / `-RGMap`** — new deployment mapping sheets in XLSX exports, grouping affected VMs by subscription or resource group with risk-level enrichment
@@ -92,7 +99,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 ## Requirements
 
 - **PowerShell 7.0+** (required)
-- **Azure PowerShell Modules**: `Az.Compute`, `Az.Resources`
+- **Azure PowerShell Modules**: `Az.Accounts`, `Az.Compute`, `Az.Resources`
 - **Optional**: `ImportExcel` module for styled XLSX export
 - **Optional**: `Az.ResourceGraph` module for `-LifecycleScan` live VM inventory
 
@@ -138,6 +145,7 @@ cd Get-AzVMAvailability
 if ($IsWindows) {
     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 }
+Install-Module -Name Az.Accounts -Scope CurrentUser -Repository PSGallery -Force
 Install-Module -Name Az.Compute -Scope CurrentUser -Repository PSGallery -Force
 Install-Module -Name Az.Resources -Scope CurrentUser -Repository PSGallery -Force
 
@@ -156,7 +164,7 @@ if (-not (Get-PSRepository -Name Get-AzVMAvailability -ErrorAction SilentlyConti
 ### Option A: Module (recommended)
 
 ```powershell
-# Install from PSGallery
+# Install from PSGallery (available after v2.0.0 release)
 Install-Module AzVMAvailability -Repository PSGallery
 
 # Or import directly from the repo
