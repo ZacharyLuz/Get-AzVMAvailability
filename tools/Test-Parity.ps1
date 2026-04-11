@@ -87,13 +87,13 @@ $logFile = Join-Path $logDir "parity-test-$timestamp.log"
     Write-Output "-- Test 2: -Recommend Standard_D4s_v5 -NoPrompt -Region $region -JsonOutput --"
     Write-Output "  Running via wrapper..."
     $t3 = [System.Diagnostics.Stopwatch]::StartNew()
-    $wRecJson = & pwsh -NoProfile -Command "Set-Location '$repoRoot'; .\Get-AzVMAvailability.ps1 -Recommend Standard_D4s_v5 -NoPrompt -Region $region -JsonOutput 2>`$null"
+    $wRecJson = & pwsh -NoProfile -Command "Set-Location '$repoRoot'; .\Get-AzVMAvailability.ps1 -Recommend Standard_D4s_v5 -NoPrompt -Region $region -JsonOutput" 2>&1 | Where-Object { $_ -is [string] }
     $t3.Stop()
     Write-Output "  Wrapper: $($t3.Elapsed.TotalSeconds.ToString('F1'))s"
 
     Write-Output "  Running via module..."
     $t4 = [System.Diagnostics.Stopwatch]::StartNew()
-    $mRecJson = & pwsh -NoProfile -Command "Set-Location '$repoRoot'; Import-Module .\AzVMAvailability -Force -DisableNameChecking; Get-AzVMAvailability -Recommend Standard_D4s_v5 -NoPrompt -Region $region -JsonOutput 2>`$null"
+    $mRecJson = & pwsh -NoProfile -Command "Set-Location '$repoRoot'; Import-Module .\AzVMAvailability -Force -DisableNameChecking; Get-AzVMAvailability -Recommend Standard_D4s_v5 -NoPrompt -Region $region -JsonOutput" 2>&1 | Where-Object { $_ -is [string] }
     $t4.Stop()
     Write-Output "  Module:  $($t4.Elapsed.TotalSeconds.ToString('F1'))s"
 
@@ -120,7 +120,9 @@ $logFile = Join-Path $logDir "parity-test-$timestamp.log"
     $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "parity-test-$timestamp"
     New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
-    & pwsh -NoProfile -Command "Set-Location '$tempDir'; & '$repoRoot\Get-AzVMAvailability.ps1' -GenerateInventoryTemplate 2>`$null"
+    $templateOutput = & pwsh -NoProfile -Command "Set-Location '$tempDir'; & '$repoRoot\Get-AzVMAvailability.ps1' -GenerateInventoryTemplate" 2>&1
+    $templateErrors = $templateOutput | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
+    if ($templateErrors) { $templateErrors | ForEach-Object { Write-Output "  WARN  stderr: $_" } }
     $csvExists = Test-Path (Join-Path $tempDir 'inventory-template.csv')
     $jsonExists = Test-Path (Join-Path $tempDir 'inventory-template.json')
     if ($csvExists -and $jsonExists) { Write-Output "  PASS  Template files generated (CSV + JSON)" }
