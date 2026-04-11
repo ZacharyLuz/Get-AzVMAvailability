@@ -219,3 +219,7 @@ If you see an error like `The property 'AzureEndpoints' cannot be found on this 
 Select-String -Path .\Get-AzVMAvailability.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null'
 ```
 
+If this command returns a match, the file you are running still contains the old code path and should be replaced with the current `Get-AzVMAvailability.ps1` wrapper from this repo, or you should run the module directly with `Import-Module .\AzVMAvailability`.
+
+If the command returns no output, that stale-copy marker is not present in this file. Confirm you are launching the expected script path and not another older copy from a different folder.
+

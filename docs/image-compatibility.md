@@ -29,7 +29,7 @@ The script queries Azure Marketplace and shows matching publishers/offers, then 
 
 ## Option 2: Common Images Quick-Pick
 
-The interactive prompt shows **16 pre-defined common images** organized by category:
+The interactive prompt shows **16 predefined common images** organized by category:
 
 | Category     | Images                                             |
 | ------------ | -------------------------------------------------- |

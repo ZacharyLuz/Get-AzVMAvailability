@@ -21,7 +21,7 @@ Use `-RegionPreset` for quick access to common region sets:
 > - `USGov` and `China` presets are **hardcoded** because `Get-AzLocation` only returns regions for the cloud you're logged into (commercial Azure won't show government regions)
 > - `USGov` automatically sets `-Environment AzureUSGovernment` - you still need credentials for that environment
 > - `China` automatically sets `-Environment AzureChinaCloud` (Mooncake) - you still need credentials for that environment
-> - Azure Germany (AzureGermanCloud) was deprecated in October 2021 and is no longer available
+> - Azure Germany (`AzureGermanCloud`) is a deprecated legacy sovereign cloud and is not included in these presets
 > - There is no separate "European Government" cloud; EU data residency is handled via standard Azure regions with compliance certifications (e.g., France Central, Germany West Central)
 
 ## Examples
