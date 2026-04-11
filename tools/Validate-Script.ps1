@@ -62,8 +62,12 @@ if (-not $hasAnalyzer) {
     Write-Host "  SKIP  PSScriptAnalyzer not installed (Install-Module PSScriptAnalyzer)" -ForegroundColor DarkYellow
 }
 else {
-    # Lint main script + tools scripts; dev/ excluded (experimental code)
+    # Lint main script + tools scripts + module code; dev/ excluded (experimental code)
     $lintTargets = @($mainScript) + (Get-ChildItem (Join-Path $repoRoot 'tools') -Filter '*.ps1' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+    $moduleDir = Join-Path $repoRoot 'AzVMAvailability'
+    if (Test-Path $moduleDir) {
+        $lintTargets += Get-ChildItem $moduleDir -Recurse -Include '*.ps1','*.psm1' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+    }
     $issues = @()
     foreach ($target in $lintTargets) {
         $analyzerParams = @{ Path = $target; Severity = @('Error', 'Warning') }
@@ -121,15 +125,25 @@ $aiPatterns = @(
     @{ Pattern = '# Handle potential'; Desc = 'Defensive narration' }
     @{ Pattern = '# Don''t populate'; Desc = 'Instructional comment' }
 )
-$lines = Get-Content $mainScript
+# Scan wrapper + module code
+$scanFiles = @($mainScript)
+$moduleDir = Join-Path $repoRoot 'AzVMAvailability'
+if (Test-Path $moduleDir) {
+    $scanFiles += Get-ChildItem $moduleDir -Recurse -Include '*.ps1','*.psm1' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+}
 $aiHits = @()
-for ($i = 0; $i -lt $lines.Count; $i++) {
-    foreach ($p in $aiPatterns) {
-        if ($lines[$i] -match $p.Pattern) {
-            $aiHits += [PSCustomObject]@{
-                Line    = $i + 1
-                Type    = $p.Desc
-                Content = $lines[$i].Trim()
+foreach ($scanFile in $scanFiles) {
+    $lines = Get-Content $scanFile
+    $relPath = [System.IO.Path]::GetRelativePath($repoRoot, $scanFile)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        foreach ($p in $aiPatterns) {
+            if ($lines[$i] -match $p.Pattern) {
+                $aiHits += [PSCustomObject]@{
+                    File    = $relPath
+                    Line    = $i + 1
+                    Type    = $p.Desc
+                    Content = $lines[$i].Trim()
+                }
             }
         }
     }
@@ -140,7 +154,7 @@ if ($aiHits.Count -eq 0) {
 else {
     Write-Host "  WARN  $($aiHits.Count) AI-pattern comment(s) found:" -ForegroundColor DarkYellow
     foreach ($hit in $aiHits) {
-        Write-Host "         Line $($hit.Line): $($hit.Type)" -ForegroundColor DarkYellow
+        Write-Host "         $($hit.File):$($hit.Line): $($hit.Type)" -ForegroundColor DarkYellow
         Write-Host "           $($hit.Content)" -ForegroundColor Gray
     }
     # Warning only — does not increment fail count
