@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/banner-dark.png" alt="Get-AzVMAvailability — Discover Available Azure VM Capacity Across Regions" />
+  <img src="assets/header-dark.png" alt="Get-AzVMAvailability — Discover Available Azure VM Capacity Across Regions" />
 </p>
 
 A PowerShell tool for checking Azure VM SKU availability across regions - find where your VMs can deploy.
