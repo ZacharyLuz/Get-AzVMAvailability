@@ -5,11 +5,9 @@
 
 <!-- Brief summary of what this PR does and why -->
 
-## Verification-First Checklist (Anti-Hallucination + Parity)
+## Verification Checklist
 
-<!-- Rule: Any structural claim (line numbers, file length, "where logic lives") must be evidence-backed. -->
-<!-- Use tags: [OBSERVED] [SEARCHED] [PROVIDED] [INFERRED]. -->
-<!-- Plans/changes must rely only on OBSERVED / SEARCHED / PROVIDED. -->
+<!-- Structural claims must be evidence-backed: [OBSERVED] [SEARCHED] [PROVIDED]. -->
 
 ### Phase 0 — Repo Facts
 - [ ] I inventoried repo entrypoints and structure (top-level files/folders). **[OBSERVED]**
