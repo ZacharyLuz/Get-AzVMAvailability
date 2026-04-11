@@ -845,8 +845,9 @@ $ScriptVersion = (Get-Module AzVMAvailability).Version.ToString()
 
 #region Constants
 $HoursPerMonth = 730
-$HoursPerYear = $HoursPerMonth * 12
-$HoursPer3Years = $HoursPerMonth * 36
+$HoursPerYear = $HoursPerMonth * 12   # Reserved Instance pricing (1-year)
+$HoursPer3Years = $HoursPerMonth * 36 # Reserved Instance pricing (3-year)
+Write-Verbose "Pricing constants: $HoursPerMonth/mo, $HoursPerYear/yr, $HoursPer3Years/3yr"
 $ParallelThrottleLimit = 4
 $OutputWidthWithPricing = 200
 $OutputWidthBase = 122
