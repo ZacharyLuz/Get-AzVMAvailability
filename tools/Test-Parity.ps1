@@ -58,25 +58,25 @@ $logFile = Join-Path $logDir "parity-test-$timestamp.log"
         $checks = @()
         # Schema version
         if ($wObj.schemaVersion -eq $mObj.schemaVersion) { $checks += "  PASS  schemaVersion: $($wObj.schemaVersion)" }
-        else { $checks += "  FAIL  schemaVersion: wrapper=$($wObj.schemaVersion) module=$($mObj.schemaVersion)" }
+        else { $checks += "  FAIL  schemaVersion: wrapper=$($wObj.schemaVersion) module=$($mObj.schemaVersion)"; $script:parityFailed = $true }
         # Mode
         if ($wObj.mode -eq $mObj.mode) { $checks += "  PASS  mode: $($wObj.mode)" }
-        else { $checks += "  FAIL  mode: wrapper=$($wObj.mode) module=$($mObj.mode)" }
+        else { $checks += "  FAIL  mode: wrapper=$($wObj.mode) module=$($mObj.mode)"; $script:parityFailed = $true }
         # Family count
         $wFam = @($wObj.families).Count
         $mFam = @($mObj.families).Count
         if ($wFam -eq $mFam) { $checks += "  PASS  families count: $wFam" }
-        else { $checks += "  FAIL  families count: wrapper=$wFam module=$mFam" }
+        else { $checks += "  FAIL  families count: wrapper=$wFam module=$mFam"; $script:parityFailed = $true }
         # Details count
         $wDet = @($wObj.details).Count
         $mDet = @($mObj.details).Count
         if ($wDet -eq $mDet) { $checks += "  PASS  details count: $wDet" }
-        else { $checks += "  FAIL  details count: wrapper=$wDet module=$mDet" }
+        else { $checks += "  FAIL  details count: wrapper=$wDet module=$mDet"; $script:parityFailed = $true }
         # Regions
         $wReg = ($wObj.regions | ConvertTo-Json -Compress)
         $mReg = ($mObj.regions | ConvertTo-Json -Compress)
         if ($wReg -eq $mReg) { $checks += "  PASS  regions match" }
-        else { $checks += "  FAIL  regions differ" }
+        else { $checks += "  FAIL  regions differ"; $script:parityFailed = $true }
 
         $checks | ForEach-Object { Write-Output $_ }
     }
@@ -100,17 +100,17 @@ $logFile = Join-Path $logDir "parity-test-$timestamp.log"
     $wRec = $wRecJson | ConvertFrom-Json -ErrorAction SilentlyContinue
     $mRec = $mRecJson | ConvertFrom-Json -ErrorAction SilentlyContinue
 
-    if (-not $wRec) { Write-Output "  FAIL  Wrapper recommend JSON invalid or empty" }
-    elseif (-not $mRec) { Write-Output "  FAIL  Module recommend JSON invalid or empty" }
+    if (-not $wRec) { Write-Output "  FAIL  Wrapper recommend JSON invalid or empty"; $script:parityFailed = $true }
+    elseif (-not $mRec) { Write-Output "  FAIL  Module recommend JSON invalid or empty"; $script:parityFailed = $true }
     else {
         if ($wRec.schemaVersion -eq $mRec.schemaVersion) { Write-Output "  PASS  schemaVersion: $($wRec.schemaVersion)" }
-        else { Write-Output "  FAIL  schemaVersion mismatch" }
+        else { Write-Output "  FAIL  schemaVersion mismatch"; $script:parityFailed = $true }
         $wCount = @($wRec.recommendations).Count
         $mCount = @($mRec.recommendations).Count
         if ($wCount -eq $mCount) { Write-Output "  PASS  recommendation count: $wCount" }
-        else { Write-Output "  FAIL  recommendation count: wrapper=$wCount module=$mCount" }
+        else { Write-Output "  FAIL  recommendation count: wrapper=$wCount module=$mCount"; $script:parityFailed = $true }
         if ($wRec.target.sku -eq $mRec.target.sku) { Write-Output "  PASS  target SKU: $($wRec.target.sku)" }
-        else { Write-Output "  FAIL  target SKU mismatch" }
+        else { Write-Output "  FAIL  target SKU mismatch"; $script:parityFailed = $true }
     }
     Write-Output ""
     #endregion
@@ -124,7 +124,7 @@ $logFile = Join-Path $logDir "parity-test-$timestamp.log"
     $csvExists = Test-Path (Join-Path $tempDir 'inventory-template.csv')
     $jsonExists = Test-Path (Join-Path $tempDir 'inventory-template.json')
     if ($csvExists -and $jsonExists) { Write-Output "  PASS  Template files generated (CSV + JSON)" }
-    else { Write-Output "  FAIL  Missing template files: CSV=$csvExists JSON=$jsonExists" }
+    else { Write-Output "  FAIL  Missing template files: CSV=$csvExists JSON=$jsonExists"; $script:parityFailed = $true }
     Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     Write-Output ""
     #endregion

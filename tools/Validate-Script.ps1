@@ -433,7 +433,15 @@ else {
 }
 Write-Host "========================================`n" -ForegroundColor Cyan
 
-Write-Host "Log: $logFile" -ForegroundColor DarkGray
-if ($transcriptStarted) { Stop-Transcript | Out-Null }
+if ($transcriptStarted) {
+    Stop-Transcript | Out-Null
+    Write-Host "Log: $logFile" -ForegroundColor DarkGray
+}
+elseif (Test-Path $logFile) {
+    Write-Host "Log: $logFile" -ForegroundColor DarkGray
+}
+else {
+    Write-Host "Log: disabled (transcript did not start)" -ForegroundColor DarkYellow
+}
 
 exit $failCount

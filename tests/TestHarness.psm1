@@ -211,7 +211,7 @@ function Get-MainScriptVariableAssignment {
         }
     }
     if (-not $assignmentAst) {
-        throw "Could not find variable assignment in main script: `$${VariableName}"
+        throw "Could not find variable assignment in main script or AzVMAvailability/Public/Get-AzVMAvailability.ps1: `$${VariableName}"
     }
 
     return ($assignmentAst.Extent.Text -replace ('^\$' + [regex]::Escape($VariableName)), ('$' + $ScopePrefix + ':' + $VariableName))
