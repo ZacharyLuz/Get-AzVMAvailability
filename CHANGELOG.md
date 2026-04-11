@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] — Module Conversion
+
+### Changed
+- **Module conversion** — Converted standalone script into a production-grade PowerShell module (`AzVMAvailability/`) with Public/Private layout
+- **Get-AzVMAvailability.ps1** — Now a thin wrapper script that imports the module and forwards all parameters; produces identical behavior to the previous monolith
+- **FunctionsToExport** — Module exports only `Get-AzVMAvailability`; 43 helper functions are now truly private
+- **Write-Host override** — Moved to module scope (`.psm1`) so all Private/ functions see the `-JsonOutput` suppression gate
+- **Version** — Bumped to 2.0.0 in `.psd1` manifest
+
+### Added
+- **PSGallery publishing** — `release-publish.yml` workflow publishes to PowerShell Gallery on GitHub Release, with idempotency guard and version verification
+- **Module artifact** — CI workflow now uploads packaged module as build artifact
+- **Module tests** — `tests/Module.Tests.ps1` validates module import, exports, version, and private function isolation
+- **Parameter parity tests** — `tests/ParameterParity.Tests.ps1` validates all 39 parameters (types, aliases, defaults, ValidateSet, ValidateRange)
+- **PR Verification Gate** — `pr-verification-gate.yml` CI gate enforces Verification-First checklist with evidence-tagged landmark table
+- **PR template** — Added Verification-First Checklist (Anti-Hallucination + Parity) section to PR template
+- **Build script** — `tools/Build-PublicFunction.ps1` assembles the Public function from verified script boundaries
+
+### No behavior changes
+- All parameters, defaults, aliases, validation attributes, interactive prompts, JSON output schema, CSV/XLSX export shapes, and console output are identical to v1.14.0
+
 ### Changed
 - **README audit** — Added "What's New" section; expanded Features list with lifecycle, placement, spot, JSON output, inventory, and deployment mapping; added 8 missing parameters to Parameters table (`-ShowSpot`, `-ShowPlacement`, `-DesiredCount`, `-NoQuota`, `-SubMap`, `-RGMap`, `-AllowMixedArch`, `-MaxRetries`); added `Az.ResourceGraph` to Requirements; added lifecycle/retirement and inventory use cases; added lifecycle row to Quick Comparison table
 - **ROADMAP audit** — Marked 9 shipped backlog items as complete (Fleet Planning, Agent Integration, Module Structure, Backward-Compatible Wrapper, ARG Current VM Inventory, Cross-Subscription Discovery, Deployment Density, Spot Pricing)

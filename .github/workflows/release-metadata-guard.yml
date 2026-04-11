@@ -61,6 +61,13 @@ jobs:
             throw "Could not find Version in .NOTES comment block."
           }
 
+          # Validate manifest ModuleVersion matches wrapper ScriptVersion
+          $manifest = Import-PowerShellDataFile './AzVMAvailability/AzVMAvailability.psd1'
+          if ($manifest.ModuleVersion -ne $headVersion) {
+            throw "Version mismatch: wrapper ScriptVersion=$headVersion but manifest ModuleVersion=$($manifest.ModuleVersion). Both must match."
+          }
+          Write-Host "Manifest ModuleVersion matches ScriptVersion: $headVersion"
+
           Write-Host "Base version: $baseVersion"
           Write-Host "Head version: $headVersion"
 

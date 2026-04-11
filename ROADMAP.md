@@ -1,8 +1,8 @@
 # Roadmap
 
-## Current Release: v1.14.0
+## Current Release: v2.0.0
 
-> **Repository Freeze Notice (2026-03-31):** After v1.14.0 ships, the repo enters a feature freeze for v2.0.0 module conversion. During freeze: no new feature work, bug fixes only via hotfix branches, module work on `feat/v2-module` branch.
+> **v2.0.0 Module Conversion Complete:** Standalone script converted to PowerShell module with Public/Private layout, PSGallery publishing, and CI/CD automation. No new features or behavior changes from v1.14.0.
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 

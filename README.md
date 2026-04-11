@@ -1,13 +1,26 @@
-# Get-AzVMAvailability
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/header-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="assets/header.png" />
+    <img src="assets/header-dark.png" alt="Get-AzVMAvailability — Discover Available Azure VM Capacity Across Regions" />
+  </picture>
+</p>
 
 A PowerShell tool for checking Azure VM SKU availability across regions - find where your VMs can deploy.
 
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.14.0-brightgreen)
+![Version](https://img.shields.io/badge/Version-2.0.0-brightgreen)
 
 ## What's New
+
+### v2.0.0 — Module Conversion (April 2026)
+- **PowerShell module** — install via `Install-Module AzVMAvailability` from PSGallery, or import directly from the repo
+- **No behavior changes** — all 39 parameters, output formats, and interactive prompts are identical to v1.14.0
+- **Thin wrapper** — `Get-AzVMAvailability.ps1` still works as a standalone entry point (imports the module and forwards parameters)
+- **Private functions** — 43 helper functions are now truly private; only `Get-AzVMAvailability` is exported
+- **CI/CD publishing** — automated PSGallery + GitHub Release publishing on merge to main
 
 ### v1.14.0 — Lifecycle & Deployment Mapping (April 2026)
 - **Lifecycle Recommendations** — feed a CSV/JSON/XLSX of deployed VMs and get retirement risk analysis with up to 6 upgrade alternatives per SKU, powered by a curated upgrade-path knowledge base
@@ -92,7 +105,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 ## Requirements
 
 - **PowerShell 7.0+** (required)
-- **Azure PowerShell Modules**: `Az.Compute`, `Az.Resources`
+- **Azure PowerShell Modules**: `Az.Accounts`, `Az.Compute`, `Az.Resources`
 - **Optional**: `ImportExcel` module for styled XLSX export
 - **Optional**: `Az.ResourceGraph` module for `-LifecycleScan` live VM inventory
 
@@ -138,6 +151,7 @@ cd Get-AzVMAvailability
 if ($IsWindows) {
     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 }
+Install-Module -Name Az.Accounts -Scope CurrentUser -Repository PSGallery -Force
 Install-Module -Name Az.Compute -Scope CurrentUser -Repository PSGallery -Force
 Install-Module -Name Az.Resources -Scope CurrentUser -Repository PSGallery -Force
 
@@ -152,6 +166,22 @@ if (-not (Get-PSRepository -Name Get-AzVMAvailability -ErrorAction SilentlyConti
 ```
 
 ## Quick Start
+
+### Option A: Module (recommended)
+
+```powershell
+# Install from PSGallery (available after v2.0.0 release)
+Install-Module AzVMAvailability -Repository PSGallery
+
+# Or import directly from the repo
+Import-Module .\AzVMAvailability
+
+# Login and scan
+Connect-AzAccount
+Get-AzVMAvailability -Region "eastus" -NoPrompt
+```
+
+### Option B: Script (unchanged)
 
 ```powershell
 # Interactive Login to Azure
@@ -178,6 +208,26 @@ Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere
 # Live lifecycle scan — pull VM inventory directly from Azure
 .\Get-AzVMAvailability.ps1 -LifecycleScan -NoPrompt
 ```
+
+## Script vs Module
+
+As of v2.0.0, Get-AzVMAvailability is available as both a standalone script and a PowerShell module. **Existing script users see no changes** — the `.ps1` file still works exactly as before.
+
+| | Script (`.\Get-AzVMAvailability.ps1`) | Module (`Get-AzVMAvailability`) |
+|---|---|---|
+| **Install** | `git clone` or download ZIP | `Install-Module AzVMAvailability` |
+| **Run** | `.\Get-AzVMAvailability.ps1 -Region eastus` | `Get-AzVMAvailability -Region eastus` |
+| **Works from any directory** | No — requires full path or `cd` to repo | Yes — available globally after install |
+| **Update** | `git pull` | `Update-Module AzVMAvailability` |
+| **Tab completion & Get-Help** | Requires dot-sourcing first | Works immediately |
+| **Use in automation scripts** | `. .\Get-AzVMAvailability.ps1` (dot-source) | `Import-Module AzVMAvailability` |
+| **Parameters & output** | Identical | Identical |
+
+### Staying Up to Date
+
+- **Module users**: Run `Update-Module AzVMAvailability` periodically, or check your installed version with `Get-Module AzVMAvailability -ListAvailable`.
+- **Script users**: Run `git pull` to get the latest version.
+- **Release notifications**: Click **Watch** → **Custom** → **Releases** on the [GitHub repo](https://github.com/ZacharyLuz/Get-AzVMAvailability) to be notified of new versions.
 
 ## Usage Examples
 
@@ -641,7 +691,7 @@ SKUs that are available but **incompatible** with your image are shown in dark y
 ### Console Output (with Pricing)
 ```
 ====================================================================================
-GET-AZVMAVAILABILITY v1.14.0
+GET-AZVMAVAILABILITY v2.0.0
 ====================================================================================
 SKU Filter: Standard_D2s_v5 | Pricing: Enabled
 

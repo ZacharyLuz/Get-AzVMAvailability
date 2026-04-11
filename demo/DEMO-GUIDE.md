@@ -1,6 +1,6 @@
 # Get-AzVMAvailability — Live Demo Guide
 
-**Version:** 1.14.0 | **Duration:** ~40 minutes + Q&A | **Audience:** Internal Microsoft / External Customers
+**Version:** 2.0.0 | **Duration:** ~40 minutes + Q&A | **Audience:** Internal Microsoft / External Customers
 
 ---
 
@@ -9,7 +9,7 @@
 ### Prerequisites
 
 - PowerShell 7+
-- `Az.Compute`, `Az.Resources` modules installed
+- `Az.Accounts`, `Az.Compute`, `Az.Resources` modules installed
 - Logged in: `Connect-AzAccount`
 - Active subscription with VM quota
 - `ImportExcel` module (optional, for XLSX export in Scenario 7)

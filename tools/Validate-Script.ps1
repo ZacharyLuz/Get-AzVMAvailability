@@ -2,9 +2,9 @@
 .SYNOPSIS
     Pre-commit validation script for Get-AzVMAvailability.
 .DESCRIPTION
-    Runs six checks in sequence: syntax validation, PSScriptAnalyzer linting,
-    Pester tests, AI-comment pattern scan, version consistency, and gh CLI
-    anti-pattern detection in tools/ scripts.
+    Runs seven checks in sequence: syntax validation, PSScriptAnalyzer linting,
+    Pester tests, AI-comment pattern scan, version consistency, gh CLI
+    anti-pattern detection in tools/ scripts, and module import validation.
     Run this before every commit.
 
     Exit code 0 = all checks passed. Non-zero = at least one check failed.
@@ -25,12 +25,26 @@ $settingsFile = Join-Path $repoRoot 'PSScriptAnalyzerSettings.psd1'
 $testsDir = Join-Path $repoRoot 'tests'
 $failCount = 0
 
+# Log output to tools/logs/
+$logDir = Join-Path $PSScriptRoot 'logs'
+if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+$timestamp = Get-Date -Format 'yyyy-MM-dd-HHmmss'
+$logFile = Join-Path $logDir "validate-$timestamp.log"
+$transcriptStarted = $false
+try {
+    Start-Transcript -Path $logFile -Append -ErrorAction Stop | Out-Null
+    $transcriptStarted = $true
+}
+catch {
+    Write-Verbose "Transcript could not be started: $($_.Exception.Message)"
+}
+
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host " GET-AZVMAVAILABILITY VALIDATION" -ForegroundColor Cyan
 Write-Host "========================================`n" -ForegroundColor Cyan
 
 # ── Check 1: Syntax Validation ──────────────────────────────────────
-Write-Host "[1/6] Syntax Check" -ForegroundColor Yellow
+Write-Host "[1/7] Syntax Check" -ForegroundColor Yellow
 try {
     $content = Get-Content $mainScript -Raw -ErrorAction Stop
     [scriptblock]::Create($content) | Out-Null
@@ -42,14 +56,18 @@ catch {
 }
 
 # ── Check 2: PSScriptAnalyzer ───────────────────────────────────────
-Write-Host "[2/6] PSScriptAnalyzer" -ForegroundColor Yellow
+Write-Host "[2/7] PSScriptAnalyzer" -ForegroundColor Yellow
 $hasAnalyzer = Get-Module -ListAvailable PSScriptAnalyzer -ErrorAction SilentlyContinue
 if (-not $hasAnalyzer) {
     Write-Host "  SKIP  PSScriptAnalyzer not installed (Install-Module PSScriptAnalyzer)" -ForegroundColor DarkYellow
 }
 else {
-    # Lint main script + tools scripts; dev/ excluded (experimental code)
+    # Lint main script + tools scripts + module code; dev/ excluded (experimental code)
     $lintTargets = @($mainScript) + (Get-ChildItem (Join-Path $repoRoot 'tools') -Filter '*.ps1' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+    $moduleDir = Join-Path $repoRoot 'AzVMAvailability'
+    if (Test-Path $moduleDir) {
+        $lintTargets += Get-ChildItem $moduleDir -Recurse -Include '*.ps1','*.psm1' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+    }
     $issues = @()
     foreach ($target in $lintTargets) {
         $analyzerParams = @{ Path = $target; Severity = @('Error', 'Warning') }
@@ -70,7 +88,7 @@ else {
 }
 
 # ── Check 3: Pester Tests ──────────────────────────────────────────
-Write-Host "[3/6] Pester Tests" -ForegroundColor Yellow
+Write-Host "[3/7] Pester Tests" -ForegroundColor Yellow
 if ($SkipTests) {
     Write-Host "  SKIP  -SkipTests specified" -ForegroundColor DarkYellow
 }
@@ -82,8 +100,9 @@ else {
     }
     else {
         Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
+        $unitTests = Get-ChildItem (Join-Path $testsDir '*.Tests.ps1') | Where-Object Name -ne 'Integration.Tests.ps1'
         $pesterConfig = New-PesterConfiguration
-        $pesterConfig.Run.Path = $testsDir
+        $pesterConfig.Run.Path = $unitTests.FullName
         $pesterConfig.Run.PassThru = $true
         $pesterConfig.Output.Verbosity = 'None'
         $results = Invoke-Pester -Configuration $pesterConfig
@@ -98,7 +117,7 @@ else {
 }
 
 # ── Check 4: AI Comment Pattern Scan ───────────────────────────────
-Write-Host "[4/6] AI Comment Pattern Scan" -ForegroundColor Yellow
+Write-Host "[4/7] AI Comment Pattern Scan" -ForegroundColor Yellow
 $aiPatterns = @(
     @{ Pattern = '# Must be (after|before|placed)'; Desc = 'Instructional placement comment' }
     @{ Pattern = '# Note:.*see (below|above)'; Desc = 'Cross-reference instruction' }
@@ -106,15 +125,25 @@ $aiPatterns = @(
     @{ Pattern = '# Handle potential'; Desc = 'Defensive narration' }
     @{ Pattern = '# Don''t populate'; Desc = 'Instructional comment' }
 )
-$lines = Get-Content $mainScript
+# Scan wrapper + module code
+$scanFiles = @($mainScript)
+$moduleDir = Join-Path $repoRoot 'AzVMAvailability'
+if (Test-Path $moduleDir) {
+    $scanFiles += Get-ChildItem $moduleDir -Recurse -Include '*.ps1','*.psm1' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+}
 $aiHits = @()
-for ($i = 0; $i -lt $lines.Count; $i++) {
-    foreach ($p in $aiPatterns) {
-        if ($lines[$i] -match $p.Pattern) {
-            $aiHits += [PSCustomObject]@{
-                Line    = $i + 1
-                Type    = $p.Desc
-                Content = $lines[$i].Trim()
+foreach ($scanFile in $scanFiles) {
+    $lines = Get-Content $scanFile
+    $relPath = [System.IO.Path]::GetRelativePath($repoRoot, $scanFile)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        foreach ($p in $aiPatterns) {
+            if ($lines[$i] -match $p.Pattern) {
+                $aiHits += [PSCustomObject]@{
+                    File    = $relPath
+                    Line    = $i + 1
+                    Type    = $p.Desc
+                    Content = $lines[$i].Trim()
+                }
             }
         }
     }
@@ -125,14 +154,14 @@ if ($aiHits.Count -eq 0) {
 else {
     Write-Host "  WARN  $($aiHits.Count) AI-pattern comment(s) found:" -ForegroundColor DarkYellow
     foreach ($hit in $aiHits) {
-        Write-Host "         Line $($hit.Line): $($hit.Type)" -ForegroundColor DarkYellow
+        Write-Host "         $($hit.File):$($hit.Line): $($hit.Type)" -ForegroundColor DarkYellow
         Write-Host "           $($hit.Content)" -ForegroundColor Gray
     }
     # Warning only — does not increment fail count
 }
 
 # ── Check 5: Version Consistency ────────────────────────────────────
-Write-Host "[5/6] Version Consistency" -ForegroundColor Yellow
+Write-Host "[5/7] Version Consistency" -ForegroundColor Yellow
 $versionMismatches = @()
 
 # Extract $ScriptVersion from the main script (source of truth)
@@ -253,18 +282,18 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
             $psd1Data = Import-PowerShellDataFile -Path $psd1Path -ErrorAction Stop
             $psd1Ver  = $psd1Data.ModuleVersion
             if ($null -eq $psd1Ver) {
-                $versionMismatches += "$psd1Path: ModuleVersion key not found"
+                $versionMismatches += "${psd1Path}: ModuleVersion key not found"
             }
             elseif ($psd1Ver -ne $scriptVer) {
                 $versionMismatches += "$psd1Path ModuleVersion: $psd1Ver"
             }
         }
         catch {
-            $versionMismatches += "$psd1Path: failed to read — $($_.Exception.Message)"
+            $versionMismatches += "${psd1Path}: failed to read — $($_.Exception.Message)"
         }
     }
     else {
-        $versionMismatches += "$psd1Path: file not found"
+        $versionMismatches += "${psd1Path}: file not found"
     }
 
     # Scan git-tracked .md files under docs/ for backtick-wrapped version literals.
@@ -329,7 +358,7 @@ else {
 }
 
 # ── Check 6: gh CLI Anti-Pattern Scan ──────────────────────────────
-Write-Host "[6/6] gh CLI Anti-Pattern Scan" -ForegroundColor Yellow
+Write-Host "[6/7] gh CLI Anti-Pattern Scan" -ForegroundColor Yellow
 $toolsDir = Join-Path $repoRoot 'tools'
 $ghHits = @()
 if (Test-Path $toolsDir) {
@@ -380,6 +409,34 @@ else {
     Write-Host "  SKIP  tools/ directory not found" -ForegroundColor DarkYellow
 }
 
+# ── Check 7: Module Import Validation ──────────────────────────────
+Write-Host "[7/7] Module Import Validation" -ForegroundColor Yellow
+$moduleDir = Join-Path $repoRoot 'AzVMAvailability'
+if (Test-Path (Join-Path $moduleDir 'AzVMAvailability.psd1')) {
+    try {
+        Remove-Module AzVMAvailability -ErrorAction SilentlyContinue
+        Import-Module $moduleDir -Force -DisableNameChecking -ErrorAction Stop
+        $mod = Get-Module AzVMAvailability
+        $exported = @($mod.ExportedFunctions.Keys)
+        if ($exported.Count -eq 1 -and $exported[0] -eq 'Get-AzVMAvailability') {
+            Write-Host "  PASS  Module v$($mod.Version) loaded — exports: $($exported -join ', ')" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  FAIL  Module exports unexpected functions: $($exported -join ', ')" -ForegroundColor Red
+            Write-Host "         Expected: Get-AzVMAvailability only" -ForegroundColor Red
+            $failCount++
+        }
+        Remove-Module AzVMAvailability -ErrorAction SilentlyContinue
+    }
+    catch {
+        Write-Host "  FAIL  Module import failed: $($_.Exception.Message)" -ForegroundColor Red
+        $failCount++
+    }
+}
+else {
+    Write-Host "  SKIP  AzVMAvailability module not found at $moduleDir" -ForegroundColor DarkYellow
+}
+
 # ── Summary ─────────────────────────────────────────────────────────
 Write-Host "`n========================================" -ForegroundColor Cyan
 if ($failCount -eq 0) {
@@ -389,5 +446,16 @@ else {
     Write-Host " $failCount CHECK(S) FAILED" -ForegroundColor Red
 }
 Write-Host "========================================`n" -ForegroundColor Cyan
+
+if ($transcriptStarted) {
+    Stop-Transcript | Out-Null
+    Write-Host "Log: $logFile" -ForegroundColor DarkGray
+}
+elseif (Test-Path $logFile) {
+    Write-Host "Log: $logFile" -ForegroundColor DarkGray
+}
+else {
+    Write-Host "Log: disabled (transcript did not start)" -ForegroundColor DarkYellow
+}
 
 exit $failCount

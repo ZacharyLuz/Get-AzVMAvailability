@@ -1,98 +1,188 @@
 # GitHub Copilot Instructions
 
+## Anti-Hallucination Rules (Non-Negotiable)
+
+### Verification-First Requirement
+Before proposing refactors, architecture diagrams, or structural claims:
+1. Inventory the repo structure (top-level files/folders).
+2. Verify entrypoints (script vs module).
+3. Produce a **Verified Landmark Table** with columns: What you observed | How you observed it (read/search) | What remains unknown.
+
+### No "Plausible Precision"
+You MUST NOT invent or estimate:
+- Line numbers, file lengths, or "near end of file" claims
+- Section boundaries or function counts
+- Test counts or Write-Host call counts
+
+If you need counts, **compute them** from the current branch via search/AST and report as "observed."
+
+### Evidence Tags
+Any structural statement MUST be tagged:
+- **[OBSERVED]** — read directly from file
+- **[SEARCHED]** — found via grep/search
+- **[PROVIDED]** — user stated
+- **[INFERRED]** — hypothesis (cannot be used as a dependency for plans)
+
+Plans and refactors may rely ONLY on [OBSERVED], [SEARCHED], or [PROVIDED] facts.
+
+### Large File Reasoning
+When reasoning about files >1,500 lines:
+- Treat the file as segmented — do not assume you know what follows a given anchor.
+- Default to "file continues" unless EOF is explicitly observed.
+- Use function definitions and `#region` markers for navigation, **never** line numbers.
+
+### Retractions
+If an earlier assumption is wrong: retract it explicitly, explain why, and recompute downstream reasoning.
+
+### Confidence Rule
+If you are not 100% certain about a structural fact, you MUST say "I don't know yet." Confidence without verification is an error.
+
+---
+
+## Project Goal
+
+The standalone `Get-AzVMAvailability.ps1` script has been converted into a **production-grade PowerShell module** (`AzVMAvailability/`) preserving **100% behavioral parity**.
+
+- **Do not add new features.** Changes are allowed only for: modularization, testing, validation, CI/CD packaging, and publishing.
+- Publishing targets: **PowerShell Gallery (PSGallery)** + **GitHub Releases**.
+- Private function extraction into `AzVMAvailability/Private/` is **complete** (43 functions across 6 subdirectories).
+- Public function `Get-AzVMAvailability` wraps the orchestration body in `AzVMAvailability/Public/`.
+- `Get-AzVMAvailability.ps1` at repo root is now a **thin wrapper** that imports the module and forwards `@PSBoundParameters`.
+- See `ROADMAP.md` for the full version plan.
+
+---
+
 ## Tech Stack & Architecture
 
 - **Primary Language:** PowerShell 7+
-- **Cloud Platform:** Microsoft Azure (requires Az PowerShell modules)
-- **Purpose:** Scans Azure regions for VM SKU availability, capacity, quota, pricing, and image compatibility.
-- **Key Scripts:** All main logic is implemented in PowerShell scripts; no Node.js, Python, or other language dependencies.
+- **Cloud Platform:** Microsoft Azure (Az PowerShell modules)
+- **Purpose:** Scan Azure regions for VM SKU availability, capacity, quota, pricing, image compatibility, lifecycle risk, and upgrade paths.
+- **No Azure CLI dependency** — only Az PowerShell modules required.
+
+---
 
 ## Key Files & Directories
 
-- `Get-AzVMAvailability.ps1`: Main script for multi-region, multi-SKU Azure VM capacity and quota scanning.
-- `dev/`: Experimental and advanced scripts, including:
-  - `Azure-VM-Capacity-Planner.ps1`
-  - `Azure-SKU-Scanner-Fast.ps1`
-  - `Azure-SKU-Scanner-All-Families.ps1`
-  - `Azure-SKU-Scanner-All-Families-v2.ps1`
-- `tests/`: Pester tests for endpoint and logic validation.
-- `examples/`: Usage examples and ARG queries.
-- `.github/ISSUE_TEMPLATE/`: Issue templates for bug reports and feature requests.
+- `Get-AzVMAvailability.ps1` — **Thin wrapper script** that imports the module and forwards all parameters. Preserves backward compatibility for users who run the script directly.
+- `AzVMAvailability/` — **Module folder** (authoritative source):
+  - `AzVMAvailability.psd1` — Module manifest (v2.0.0, exports only `Get-AzVMAvailability`).
+  - `AzVMAvailability.psm1` — Module loader: Write-Host override at module scope, dot-sources Private/ in dependency order, then Public/.
+  - `Public/Get-AzVMAvailability.ps1` — The primary exported function containing the full orchestration body.
+  - `Private/Azure/` — Endpoint, region, pricing, retry functions (11 files).
+  - `Private/SKU/` — Family, capabilities, similarity, restrictions, filter, retirement (12 files).
+  - `Private/Image/` — Image requirements and compatibility (2 files).
+  - `Private/Inventory/` — Readiness validation and summary (2 files).
+  - `Private/Format/` — Icons, zone status, recommend output, contracts (7 files).
+  - `Private/Utility/` — SafeString, GeoGroup, QuotaAvailable, context management (9 files).
+- `functions/` — ⚠️ **Legacy reference copies only.** Not loaded by the module. Do not edit these files — the authoritative source is `AzVMAvailability/Private/`.
+- `config/` — Reference copy of configuration (documentation only, not executed).
+- `data/` — Knowledge base files (`UpgradePath.json`, `UpgradePath.md`).
+- `tests/` — Pester test suite (`TestHarness.psm1` + unit/integration test files).
+- `tools/` — Validation and CI helper scripts (`Validate-Script.ps1`, `Build-PublicFunction.ps1`, etc.).
+- `backups/` — Pre-conversion backups of the monolith script and other files.
+- `dev/` — Experimental and advanced scripts.
+- `examples/` — Usage examples and ARG queries.
+- `.github/workflows/` — CI/CD workflows: lint + test, release metadata guard, release-on-main, release-publish (PSGallery), PR verification gate, scheduled health check, traffic collection, stale branch cleanup.
+- `.github/ISSUE_TEMPLATE/` — Bug report and feature request templates.
+- `copilot-standing-rules.md` — 5 non-negotiable standing rules (never delete files, atomic commits, backup before changes, validate before commit, PR comment triage). See that file for details.
+
+---
 
 ## Build, Test, and Run
 
-- **Run Main Script:**
-  ```powershell
-  .\Get-AzVMAvailability.ps1
-  ```
-- **Run Tests:**
-  ```powershell
-  Invoke-Pester .\tests\Get-AzureEndpoints.Tests.ps1 -Output Detailed
-  ```
-- **Requirements:**
-  - PowerShell 7+
-  - Az.Compute, Az.Resources modules
-  - Azure login (`Connect-AzAccount`)
-
-## Project Conventions
-
-- **Parameterization:** Scripts prompt for SubscriptionId and Region if not provided.
-- **Exports:** Results can be exported to CSV/XLSX (default export paths: `C:\Temp\...` or `/home/system` in Cloud Shell).
-- **Parallelism:** Uses `ForEach-Object -Parallel` for fast region scanning.
-- **Color-coded Output:** Capacity and quota status are visually highlighted.
-- **No Azure CLI dependency:** Only Az PowerShell modules required.
-
-## Branch Protection
-
-- Main/master branches are protected from deletion and require PRs for changes.
-
-## Release Process
-
-- **All changes to main must go through PRs** — direct pushes are blocked by repository rules.
-- **Tag and release only after PR merge** — never tag before merging.
-- For detailed workflow, see [release-process-guardrails/SKILL.md](skills/release-process-guardrails/SKILL.md).
-
-## PR Body Formatting Standard
-
-- PR descriptions must be valid rendered Markdown (no literal escaped newline text like `\n`).
-- When using GitHub CLI, prefer `--body-file` over inline `--body` for multi-line content.
-- If using `--body`, build it from a PowerShell here-string to preserve real newlines.
-- Before merging, verify rendered content with:
-  - `gh pr view <pr-number> --json body --jq .body`
-
-## PR Review Comment Triage Standard
-
-- Before implementing additional changes on an active PR branch, always pull the latest PR review feedback first.
-- Required commands:
-  - `gh pr view <pr-number> --json reviews,comments --jq '.reviews[] | {author: .author.login, submittedAt: .submittedAt, body: .body}'`
-  - `gh api repos/<owner>/<repo>/pulls/<pr-number>/comments --jq '.[] | {author: .user.login, path: .path, line: (.line // .original_line), body: .body, created_at: .created_at}'`
-- Resolve or explicitly disposition each comment before moving to the next remediation item.
-- **GitHub Copilot auto-reviews every PR.** After fetching comments, filter for the Copilot reviewer and assess each finding:
-  - Classify each as: **Agree** / **Disagree** / **Partially Agree**
-  - Append assessment to `artifacts/copilot-review-log.md` (never overwrite — always append)
-  - Fix all Agree/Partially-Agree findings before merging
-  - Add inline suppression comments in source for justified Disagree findings
-  - Log entry format: PR number, branch, commit SHA, file:line, Copilot finding (quoted), assessment, specific reasoning (reference project context), action taken
-
-## Contribution & Security
-
-- See `CONTRIBUTING.md` for guidelines.
-- See `SECURITY.md` for vulnerability reporting.
-- **Always update `CHANGELOG.md`** when making functional changes (new features, bug fixes, breaking changes).
-
-## Additional Notes
-
-- All scripts are MIT licensed.
-- For advanced usage, see scripts in `dev/` and documentation in `README.md` and `examples/`.
-
-## Code Quality Guardrails
-
-### Before Every Commit
-Run the validation script to catch issues before they reach GitHub:
+### Preferred: Full Validation
 ```powershell
 .\tools\Validate-Script.ps1
 ```
-This runs six checks: syntax validation, PSScriptAnalyzer linting, Pester tests, AI-comment pattern scan, version consistency, and gh CLI anti-pattern detection.
+Runs seven checks: syntax validation, PSScriptAnalyzer linting, Pester tests, AI-comment pattern scan, version consistency, gh CLI anti-pattern detection, and module import validation.
+
+### Run via Module (recommended)
+```powershell
+Import-Module .\AzVMAvailability
+Get-AzVMAvailability -Region eastus -NoPrompt
+```
+
+### Run via Wrapper Script (backward compatible)
+```powershell
+.\Get-AzVMAvailability.ps1 -Region eastus -NoPrompt
+```
+
+### Run Tests
+```powershell
+Invoke-Pester -Path .\tests -Output Detailed
+```
+Always redirect Pester output to log file in CI: `Invoke-Pester ... *> artifacts/test-run.log`
+
+### Requirements
+- PowerShell 7+
+- Required modules: `Az.Accounts`, `Az.Compute`, `Az.Resources`
+- Optional: `ImportExcel` (XLSX export), `Az.ResourceGraph` (`-LifecycleScan` mode)
+- Azure login: `Connect-AzAccount`
+
+---
+
+## Current Parameters
+
+All 39 parameters are preserved with identical names, types, defaults, aliases, and validation attributes. See `Get-Help Get-AzVMAvailability -Full` after module import for complete reference. Key parameter groups:
+
+- **Region & Subscription**: `SubscriptionId` (aliases: SubId, Subscription), `Region` (alias: Location), `RegionPreset`, `Environment`, `SkipRegionValidation`
+- **Filtering**: `FamilyFilter`, `SkuFilter`, `ImageURN`
+- **Pricing & Placement**: `ShowPricing`, `ShowSpot`, `ShowPlacement`, `DesiredCount`, `RateOptimization`
+- **Recommend Mode**: `Recommend`, `TopN`, `MinScore`, `MinvCPU`, `MinMemoryGB`, `AllowMixedArch`
+- **Lifecycle Analysis**: `LifecycleRecommendations`, `LifecycleScan`, `ManagementGroup`, `ResourceGroup`, `Tag` (alias: Tags), `SubMap`, `RGMap`
+- **Inventory Readiness**: `Inventory` (alias: Fleet), `InventoryFile` (alias: FleetFile), `GenerateInventoryTemplate` (alias: GenerateFleetTemplate)
+- **Output & Behavior**: `NoPrompt`, `NoQuota`, `JsonOutput`, `AutoExport`, `ExportPath`, `OutputFormat`, `CompactOutput`, `EnableDrillDown`, `UseAsciiIcons`, `MaxRetries`
+
+---
+
+## Behavior Parity Guardrail
+
+The module must produce **identical behavior** to the original script for all existing parameters, modes, and output formats.
+
+**Do not change:**
+- Parameter names, types, defaults, aliases, or validation attributes
+- Interactive prompting behavior (except where `-NoPrompt` / `-JsonOutput` already suppress it)
+- JSON schema emitted by `-JsonOutput`
+- CSV/XLSX export column names and shapes
+- Error behavior and throw/return semantics
+
+**If a behavior change seems necessary**, STOP and document:
+1. Current behavior (observed, with evidence)
+2. Proposed change
+3. Why it is unavoidable
+4. How backward compatibility will be preserved (shim/wrapper)
+
+---
+
+## Module Conventions
+
+### Cmdlet Naming
+Az module convention uses `AzVM` (capital VM), not `AzVm`. Always follow:
+- ✅ `Get-AzVMAvailability`, `Get-AzVMRecommendation`, `Export-AzVMAvailabilityReport`
+- ❌ `Get-AzVmAvailability`, `Get-AzVmRecommendation` (Copilot gets this wrong)
+
+### Pipeline & Output
+- Preserve current UX: `Write-Host` for interactive terminal, structured output for `-JsonOutput`.
+- Pipeline objects are emitted only when `[Console]::IsOutputRedirected` is true.
+- Do not introduce unconditional pipeline emission.
+- Any pipeline changes must be explicitly parity-tested.
+
+### Error Handling
+- No silent catch blocks — every `catch` must have at least `Write-Verbose`.
+- Prefer terminating errors with actionable messages.
+- Do not kill caller sessions — use `throw` (error paths) and `return` (user cancellation), never `exit` in reusable code.
+- API calls should use `Invoke-WithRetry` for transient error resilience (429, 500, 503, timeouts).
+
+---
+
+## Code Quality Guardrails
+
+> See also `copilot-standing-rules.md` for the 5 non-negotiable standing rules (never delete files, atomic commits, backup before changes, validate before commit, PR comment triage).
+
+### Before Every Commit
+```powershell
+.\tools\Validate-Script.ps1
+```
 
 ### Linting
 - PSScriptAnalyzer settings are in `PSScriptAnalyzerSettings.psd1` at the repo root.
@@ -109,10 +199,6 @@ This runs six checks: syntax validation, PSScriptAnalyzer linting, Pester tests,
 - All numeric literals with non-obvious meaning must be named constants in the `#region Constants` block.
 - Example: `$HoursPerMonth = 730` instead of bare `730`.
 
-### Error Handling
-- Every `catch` block must have at least `Write-Verbose` — no silent `catch { }`.
-- API calls should use `Invoke-WithRetry` for transient error resilience (429, 503, timeouts).
-
 ### gh CLI Script Patterns
 Scripts in `tools/` that call `gh api` or `gh pr` must follow these rules:
 - Every `gh api` call MUST use `--paginate` unless you explicitly want only page 1.
@@ -123,140 +209,59 @@ Scripts in `tools/` that call `gh api` or `gh pr` must follow these rules:
 
 ---
 
-## Architecture Details
+## Branch Protection & Release Process
 
-- **Script metrics (current):** 4,442 lines, 34 functions, 349 `Write-Host` calls,
-  0 `Write-Output` calls, 0 `exit` calls, 0 pipeline-emitted objects.
-- **`$script:RunContext`** — centralized runtime state object. All functions should
-  access state through this object — however, several functions still read parent-scope
-  variables implicitly (see Known Technical Debt below). Contains caches, pricing
-  maps, image requirements, and output contracts.
-- **`Invoke-WithRetry`** — exponential backoff wrapper for all Azure API calls.
-  Handles 429 (with Retry-After header), 503, WebException, HttpRequestException.
-  Does NOT yet handle HTTP 500 (transient ARM error). Always wrap new Azure API calls.
-- **JSON contracts** — `New-RecommendOutputContract` / `New-ScanOutputContract`
-  include `schemaVersion`. Never change field names without a version bump.
-- **TestHarness.psm1** — AST-based function extraction for Pester test isolation.
-  Do not use dot-sourcing for test isolation.
-- **Parallel scanning** — `ForEach-Object -Parallel` with explicit `$using:`
-  references. The parallel block duplicates retry logic inline (necessary — parallel
-  runspaces cannot see script-scope functions).
-- **Test suite** — 189 Pester tests across 11 files. Always redirect Pester output
-  to log file: `Invoke-Pester ... *> artifacts/test-run.log`
-
-## Known Technical Debt
-
-These are confirmed issues from code review. The agent should know them without
-having to rediscover them by reading 4,442 lines.
-
-### Performance Hotspots (exact locations)
-| Line | Issue | Status |
-|------|-------|--------|
-| **3470** | `$familyDetails` per-SKU loop accumulation | **Fixed** — converted to `List[PSCustomObject]` + `.Add()` |
-| **3403** | `$rows` per-family per-region accumulation | **Fixed** — converted to `List[T]` + `.Add()` |
-| **1041–1057** | `$zonesOK/Limited/Restricted` in `Get-RestrictionDetails` | **Fixed** — converted to `List[string]` + `.Add()` |
-| **3242** | `$allSubscriptionData += @{...}` per-subscription | Low impact (1–3 iterations typically) |
-| **~862** | `Get-CapValue` uses `Where-Object` pipeline (~18,000 calls per scan) | Pre-index SKU capabilities as hashtable at scan time |
-| **~2498+** | Pricing fallback is all-or-nothing: one failure abandons all regions to retail | Per-region fallback |
-
-### Parent-Scope Implicit Dependencies (blocks module extraction)
-These functions read variables from the parent scope without receiving them as
-parameters. Every one is a hidden wire that must be cut before module conversion.
-
-| Function | Hidden variable | Fix for v2.0.0 |
-|----------|----------------|----------------|
-| `Get-StatusIcon` | `$Icons` | Add `-Icons` parameter |
-| `Get-SkuCapabilities` | `$MBPerGB` | Inline constant (1024) or add parameter |
-| `Get-SkuSimilarityScore` | `$script:FamilyInfo` | Add `-FamilyInfo` parameter |
-| `Write-RecommendOutputContract` | `$FamilyInfo`, `$Icons` | Add both as parameters |
-| `Invoke-RecommendMode` | 10+ parent-scope vars | Convert to `Get-AzVMRecommendation` cmdlet with all as explicit params |
-| `Get-AzVMPricing` | `$script:RunContext.Caches`, `$HoursPerMonth`, `$MaxRetries`, `$script:AzureEndpoints` | Pass `$Cache` hashtable + endpoints as parameters |
-| `Get-AzActualPricing` | Same as above + `$script:RunContext.Caches.PlacementWarned403` | Same fix |
-| `Get-PlacementScores` | `$MaxRetries`, `$script:RunContext.Caches.PlacementWarned403` | Add `-MaxRetries` param, pass cache |
-| `Get-ValidAzureRegions` | `$MaxRetries`, `$script:RunContext.Caches`, `$script:AzureEndpoints` | Add params |
-
-### `exit` vs `throw` — **Fixed**
-All 9 original `exit` calls (Lines 394, 2611, 2691, 2697, 2733, 2762, 2793, 3597, 3642)
-have been replaced with `throw` (error paths) and `return` (user-initiated cancellation).
-The script no longer kills the caller's session when dot-sourced or called from another script.
-
-### Pipeline Composability
-The script currently emits `$familyDetails` to the pipeline only when
-`[Console]::IsOutputRedirected` is true (piped, assigned to variable, or
-redirected to file). In interactive terminal mode, objects are suppressed to
-preserve the clean Write-Host UX. This guard was added after the Best-of-Breed
-tournament (Mar 2026) showed that unconditional emit produced 2,255+ noisy
-`@{...}` lines when output was captured (`*>&1`, `Tee-Object`, transcript).
-
-**v2.0.0 requirement:** Pipeline emit must become **opt-in only** (e.g.,
-`-PassThru` switch). Do NOT merge unconditional pipeline emit into main.
-Options for v2.0.0:
-- `-PassThru` switch: explicit opt-in, zero surprise
-- Auto-detect `[Console]::IsOutputRedirected`: emit only when piped
-- Module conversion: objects become primary output, Write-Host secondary
-
-### Module Conversion — Function Extraction Order (v2.0.0)
-Extract in this order to minimize risk:
-
-**Phase 1 — Zero risk (no dependencies):** `Get-SafeString`, `Get-GeoGroup`,
-`Get-SkuFamily`, `Get-ProcessorVendor`, `Get-DiskCode`, `Get-RestrictionReason`,
-`Format-ZoneStatus`, `Format-RegionList`, `Get-QuotaAvailable`,
-`Test-SkuMatchesFilter`, `Get-ImageRequirements`, `Test-ImageSkuCompatibility`,
-`Get-InventoryReadiness`, `Write-InventoryReadinessSummary`
-
-**Phase 2 — Minor coupling (fix hidden deps):** `Get-StatusIcon`, `Get-SkuCapabilities`,
-`Get-SkuSimilarityScore`, `Get-RestrictionDetails`
-
-**Phase 3 — Azure API functions:** `Invoke-WithRetry`, `Get-AzureEndpoints`,
-`Get-ValidAzureRegions`, `Get-AzVMPricing`, `Get-AzActualPricing`,
-`Get-PlacementScores`, `Get-RegularPricingMap`, `Get-SpotPricingMap`
-
-**Phase 4 — Recommend engine:** `Invoke-RecommendMode` → `Get-AzVMRecommendation`
-
-**Phase 5 — Export:** XLSX/CSV block (L4047–4442, ~395 lines) → `Export-AzVMAvailabilityReport`
-
-**Phase 6 — Interactive shell:** Prompts (L2599–3060, ~461 lines) → optional
-`Invoke-AzVMAvailabilityWizard` wrapper
-
-### Target Module Structure (v2.0.0)
-```
-AzVMAvailability/
-├── AzVMAvailability.psd1
-├── AzVMAvailability.psm1
-├── Public/
-│   ├── Get-AzVMAvailability.ps1        # scan (emits objects)
-│   ├── Get-AzVMRecommendation.ps1      # current Invoke-RecommendMode
-│   └── Export-AzVMAvailabilityReport.ps1
-├── Private/
-│   ├── Azure/   (endpoints, regions, pricing, retry)
-│   ├── SKU/     (family, capabilities, similarity, restrictions, filter)
-│   ├── Image/   (requirements, compatibility)
-│   ├── Inventory/   (readiness, summary)
-│   ├── Format/  (icons, zone status, recommend output)
-│   └── Utility/ (SafeString, GeoGroup, SubscriptionContext)
-└── Get-AzVMAvailability.ps1            # thin backward-compat wrapper
-```
-
-### Cmdlet Naming Convention
-Az module convention uses `AzVM` (capital VM), not `AzVm`. Always follow:
-`Get-AzVMAvailability`, `Get-AzVMRecommendation`, `Export-AzVMAvailabilityReport`
-**Not:** `Get-AzVmAvailability`, `Get-AzVmRecommendation` (Copilot gets this wrong).
-
-### Internal Process Artifacts
-`docs/REMEDIATION-PROGRAM.md` and `docs/REMEDIATION-TODO.md` are internal
-execution trackers that should not be in a public repo. They signal "this project
-had problems that needed a formal remediation program." Options: remove via PR,
-move to gitignored directory, or reframe as architecture decision records (ADRs)
-with a forward-looking tone. Do not commit new files of this type.
+- Main/master branches are protected from deletion and require PRs for changes.
+- **All changes to main must go through PRs** — direct pushes are blocked by repository rules.
+- **Tag and release only after PR merge** — never tag before merging.
+- For detailed workflow, see [release-process-guardrails/SKILL.md](skills/release-process-guardrails/SKILL.md).
 
 ---
 
-## Roadmap
+## PR Standards
 
-| Version | Theme | Status | Key Work |
-|---------|-------|--------|----------|
-| v1.12.0 | Inventory MVP | **Released** | `-Inventory` hashtable BOM validation, `Get-InventoryReadiness`, `Write-InventoryReadinessSummary`, fuzzy quota matching, used/available/limit display (originally shipped as `-Fleet`, aliases preserved) |
-| v1.12.1 | Inventory UX | **Released** | `-InventoryFile` CSV/JSON input, `-GenerateInventoryTemplate`, example files, README Quick Start, input validation (`-LiteralPath`, trim, qty guard) (originally `-FleetFile`/`-GenerateFleetTemplate`, aliases preserved) |
-| v2.0.0 | Module Conversion | Planned | Public/Private layout, PSGallery publishing, gate 349 Write-Host behind `-JsonOutput` (#65), pipeline composability, `exit` → `throw` |
-| v2.1.0 | MCP Server | Planned | 4 tools: `check_vm_availability`, `find_alternatives`, `get_vm_pricing`, `check_quota` — depends on v2.0.0 |
-| v2.2.0 | Proactive Monitoring | Planned | Watch mode, capacity alerts, Azure Monitor, Azure Functions |
+### PR Body Formatting
+- PR descriptions must be valid rendered Markdown (no literal escaped newline text like `\n`).
+- When using GitHub CLI, prefer `--body-file` over inline `--body` for multi-line content.
+- If using `--body`, build it from a PowerShell here-string to preserve real newlines.
+- Before merging, verify rendered content with:
+  - `gh pr view <pr-number> --json body --jq .body`
+
+### PR Review Comment Triage
+- Before implementing additional changes on an active PR branch, always pull the latest PR review feedback first.
+- Required commands:
+  - `gh pr view <pr-number> --json reviews,comments --jq '.reviews[] | {author: .author.login, submittedAt: .submittedAt, body: .body}'`
+  - `gh api repos/<owner>/<repo>/pulls/<pr-number>/comments --jq '.[] | {author: .user.login, path: .path, line: (.line // .original_line), body: .body, created_at: .created_at}'`
+- Resolve or explicitly disposition each comment before moving to the next remediation item.
+- **GitHub Copilot auto-reviews every PR.** After fetching comments, filter for the Copilot reviewer and assess each finding:
+  - Classify each as: **Agree** / **Disagree** / **Partially Agree**
+  - Append assessment to `artifacts/copilot-review-log.md` (never overwrite — always append)
+  - Fix all Agree/Partially-Agree findings before merging
+  - Add inline suppression comments in source for justified Disagree findings
+  - Log entry format: PR number, branch, commit SHA, file:line, Copilot finding (quoted), assessment, specific reasoning (reference project context), action taken
+
+---
+
+## Architecture Concepts
+
+Do not rely on static metrics. Line counts, function counts, and test counts change frequently. Discover current values via search/AST.
+
+- **Module structure** — `AzVMAvailability.psm1` defines a Write-Host override at module scope (gates output when `-JsonOutput` is active via `$script:SuppressConsole` flag), then dot-sources Private/ in dependency order, then Public/. The override delegates to `Microsoft.PowerShell.Utility\Write-Host` when not suppressed.
+- **`$script:RunContext`** — centralized runtime state object initialized in `Get-AzVMAvailability`. Contains caches, pricing maps, image requirements, and output contracts.
+- **`Invoke-WithRetry`** — exponential backoff wrapper for all Azure API calls. Handles 429 (with Retry-After header), 500, 503, WebException, HttpRequestException. Always wrap new Azure API calls.
+- **JSON contracts** — `New-RecommendOutputContract` / `New-ScanOutputContract` include `schemaVersion = '1.0'`. Never change field names without a version bump.
+- **Pipeline emit guard** — `$familyDetails` emitted to pipeline only when `[Console]::IsOutputRedirected` is true. In interactive mode, objects are suppressed to preserve the Write-Host UX.
+- **O(1) capability lookup** — SKU capabilities are pre-indexed into a `_CapIndex` hashtable at scan time. `Get-CapValue` checks this index first, falling back to `Where-Object` pipeline.
+- **TestHarness.psm1** — Dual-path function extraction: tries `AzVMAvailability/Private/` module files first, falls back to AST parsing for backward compatibility. Do not use dot-sourcing for test isolation.
+- **Parallel scanning** — `ForEach-Object -Parallel` with explicit `$using:` references. The parallel block duplicates retry logic inline (necessary — parallel runspaces cannot see module-scope functions).
+- **`$ScriptVersion`** — In the wrapper script, this is a static string for `Validate-Script.ps1` version parity checks. In the Public function, this is derived dynamically from `(Get-Module AzVMAvailability).Version.ToString()`.
+
+---
+
+## Contribution & Security
+
+- See `CONTRIBUTING.md` for guidelines.
+- See `SECURITY.md` for vulnerability reporting.
+- **Always update `CHANGELOG.md`** when making functional changes (new features, bug fixes, breaking changes).
+- All scripts are MIT licensed.
+- See `ROADMAP.md` for version plan and priorities.

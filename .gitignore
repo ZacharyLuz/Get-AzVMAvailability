@@ -91,12 +91,22 @@ Protect_Main_Branch.json
 
 # AI workflow artifacts (local review docs, never commit)
 docs/Gemini*
+docs/atv-install-incident-report.md
 
 # Archived internal process artifacts (remediation, proposals, session handoffs)
 docs/archive/
+docs/plans/
 
 # AI toolkit / agent skills installed locally
 .github/skills/
+
+# ATV Starter Kit (local testing — un-ignore to share with collaborators)
+.atv/
+.gstack/
+.github/agents/
+.github/hooks/
+.github/copilot-mcp-config.json
+.github/copilot-setup-steps.yml
 
 # Browser automation artifacts
 .playwright-mcp/

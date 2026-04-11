@@ -6,13 +6,11 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.6.x   | :white_check_mark: |
-| 1.5.x   | :white_check_mark: |
-| 1.4.x   | :white_check_mark: |
-| 1.3.x   | :white_check_mark: |
-| 1.2.x   | :white_check_mark: |
-| 1.1.x   | :white_check_mark: |
-| 1.0.x   | :white_check_mark: |
+| 2.0.x   | :white_check_mark: |
+| 1.14.x  | :white_check_mark: |
+| 1.13.x  | :white_check_mark: |
+| 1.12.x  | :white_check_mark: |
+| < 1.12  | :x:                |
 
 ## Reporting a Vulnerability
 

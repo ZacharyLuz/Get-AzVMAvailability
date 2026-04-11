@@ -47,6 +47,13 @@ jobs:
           $tagExists = [bool](git tag --list "$tag")
           $latestTag = (git tag --list 'v*' --sort=-v:refname | Select-Object -First 1)
 
+          # Validate manifest ModuleVersion matches wrapper ScriptVersion
+          $manifest = Import-PowerShellDataFile './AzVMAvailability/AzVMAvailability.psd1'
+          if ($manifest.ModuleVersion -ne $version) {
+            throw "Version mismatch: wrapper ScriptVersion=$version but manifest ModuleVersion=$($manifest.ModuleVersion). Both must match."
+          }
+          Write-Host "Manifest ModuleVersion matches ScriptVersion: $version"
+
           Write-Host "ScriptVersion: $version"
           Write-Host "Expected tag: $tag"
           Write-Host "Latest existing tag: $latestTag"
