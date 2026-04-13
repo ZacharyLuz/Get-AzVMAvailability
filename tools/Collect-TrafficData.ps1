@@ -360,7 +360,7 @@ catch {
 #region Collect Release Download Stats (asset download snapshots)
 Write-Host "`nCollecting release download stats..." -ForegroundColor Cyan
 try {
-    $releasesJson = & gh api "repos/$Owner/$Repo/releases?per_page=100" 2>&1
+    $releasesJson = & gh api "repos/$Owner/$Repo/releases" --paginate 2>&1
     if ($LASTEXITCODE -ne 0) { throw "API call failed: $releasesJson" }
 
     $releasesData = $releasesJson | ConvertFrom-Json

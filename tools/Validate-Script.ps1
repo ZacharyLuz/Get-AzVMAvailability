@@ -195,14 +195,12 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
             }
 
             # Check README sample console output (e.g. GET-AZVMAVAILABILITY v1.12.2)
+            # Optional — the README was slimmed in PR #128; missing pattern is a warning, not a failure.
             if ($readmeContent -match 'GET-AZVMAVAILABILITY v([\d.]+)') {
                 $readmeSampleVer = $matches[1]
                 if ($readmeSampleVer -ne $scriptVer) {
                     $versionMismatches += "README.md sample output: v$readmeSampleVer"
                 }
-            }
-            else {
-                $versionMismatches += "README.md: sample output version pattern not found"
             }
         }
         catch {
