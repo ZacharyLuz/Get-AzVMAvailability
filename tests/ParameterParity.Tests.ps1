@@ -169,7 +169,6 @@ Describe 'Get-AzVMAvailability Parameter Parity' {
             $attr.ValidValues | Should -Contain 'AzureCloud'
             $attr.ValidValues | Should -Contain 'AzureUSGovernment'
             $attr.ValidValues | Should -Contain 'AzureChinaCloud'
-            $attr.ValidValues | Should -Contain 'AzureGermanCloud'
         }
     }
 

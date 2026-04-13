@@ -76,7 +76,7 @@ function Get-AzVMAvailability {
 
 .PARAMETER Environment
     Azure cloud environment override. Auto-detects from Az context if not specified.
-    Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud
+    Options: AzureCloud, AzureUSGovernment, AzureChinaCloud
 
 .PARAMETER RegionPreset
     Predefined region sets for common scenarios (e.g., USMajor, Europe, USGov).
@@ -318,7 +318,7 @@ param(
     [switch]$UseAsciiIcons,
 
     [Parameter(Mandatory = $false, HelpMessage = "Azure cloud environment (default: auto-detect from Az context)")]
-    [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud", "AzureGermanCloud")]
+    [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud")]
     [string]$Environment,
 
     [Parameter(Mandatory = $false, HelpMessage = "Max retry attempts for transient API errors (429, 503, timeouts)")]
@@ -3526,7 +3526,6 @@ $quotaPortalUrl = if ($script:AzureEndpoints -and $script:AzureEndpoints.Environ
     switch ($script:AzureEndpoints.EnvironmentName) {
         'AzureUSGovernment' { 'https://portal.azure.us/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
         'AzureChinaCloud' { 'https://portal.azure.cn/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
-        'AzureGermanCloud' { 'https://portal.microsoftazure.de/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
         default { 'https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
     }
 }

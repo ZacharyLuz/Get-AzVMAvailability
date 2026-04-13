@@ -70,22 +70,6 @@ Describe "Get-AzureEndpoints" {
         }
     }
 
-    Context "German Cloud (AzureGermanCloud)" {
-        It "Returns correct endpoints for Azure Germany (legacy)" {
-            $mockEnv = [PSCustomObject]@{
-                Name                = 'AzureGermanCloud'
-                ResourceManagerUrl  = 'https://management.microsoftazure.de/'
-                ManagementPortalUrl = 'https://portal.microsoftazure.de'
-            }
-
-            $endpoints = Get-AzureEndpoints -AzEnvironment $mockEnv
-
-            $endpoints.EnvironmentName | Should -Be 'AzureGermanCloud'
-            $endpoints.ResourceManagerUrl | Should -Be 'https://management.microsoftazure.de'
-            $endpoints.PricingApiUrl | Should -Be 'https://prices.microsoftazure.de/api/retail/prices'
-        }
-    }
-
     Context "Fallback behavior" {
         It "Returns Commercial endpoints when no environment provided" {
             $endpoints = Get-AzureEndpoints -AzEnvironment $null

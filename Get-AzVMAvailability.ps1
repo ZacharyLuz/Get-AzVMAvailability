@@ -101,7 +101,7 @@ param(
     [switch]$UseAsciiIcons,
 
     [Parameter(Mandatory = $false, HelpMessage = "Azure cloud environment (default: auto-detect from Az context)")]
-    [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud", "AzureGermanCloud")]
+    [ValidateSet("AzureCloud", "AzureUSGovernment", "AzureChinaCloud")]
     [string]$Environment,
 
     [Parameter(Mandatory = $false, HelpMessage = "Max retry attempts for transient API errors (429, 503, timeouts)")]

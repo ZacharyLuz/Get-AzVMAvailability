@@ -96,7 +96,6 @@ function Get-AzureEndpoints {
         $pricingApiUrl = switch ($AzEnvironment.Name) {
             'AzureUSGovernment' { 'https://prices.azure.us/api/retail/prices' }
             'AzureChinaCloud' { 'https://prices.azure.cn/api/retail/prices' }
-            'AzureGermanCloud' { 'https://prices.microsoftazure.de/api/retail/prices' }
             default { 'https://prices.azure.com/api/retail/prices' }
         }
     }
