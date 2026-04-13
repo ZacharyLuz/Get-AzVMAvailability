@@ -20,7 +20,7 @@
 | `-RateOptimization`     | Switch   | Include Savings Plan and Reserved Instance savings columns in lifecycle reports. Requires `-ShowPricing`. Shows fleet-wide savings vs PAYG for each commitment term |
 | `-ImageURN`             | String   | Check SKU compatibility with image (format: Publisher:Offer:Sku:Version)                                                  |
 | `-CompactOutput`        | Switch   | Use compact output for narrow terminals                                                                                   |
-| `-NoPrompt`             | Switch   | Skip interactive prompts                                                                                                  |
+| `-NoPrompt`             | Switch   | Skip interactive prompts. Uses [smart default regions](cloud-environments.md#smart-default-regions) when `-Region` is not specified |
 | `-NoQuota`              | Switch   | Skip quota API calls in lifecycle modes. Useful when analyzing customer VM exports without subscription access             |
 | `-OutputFormat`         | String   | 'Auto', 'CSV', or 'XLSX'                                                                                                  |
 | `-UseAsciiIcons`        | Switch   | Force ASCII instead of Unicode icons                                                                                      |

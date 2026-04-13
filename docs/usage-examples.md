@@ -9,6 +9,16 @@
 .\Get-AzVMAvailability.ps1 -Region "eastus","westus2","centralus"
 ```
 
+## Azure Government
+```powershell
+# Connected to Gov cloud — defaults to usgovvirginia, usgovtexas, usgovarizona
+Connect-AzAccount -Environment AzureUSGovernment
+Get-AzVMAvailability -NoPrompt
+
+# Or specify Gov regions explicitly
+Get-AzVMAvailability -Region "usgovvirginia","usgovtexas" -NoPrompt
+```
+
 ## Check GPU SKU Availability
 ```powershell
 # Multi-line with backticks for readability
