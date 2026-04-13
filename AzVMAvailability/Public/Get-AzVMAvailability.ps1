@@ -1060,7 +1060,7 @@ if (-not $TargetSubIds) {
 }
 
 if (-not $Regions) {
-    $smartDefaults = Get-SmartDefaultRegions
+    $smartDefaults = Get-SmartDefaultRegions -CloudEnvironment $script:TargetEnvironment
     if ($NoPrompt) {
         $Regions = $smartDefaults.Regions
         Write-Host "Using default regions ($($smartDefaults.Source)): $($Regions -join ', ')" -ForegroundColor Cyan

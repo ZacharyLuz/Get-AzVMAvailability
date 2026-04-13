@@ -18,7 +18,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 ### v2.0.0 — Module Conversion (April 2026)
 - **Smart default regions** — defaults now auto-detect based on cloud environment (Gov, China) and local timezone (Americas, Europe, APAC, etc.) — no more commercial defaults when connected to sovereign clouds
 - **PowerShell module** — install via `Install-Module AzVMAvailability` from PSGallery, or import directly from the repo
-- **No behavior changes** — all 39 parameters, output formats, and interactive prompts are identical to v1.14.0
+- **Core interface unchanged** — all 39 parameters, output formats, and interactive prompts are identical to v1.14.0; only the default region selection is smarter
 - **Thin wrapper** — `Get-AzVMAvailability.ps1` still works as a standalone entry point (imports the module and forwards parameters)
 - **Private functions** — 43 helper functions are now truly private; only `Get-AzVMAvailability` is exported
 - **CI/CD publishing** — automated PSGallery + GitHub Release publishing on merge to main
