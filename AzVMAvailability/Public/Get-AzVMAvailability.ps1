@@ -1060,9 +1060,10 @@ if (-not $TargetSubIds) {
 }
 
 if (-not $Regions) {
+    $smartDefaults = Get-SmartDefaultRegions
     if ($NoPrompt) {
-        $Regions = @('eastus', 'eastus2', 'centralus')
-        Write-Host "Using default regions: $($Regions -join ', ')" -ForegroundColor Cyan
+        $Regions = $smartDefaults.Regions
+        Write-Host "Using default regions ($($smartDefaults.Source)): $($Regions -join ', ')" -ForegroundColor Cyan
     }
     else {
         Write-Host "`nSTEP 2: SELECT REGION(S)" -ForegroundColor Green
@@ -1070,7 +1071,7 @@ if (-not $Regions) {
         Write-Host ""
         Write-Host "FAST PATH: Type region codes now to skip the long list (comma/space separated)" -ForegroundColor Yellow
         Write-Host "Examples: eastus eastus2 westus3  |  Press Enter to show full menu" -ForegroundColor DarkGray
-        Write-Host "Press Enter for defaults: eastus, eastus2, centralus" -ForegroundColor DarkGray
+        Write-Host "Press Enter for defaults: $($smartDefaults.Regions -join ', ')" -ForegroundColor DarkGray
         $quickRegions = Read-Host "Enter region codes or press Enter to load the menu"
 
         if (-not [string]::IsNullOrWhiteSpace($quickRegions)) {
@@ -1098,12 +1099,12 @@ if (-not $Regions) {
             Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
             Write-Host "  - Enter number(s) separated by commas (e.g., '1,5,10')" -ForegroundColor White
             Write-Host "  - Or use spaces (e.g., '1 5 10')" -ForegroundColor White
-            Write-Host "  - Press Enter for defaults: eastus, eastus2, centralus" -ForegroundColor White
+            Write-Host "  - Press Enter for defaults: $($smartDefaults.Regions -join ', ')" -ForegroundColor White
             Write-Host ""
             $regionsInput = Read-Host "Select region(s)"
 
             if ([string]::IsNullOrWhiteSpace($regionsInput)) {
-                $Regions = @('eastus', 'eastus2', 'centralus')
+                $Regions = $smartDefaults.Regions
                 Write-Host "`nSelected regions (default): $($Regions -join ', ')" -ForegroundColor Green
             }
             else {

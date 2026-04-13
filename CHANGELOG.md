@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Smart default regions** — Default regions now auto-detect based on cloud environment and user timezone. Sovereign clouds (Gov, China) use their native regions; commercial cloud defaults match the user's local timezone geo (Americas, Europe, India/ME, APAC, Australia). New private function `Get-SmartDefaultRegions`.
+
 ### Documentation
 - Split README into focused docs/ pages — README is now a concise landing page linking to 11 topic guides under `docs/`
 
