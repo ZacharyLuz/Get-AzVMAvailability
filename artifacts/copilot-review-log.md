@@ -717,3 +717,83 @@ Date: 2026-03-12
 ---
 
 ---
+
+## PR #129 — feat: smart default regions for Get-AzVMAvailability
+**Date:** 2026-07-11 | **Branch:** feature/smart-default-regions | **Commit:** 965e9b4
+
+### Comment 1 (Sourcery)
+**File:** `AzVMAvailability/Private/Utility/Get-SmartDefaultRegions.ps1`
+**Finding:** "UTC offset ranges leave some real-world timezones (e.g., UTC+6.5) falling through to an empty default."
+**Assessment:** Agree
+**Reasoning:** Gaps between timezone ranges meant offsets like +6.5 got no regions.
+**Action Taken:** Fixed — closed all gaps with exclusive upper bounds (`-lt -2`, `-lt 3.5`, `-lt 7`, `-lt 10`). Commit 965e9b4.
+
+### Comment 2 (Sourcery)
+**File:** `AzVMAvailability/Private/Utility/Get-SmartDefaultRegions.ps1`
+**Finding:** "Only two sovereign cloud environments are handled, which may miss AzureGermanCloud."
+**Assessment:** Disagree
+**Reasoning:** AzureGermanCloud was closed by Microsoft on Oct 29, 2021. Removed from the entire module (ValidateSet, endpoints, docs) in commit 7563ac1. Adding it back would contradict that cleanup.
+**Action Taken:** No code change. Reply posted explaining rationale.
+
+### Comment 3 (Copilot)
+**File:** `AzVMAvailability/Private/Utility/Get-SmartDefaultRegions.ps1`
+**Finding:** "The Source string prints `UTC$($utcOffset)` without an explicit + sign for positive offsets."
+**Assessment:** Agree
+**Reasoning:** Format should be human-readable `UTC+05:30` / `UTC-04:00` with sign and zero-padding.
+**Action Taken:** Fixed — now formats as `UTC+HH:MM` / `UTC-HH:MM` with explicit sign and zero-padded components. Commit 965e9b4.
+
+### Comment 4 (Copilot)
+**File:** `AzVMAvailability/Private/Utility/Get-SmartDefaultRegions.ps1`
+**Finding:** "This new helper introduces non-trivial branching logic but there are no corresponding Pester tests."
+**Assessment:** Agree
+**Reasoning:** Complex function deserves test coverage.
+**Action Taken:** Added `tests/Get-SmartDefaultRegions.Tests.ps1` with 7 Pester tests covering Gov regions, China regions, commercial output contract, 3-region count, UTC format regex, string type, and non-empty source. Commit 965e9b4.
+
+### Comment 5 (Copilot)
+**File:** `AzVMAvailability/Private/Utility/Get-SmartDefaultRegions.ps1`
+**Finding:** "`-Environment` supports `AzureGermanCloud` in `Get-AzVMAvailability`, and `Get-AzVMAvailability` doesn't handle AzureGermanCloud."
+**Assessment:** Disagree
+**Reasoning:** Same as Comment 2 — AzureGermanCloud was decommissioned and removed from the module.
+**Action Taken:** No code change. Reply posted explaining rationale.
+
+### Comment 6 (Copilot)
+**File:** `AzVMAvailability/Public/Get-AzVMAvailability.ps1`
+**Finding:** "`Get-SmartDefaultRegions` is called without passing the resolved cloud environment."
+**Assessment:** Agree
+**Reasoning:** The function accepts `-CloudEnvironment` but the caller wasn't passing `$script:TargetEnvironment`.
+**Action Taken:** Fixed — now passes `$script:TargetEnvironment` to `Get-SmartDefaultRegions -CloudEnvironment`. Commit 965e9b4.
+
+### Comment 7 (Copilot)
+**File:** `AzVMAvailability/Private/Utility/Get-SmartDefaultRegions.ps1`
+**Finding:** "The inline `try { (Get-AzContext).Environment.Name } catch { 'AzureCloud' }` silently swallows errors."
+**Assessment:** Agree
+**Reasoning:** Silent catch hides diagnostic info; should at least log at verbose level.
+**Action Taken:** Fixed — expanded catch block to `Write-Verbose` with exception message before falling back. Commit 965e9b4.
+
+### Comment 8 (Copilot)
+**File:** `AzVMAvailability/Private/Utility/Get-SmartDefaultRegions.ps1`
+**Finding:** "`[TimeZoneInfo]::Local.BaseUtcOffset` does not include daylight saving time adjustments."
+**Assessment:** Disagree
+**Reasoning:** BaseUtcOffset is intentional — `GetUtcOffset()` shifts with DST and would cause default region to change seasonally, which is undesirable for stable infrastructure defaults. Added inline comment explaining this design choice.
+**Action Taken:** No code change to logic. Added explanatory comment. Commit 965e9b4.
+
+### Comment 9 (Copilot)
+**File:** `tools/Validate-Script.ps1`
+**Finding:** "The new comment says that missing the README sample output pattern is a warning, but the actual behavior is that the check is skipped."
+**Assessment:** Agree
+**Reasoning:** Comment wording was misleading — the check is skipped (not warned) when the pattern is absent.
+**Action Taken:** Fixed — updated comment to "if the pattern is absent, this check is skipped". Commit 965e9b4.
+
+### Comment 10 (Copilot)
+**File:** `README.md`
+**Finding:** "This section now advertises 'Smart default regions' (a behavior change), but the previous line says 'No behavior changes'."
+**Assessment:** Agree
+**Reasoning:** Contradiction — adding smart defaults is a behavior change (albeit backward-compatible).
+**Action Taken:** Fixed — changed to "Core interface unchanged — all 39 parameters, output formats, and interactive prompts are identical to v1.14.0; only the default region selection is smarter". Commit 965e9b4.
+
+### Comment 11 (Copilot)
+**File:** `tests/` (missing)
+**Finding:** "`Get-SmartDefaultRegions` introduces new default-selection logic, but there are no unit or integration tests."
+**Assessment:** Agree (duplicate of Comment 4)
+**Reasoning:** Same finding as Comment 4.
+**Action Taken:** Same as Comment 4 — tests added. Commit 965e9b4.
