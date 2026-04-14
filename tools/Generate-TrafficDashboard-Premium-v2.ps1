@@ -48,12 +48,25 @@ $referrersPath = Join-Path $InputDir 'referrers.csv'
 $pathsPath     = Join-Path $InputDir 'paths.csv'
 $repoStatsPath = Join-Path $InputDir 'repo-stats.csv'
 $releaseDownloadsPath = Join-Path $InputDir 'release-downloads.csv'
+$psGalleryPath = Join-Path $InputDir 'psgallery-downloads.csv'
 
 $views     = @(if (Test-Path $viewsPath)     { Import-Csv $viewsPath     | Sort-Object Date })
 $clones    = @(if (Test-Path $clonesPath)    { Import-Csv $clonesPath    | Sort-Object Date })
 $stars     = @(if (Test-Path $starsPath)     { Import-Csv $starsPath     | Sort-Object Date })
 $repoStats = @(if (Test-Path $repoStatsPath) { Import-Csv $repoStatsPath | Sort-Object Date })
 $releaseDownloads = @(if (Test-Path $releaseDownloadsPath) { Import-Csv $releaseDownloadsPath | Sort-Object Date })
+
+# PSGallery: one row per date (prefer IsLatestVersion=true)
+$psGalleryRaw = @(if (Test-Path $psGalleryPath) { Import-Csv $psGalleryPath | Sort-Object Date })
+$psGallery = @()
+if ($psGalleryRaw.Count -gt 0) {
+    $grouped = $psGalleryRaw | Group-Object Date
+    foreach ($g in ($grouped | Sort-Object Name)) {
+        $latest = $g.Group | Where-Object { $_.IsLatestVersion -eq 'true' } | Select-Object -First 1
+        if (-not $latest) { $latest = $g.Group | Select-Object -First 1 }
+        $psGallery += $latest
+    }
+}
 
 $referrers = @()
 if (Test-Path $referrersPath) {
@@ -69,7 +82,7 @@ if (Test-Path $pathsPath) {
     $paths = @($allPaths | Where-Object { $_.CollectedDate -eq $latestDate } | Sort-Object { [int]$_.TotalViews } -Descending | Select-Object -First 10)
 }
 
-Write-Host "Loaded: $($views.Count) view days, $($clones.Count) clone days, $($stars.Count) stars, $($referrers.Count) referrers, $($paths.Count) paths, $(@($releaseDownloads).Count) release download snapshots" -ForegroundColor Cyan
+Write-Host "Loaded: $($views.Count) view days, $($clones.Count) clone days, $($stars.Count) stars, $($referrers.Count) referrers, $($paths.Count) paths, $(@($releaseDownloads).Count) release download snapshots, $($psGallery.Count) PSGallery snapshots" -ForegroundColor Cyan
 #endregion
 
 #region Build JSON — use @() to guarantee arrays for ConvertTo-Json
@@ -84,6 +97,28 @@ $cloneUniques = @($clones | ForEach-Object { [int]$_.UniqueClones })| ConvertTo-
 $starDates      = @($stars | ForEach-Object { $_.Date })               | ConvertTo-Json -Compress -AsArray
 $starCumulative = @($stars | ForEach-Object { [int]$_.CumulativeStars })| ConvertTo-Json -Compress -AsArray
 $starUsers      = @($stars | ForEach-Object { $_.User })               | ConvertTo-Json -Compress -AsArray
+
+$psGalleryDates   = @($psGallery | ForEach-Object { $_.Date })                | ConvertTo-Json -Compress -AsArray
+$psGalleryTotalDl = @($psGallery | ForEach-Object { [long]$_.TotalDownloads })| ConvertTo-Json -Compress -AsArray
+
+# Detect version transitions (where Version changes between consecutive dates)
+$psGalleryVersionChanges = @()
+for ($i = 1; $i -lt $psGallery.Count; $i++) {
+    if ($psGallery[$i].Version -ne $psGallery[$i - 1].Version) {
+        $psGalleryVersionChanges += [PSCustomObject]@{
+            date    = $psGallery[$i].Date
+            version = "v$($psGallery[$i].Version)"
+        }
+    }
+}
+# Include the first version as an annotation too
+if ($psGallery.Count -gt 0) {
+    $psGalleryVersionChanges = @([PSCustomObject]@{
+        date    = $psGallery[0].Date
+        version = "v$($psGallery[0].Version)"
+    }) + $psGalleryVersionChanges
+}
+$psGalleryVersionsJson = $psGalleryVersionChanges | ConvertTo-Json -Compress -AsArray
 
 $refLabels  = @($referrers | ForEach-Object { $_.Referrer })           | ConvertTo-Json -Compress -AsArray
 $refViews   = @($referrers | ForEach-Object { [int]$_.TotalViews })    | ConvertTo-Json -Compress -AsArray
@@ -100,6 +135,10 @@ $uniqueClonesAllTime= if ($clones.Count -gt 0) { ($clones | ForEach-Object { [in
 $totalStars     = if ($stars.Count -gt 0) { ($stars[-1]).CumulativeStars } else { 0 }
 $latestStats    = if ($repoStats.Count -gt 0) { $repoStats[-1] } else { $null }
 $latestReleaseDownloads = if (@($releaseDownloads).Count -gt 0) { @($releaseDownloads)[-1] } else { $null }
+$latestPsGallery = if ($psGallery.Count -gt 0) { $psGallery[-1] } else { $null }
+$psGalleryTotal = if ($latestPsGallery) { $latestPsGallery.TotalDownloads } else { '0' }
+$psGalleryVersion = if ($latestPsGallery) { "v$($latestPsGallery.Version)" } else { [char]0x2014 }
+$psGalleryVersionDlCount = if ($latestPsGallery) { $latestPsGallery.VersionDownloads } else { '0' }
 $generatedAt    = (Get-Date).ToString('MMM d, yyyy \a\t h:mm tt')
 $dateRange      = if ($views.Count -gt 0) { "$($views[0].Date) — $($views[-1].Date)" } else { 'No data' }
 
@@ -556,9 +595,9 @@ $html += @"
       <div class="m-sub">$(if($referrers.Count -gt 0) { "$($referrers[0].TotalViews) views" } else { '' })</div>
     </div>
     <div class="metric">
-      <div class="m-label">Sources</div>
-      <div class="m-value">$($referrers.Count)</div>
-      <div class="m-sub">referrers</div>
+      <div class="m-label">PSGallery</div>
+      <div class="m-value">$psGalleryTotal</div>
+      <div class="m-sub">$psGalleryVersion &middot; $psGalleryVersionDlCount ver. installs</div>
     </div>
   </div>
 "@
@@ -654,6 +693,13 @@ $html += @"
   </div>
   <div class="chart-card reveal d4">
     <div class="chart-header">
+      <div class="ch-left"><h3>PSGallery Downloads</h3><div class="ch-sub">Cumulative install count from PowerShell Gallery</div></div>
+      <div class="ch-right"><div class="ch-stat-label">Total Installs</div><div class="ch-stat-value" id="psGalleryStat">$psGalleryTotal</div></div>
+    </div>
+    <canvas id="psGalleryChart"></canvas>
+  </div>
+  <div class="chart-card reveal d4">
+    <div class="chart-header">
       <div class="ch-left"><h3>Top Referrers</h3><div class="ch-sub">Traffic sources over last 14 days</div></div>
       <div class="ch-right"><div class="ch-stat-label">Sources</div><div class="ch-stat-value">$($referrers.Count)</div></div>
     </div>
@@ -690,7 +736,8 @@ $html += @"
 var allData = {
   views:  { dates: $viewDates, total: $viewTotals, unique: $viewUniques },
   clones: { dates: $cloneDates, total: $cloneTotals, unique: $cloneUniques },
-  stars:  { dates: $starDates, cumulative: $starCumulative, users: $starUsers }
+  stars:  { dates: $starDates, cumulative: $starCumulative, users: $starUsers },
+  psGallery: { dates: $psGalleryDates, totalDl: $psGalleryTotalDl, versions: $psGalleryVersionsJson }
 };
 var refData = { labels: $refLabels, views: $refViews, uniques: $refUniques };
 var pathData = { labels: $pathLabels, views: $pathViews };

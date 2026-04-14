@@ -71,7 +71,7 @@ function lineOpts(legend) {
 }
 
 // ── Chart instances ──
-var viewsChart, clonesChart, starsChart;
+var viewsChart, clonesChart, starsChart, psGalleryChart;
 
 function buildCharts(allData, days) {
   function filterByDays(dates) {
@@ -94,7 +94,7 @@ function buildCharts(allData, days) {
     return filtered;
   }
 
-  [viewsChart, clonesChart, starsChart].forEach(function(ch) { if (ch) { ch.destroy(); } });
+  [viewsChart, clonesChart, starsChart, psGalleryChart].forEach(function(ch) { if (ch) { ch.destroy(); } });
 
   // Views
   var v = filterByDays(allData.views.dates, allData.views.total, allData.views.unique);
@@ -180,6 +180,72 @@ function buildCharts(allData, days) {
   if (st.arrays[0].length > 0) {
     document.getElementById('starsStat').textContent = st.arrays[0][st.arrays[0].length - 1];
   }
+
+  // PSGallery Downloads (cumulative) with version annotations
+  var pgEl = document.getElementById('psGalleryChart');
+  if (pgEl && allData.psGallery && allData.psGallery.dates.length > 0) {
+    var pg = filterByDays(allData.psGallery.dates, allData.psGallery.totalDl);
+    var pgc = pgEl.getContext('2d');
+
+    // Build version annotation lines within the visible date range
+    var vMarkers = (allData.psGallery.versions || []).filter(function(v) {
+      return pg.dates.indexOf(v.date) !== -1;
+    });
+
+    // Custom plugin: draw vertical dashed lines + version labels
+    var versionLinePlugin = {
+      id: 'versionLines',
+      afterDraw: function(chart) {
+        if (!vMarkers.length) return;
+        var ctx = chart.ctx;
+        var xAxis = chart.scales.x;
+        var yAxis = chart.scales.y;
+        ctx.save();
+        vMarkers.forEach(function(m) {
+          var idx = pg.dates.indexOf(m.date);
+          if (idx === -1) return;
+          var x = xAxis.getPixelForValue(idx);
+          // Dashed vertical line
+          ctx.beginPath();
+          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+          ctx.lineWidth = 1;
+          ctx.moveTo(x, yAxis.top);
+          ctx.lineTo(x, yAxis.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          // Version label at top
+          ctx.fillStyle = 'rgba(255,255,255,0.7)';
+          ctx.font = '10px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(m.version, x, yAxis.top - 6);
+        });
+        ctx.restore();
+      }
+    };
+
+    var pgOpts = lineOpts(false);
+    pgOpts.layout = { padding: { top: 18 } };
+
+    psGalleryChart = new Chart(pgc, {
+      type: 'line',
+      data: {
+        labels: pg.dates,
+        datasets: [{
+          label: 'Total Downloads',
+          data: pg.arrays[0],
+          borderColor: '#06b6d4',
+          backgroundColor: grad(pgc, 6, 182, 212),
+          fill: true, tension: 0.4
+        }]
+      },
+      options: pgOpts,
+      plugins: [versionLinePlugin]
+    });
+    if (pg.arrays[0].length > 0) {
+      document.getElementById('psGalleryStat').textContent = pg.arrays[0][pg.arrays[0].length - 1].toLocaleString();
+    }
+  }
 }
 
 // ── Update header metrics + insights for selected time range ──
@@ -234,7 +300,7 @@ function updateMetrics(allData, days) {
   var cDelta = rollingDelta(allData.clones, 'total', compareWindow);
   var compareLabel = days === 0 ? 'WoW' : 'vs prior';
 
-  var vCls = vDelta.delta > 0 ? 'up' : vDelta.delta < 0 ? 'down' : 'flat';
+  var vCls = vDelta.hasData ? (vDelta.delta > 0 ? 'up' : vDelta.delta < 0 ? 'down' : 'flat') : 'flat';
   var vArrow = vDelta.delta > 0 ? '\u2191' : vDelta.delta < 0 ? '\u2193' : '\u2192';
   document.getElementById('hdr-views-label').textContent = 'Views (' + rangeLabel + ')';
   document.getElementById('hdr-views-value').textContent = viewsTotal.toLocaleString();
@@ -243,7 +309,7 @@ function updateMetrics(allData, days) {
   vDeltaEl.className = 'm-delta ' + vCls;
   vDeltaEl.textContent = vDelta.hasData ? (vArrow + ' ' + vDelta.delta + '% ' + compareLabel) : '\u2014 N/A';
 
-  var cCls = cDelta.delta > 0 ? 'up' : cDelta.delta < 0 ? 'down' : 'flat';
+  var cCls = cDelta.hasData ? (cDelta.delta > 0 ? 'up' : cDelta.delta < 0 ? 'down' : 'flat') : 'flat';
   var cArrow = cDelta.delta > 0 ? '\u2191' : cDelta.delta < 0 ? '\u2193' : '\u2192';
   document.getElementById('hdr-clones-label').textContent = 'Clones (' + rangeLabel + ')';
   document.getElementById('hdr-clones-value').textContent = clonesTotal.toLocaleString();
