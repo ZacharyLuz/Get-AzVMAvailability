@@ -71,7 +71,7 @@ function lineOpts(legend) {
 }
 
 // ── Chart instances ──
-var viewsChart, clonesChart, starsChart;
+var viewsChart, clonesChart, starsChart, psGalleryChart;
 
 function buildCharts(allData, days) {
   function filterByDays(dates) {
@@ -86,7 +86,7 @@ function buildCharts(allData, days) {
       String(t.getDate()).padStart(2, '0');
     var filtered = { dates: [], arrays: arrays.map(function() { return []; }) };
     dates.forEach(function(d, i) {
-      if (d >= cutoff) {
+      if (d > cutoff) {
         filtered.dates.push(d);
         arrays.forEach(function(arr, j) { filtered.arrays[j].push(arr[i]); });
       }
@@ -94,7 +94,7 @@ function buildCharts(allData, days) {
     return filtered;
   }
 
-  [viewsChart, clonesChart, starsChart].forEach(function(ch) { if (ch) { ch.destroy(); } });
+  [viewsChart, clonesChart, starsChart, psGalleryChart].forEach(function(ch) { if (ch) { ch.destroy(); } });
 
   // Views
   var v = filterByDays(allData.views.dates, allData.views.total, allData.views.unique);
@@ -180,6 +180,72 @@ function buildCharts(allData, days) {
   if (st.arrays[0].length > 0) {
     document.getElementById('starsStat').textContent = st.arrays[0][st.arrays[0].length - 1];
   }
+
+  // PSGallery Downloads (cumulative) with version annotations
+  var pgEl = document.getElementById('psGalleryChart');
+  if (pgEl && allData.psGallery && allData.psGallery.dates.length > 0) {
+    var pg = filterByDays(allData.psGallery.dates, allData.psGallery.totalDl);
+    var pgc = pgEl.getContext('2d');
+
+    // Build version annotation lines within the visible date range
+    var vMarkers = (allData.psGallery.versions || []).filter(function(v) {
+      return pg.dates.indexOf(v.date) !== -1;
+    });
+
+    // Custom plugin: draw vertical dashed lines + version labels
+    var versionLinePlugin = {
+      id: 'versionLines',
+      afterDraw: function(chart) {
+        if (!vMarkers.length) return;
+        var ctx = chart.ctx;
+        var xAxis = chart.scales.x;
+        var yAxis = chart.scales.y;
+        ctx.save();
+        vMarkers.forEach(function(m) {
+          var idx = pg.dates.indexOf(m.date);
+          if (idx === -1) return;
+          var x = xAxis.getPixelForValue(idx);
+          // Dashed vertical line
+          ctx.beginPath();
+          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+          ctx.lineWidth = 1;
+          ctx.moveTo(x, yAxis.top);
+          ctx.lineTo(x, yAxis.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          // Version label at top
+          ctx.fillStyle = 'rgba(255,255,255,0.7)';
+          ctx.font = '10px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(m.version, x, yAxis.top - 6);
+        });
+        ctx.restore();
+      }
+    };
+
+    var pgOpts = lineOpts(false);
+    pgOpts.layout = { padding: { top: 18 } };
+
+    psGalleryChart = new Chart(pgc, {
+      type: 'line',
+      data: {
+        labels: pg.dates,
+        datasets: [{
+          label: 'Total Downloads',
+          data: pg.arrays[0],
+          borderColor: '#06b6d4',
+          backgroundColor: grad(pgc, 6, 182, 212),
+          fill: true, tension: 0.4
+        }]
+      },
+      options: pgOpts,
+      plugins: [versionLinePlugin]
+    });
+    if (pg.arrays[0].length > 0) {
+      document.getElementById('psGalleryStat').textContent = pg.arrays[0][pg.arrays[0].length - 1].toLocaleString();
+    }
+  }
 }
 
 // ── Update header metrics + insights for selected time range ──
@@ -196,7 +262,7 @@ function updateMetrics(allData, days) {
     var cutoff = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
     var r = { dates: [], values: [], uniques: [] };
     src.dates.forEach(function(d, i) {
-      if (d >= cutoff) { r.dates.push(d); r.values.push(src[valKey][i]); r.uniques.push(src[uniqKey][i]); }
+      if (d > cutoff) { r.dates.push(d); r.values.push(src[valKey][i]); r.uniques.push(src[uniqKey][i]); }
     });
     return r;
   }
@@ -211,8 +277,8 @@ function updateMetrics(allData, days) {
     var priorCutoff = t2.getFullYear() + '-' + String(t2.getMonth() + 1).padStart(2, '0') + '-' + String(t2.getDate()).padStart(2, '0');
     var current = 0, prior = 0;
     src.dates.forEach(function(d, i) {
-      if (d >= cutoff) { current += src[valKey][i]; }
-      else if (d >= priorCutoff && d < cutoff) { prior += src[valKey][i]; }
+      if (d > cutoff) { current += src[valKey][i]; }
+      else if (d > priorCutoff && d <= cutoff) { prior += src[valKey][i]; }
     });
     var delta = prior > 0 ? Math.round((current - prior) / prior * 100) : 0;
     return { current: current, prior: prior, delta: delta, hasData: prior > 0 };
@@ -234,23 +300,23 @@ function updateMetrics(allData, days) {
   var cDelta = rollingDelta(allData.clones, 'total', compareWindow);
   var compareLabel = days === 0 ? 'WoW' : 'vs prior';
 
-  var vCls = vDelta.delta > 0 ? 'up' : vDelta.delta < 0 ? 'down' : 'flat';
+  var vCls = vDelta.hasData ? (vDelta.delta > 0 ? 'up' : vDelta.delta < 0 ? 'down' : 'flat') : 'flat';
   var vArrow = vDelta.delta > 0 ? '\u2191' : vDelta.delta < 0 ? '\u2193' : '\u2192';
   document.getElementById('hdr-views-label').textContent = 'Views (' + rangeLabel + ')';
   document.getElementById('hdr-views-value').textContent = viewsTotal.toLocaleString();
   document.getElementById('hdr-views-sub').innerHTML = viewsUnique.toLocaleString() + ' unique &middot; ' + allTimeViews.toLocaleString() + ' all-time';
   var vDeltaEl = document.getElementById('hdr-views-delta');
   vDeltaEl.className = 'm-delta ' + vCls;
-  vDeltaEl.textContent = vArrow + ' ' + vDelta.delta + '% ' + compareLabel;
+  vDeltaEl.textContent = vDelta.hasData ? (vArrow + ' ' + vDelta.delta + '% ' + compareLabel) : '\u2014 N/A';
 
-  var cCls = cDelta.delta > 0 ? 'up' : cDelta.delta < 0 ? 'down' : 'flat';
+  var cCls = cDelta.hasData ? (cDelta.delta > 0 ? 'up' : cDelta.delta < 0 ? 'down' : 'flat') : 'flat';
   var cArrow = cDelta.delta > 0 ? '\u2191' : cDelta.delta < 0 ? '\u2193' : '\u2192';
   document.getElementById('hdr-clones-label').textContent = 'Clones (' + rangeLabel + ')';
   document.getElementById('hdr-clones-value').textContent = clonesTotal.toLocaleString();
   document.getElementById('hdr-clones-sub').innerHTML = clonesUnique.toLocaleString() + ' unique &middot; ' + allTimeClones.toLocaleString() + ' all-time';
   var cDeltaEl = document.getElementById('hdr-clones-delta');
   cDeltaEl.className = 'm-delta ' + cCls;
-  cDeltaEl.textContent = cArrow + ' ' + cDelta.delta + '% ' + compareLabel;
+  cDeltaEl.textContent = cDelta.hasData ? (cArrow + ' ' + cDelta.delta + '% ' + compareLabel) : '\u2014 N/A';
 
   // Insight cards
   var cloneRate = viewsTotal > 0 ? (clonesTotal / viewsTotal * 100).toFixed(1) : '0';
