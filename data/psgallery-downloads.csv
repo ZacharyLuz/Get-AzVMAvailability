@@ -1,2 +1,6 @@
 Date,Version,VersionDownloads,TotalDownloads,IsLatestVersion
-2026-04-14,2.0.0,11,11,true
+2026-04-11,2.0.0,4,4,true
+2026-04-12,2.0.0,4,4,true
+2026-04-13,2.0.0,11,11,true
+2026-04-14,2.0.0,11,11,false
+2026-04-14,2.1.0,0,11,true
