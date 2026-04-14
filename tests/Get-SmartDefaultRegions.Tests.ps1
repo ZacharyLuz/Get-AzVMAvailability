@@ -50,6 +50,8 @@ Describe "Get-SmartDefaultRegions" {
         It "Regions is always a string array" {
             $result = Get-SmartDefaultRegions -CloudEnvironment 'AzureCloud'
             $result.Regions | Should -BeOfType [string]
+            $result.Regions.Count | Should -BeGreaterThan 0
+            , $result.Regions | Should -BeOfType [array]
         }
 
         It "Source is always a non-empty string" {

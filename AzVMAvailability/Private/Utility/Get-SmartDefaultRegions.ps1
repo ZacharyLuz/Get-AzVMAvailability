@@ -74,7 +74,7 @@ function Get-SmartDefaultRegions {
     $offsetSign = if ($utcOffset -ge 0) { '+' } else { '-' }
     $absOffset = [Math]::Abs($utcOffset)
     $offsetHours = [Math]::Floor($absOffset)
-    $offsetMinutes = ($absOffset - $offsetHours) * 60
+    $offsetMinutes = [Math]::Round(($absOffset - $offsetHours) * 60)
     $formattedOffset = '{0}{1:D2}:{2:D2}' -f $offsetSign, [int]$offsetHours, [int]$offsetMinutes
 
     return @{
