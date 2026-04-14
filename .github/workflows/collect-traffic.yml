@@ -219,19 +219,20 @@ jobs:
             # Parse OData XML response — extract Version, VersionDownloadCount, DownloadCount, IsLatestVersion per entry
             if command -v python3 &>/dev/null; then
               python3 -c "
-import xml.etree.ElementTree as ET, sys
-ns = {'a': 'http://www.w3.org/2005/Atom', 'd': 'http://schemas.microsoft.com/ado/2007/08/dataservices', 'm': 'http://schemas.microsoft.com/ado/2007/08/dataservices/metadata'}
-tree = ET.parse('/tmp/psgallery.xml')
-for entry in tree.findall('.//a:entry', ns):
-    props = entry.find('.//m:properties', ns)
-    if props is None: continue
-    ver = props.find('d:Version', ns)
-    vdl = props.find('d:VersionDownloadCount', ns)
-    tdl = props.find('d:DownloadCount', ns)
-    ilv = props.find('d:IsLatestVersion', ns)
-    if ver is not None:
-        print(f'${TODAY},{ver.text},{vdl.text if vdl is not None else 0},{tdl.text if tdl is not None else 0},{ilv.text if ilv is not None else \"false\"}')
-" >> /tmp/psgallery_existing.csv
+          import xml.etree.ElementTree as ET, sys
+          ns = {'a': 'http://www.w3.org/2005/Atom', 'd': 'http://schemas.microsoft.com/ado/2007/08/dataservices', 'm': 'http://schemas.microsoft.com/ado/2007/08/dataservices/metadata'}
+          tree = ET.parse('/tmp/psgallery.xml')
+          today = sys.argv[1]
+          for entry in tree.findall('.//a:entry', ns):
+              props = entry.find('.//m:properties', ns)
+              if props is None: continue
+              ver = props.find('d:Version', ns)
+              vdl = props.find('d:VersionDownloadCount', ns)
+              tdl = props.find('d:DownloadCount', ns)
+              ilv = props.find('d:IsLatestVersion', ns)
+              if ver is not None:
+                  print(f'{today},{ver.text},{vdl.text if vdl is not None else 0},{tdl.text if tdl is not None else 0},{ilv.text if ilv is not None else \"false\"}')
+          " "$TODAY" >> /tmp/psgallery_existing.csv
             else
               echo "Warning: python3 not available, skipping PSGallery XML parse"
             fi
