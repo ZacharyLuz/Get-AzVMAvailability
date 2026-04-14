@@ -410,8 +410,8 @@ try {
     foreach ($pkg in $packages) {
         $props = $pkg.properties
         $version = $props.Version
-        $versionDownloads = [int]$props.VersionDownloadCount.'#text'
-        $totalDownloads = [int]$props.DownloadCount.'#text'
+        $versionDownloads = [long]$props.VersionDownloadCount.'#text'
+        $totalDownloads = [long]$props.DownloadCount.'#text'
         $isLatest = $props.IsLatestVersion.'#text' -eq 'true'
         $totalGalleryDownloads = $totalDownloads
 
