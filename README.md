@@ -7,7 +7,7 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.0.0-brightgreen)
+![Version](https://img.shields.io/badge/Version-2.1.0-brightgreen)
 
 ## Overview
 
@@ -155,7 +155,7 @@ As of v2.0.0, Get-AzVMAvailability is available as both a standalone script and 
 | [Region Presets](docs/region-presets.md) | Pre-built region sets for US, Europe, Asia-Pacific, sovereign clouds |
 | [Image Compatibility](docs/image-compatibility.md) | Gen1/Gen2 and x64/ARM64 image checking |
 | [Output & Pricing](docs/output-and-pricing.md) | Console output, pricing auto-detection, Excel export, status legend |
-| [Cloud Environments](docs/cloud-environments.md) | Supported Azure clouds (Commercial, Government, China, Germany) |
+| [Cloud Environments](docs/cloud-environments.md) | Supported Azure clouds (Commercial, Government, China) |
 | [AI Agent Integration](docs/agent-integration.md) | Copilot skill for natural-language VM capacity queries |
 | [GitHub Codespaces](docs/codespaces.md) | Run in a browser with zero local setup |
 | [Local Installation](docs/local-installation.md) | Clone, install modules, and import |

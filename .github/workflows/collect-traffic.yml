@@ -95,6 +95,13 @@ jobs:
           gh api "repos/${{ github.repository }}/releases?per_page=100" > /tmp/releases.json
           echo "Release data collected"
 
+      - name: Collect PSGallery downloads
+        shell: bash
+        run: |
+          curl -s "https://www.powershellgallery.com/api/v2/FindPackagesById()?id='AzVMAvailability'" \
+            -H "Accept: application/atom+xml" -o /tmp/psgallery.xml
+          echo "PSGallery response collected"
+
       - name: Merge into CSVs
         run: |
           TODAY=$(date -u +%Y-%m-%d)
@@ -199,6 +206,35 @@ jobs:
           fi
           cp /tmp/release_downloads_existing.csv traffic-data/data/release-downloads.csv
 
+          # ── PSGallery Downloads (daily snapshot per version) ──
+          if [ -f traffic-data/data/psgallery-downloads.csv ]; then
+            cp traffic-data/data/psgallery-downloads.csv /tmp/psgallery_existing.csv
+          else
+            echo "Date,Version,VersionDownloads,TotalDownloads,IsLatestVersion" > /tmp/psgallery_existing.csv
+          fi
+          if ! grep -q "^\"*${TODAY}" /tmp/psgallery_existing.csv 2>/dev/null; then
+            # Parse OData XML response — extract Version, VersionDownloadCount, DownloadCount, IsLatestVersion per entry
+            if command -v python3 &>/dev/null; then
+              python3 -c "
+import xml.etree.ElementTree as ET, sys
+ns = {'a': 'http://www.w3.org/2005/Atom', 'd': 'http://schemas.microsoft.com/ado/2007/08/dataservices', 'm': 'http://schemas.microsoft.com/ado/2007/08/dataservices/metadata'}
+tree = ET.parse('/tmp/psgallery.xml')
+for entry in tree.findall('.//a:entry', ns):
+    props = entry.find('.//m:properties', ns)
+    if props is None: continue
+    ver = props.find('d:Version', ns)
+    vdl = props.find('d:VersionDownloadCount', ns)
+    tdl = props.find('d:DownloadCount', ns)
+    ilv = props.find('d:IsLatestVersion', ns)
+    if ver is not None:
+        print(f'${TODAY},{ver.text},{vdl.text if vdl is not None else 0},{tdl.text if tdl is not None else 0},{ilv.text if ilv is not None else \"false\"}')
+" >> /tmp/psgallery_existing.csv
+            else
+              echo "Warning: python3 not available, skipping PSGallery XML parse"
+            fi
+          fi
+          cp /tmp/psgallery_existing.csv traffic-data/data/psgallery-downloads.csv
+
           echo "=== Collection Summary ==="
           echo "Views:     $(tail -n +2 traffic-data/data/views.csv | wc -l) days"
           echo "Clones:    $(tail -n +2 traffic-data/data/clones.csv | wc -l) days"
@@ -207,6 +243,7 @@ jobs:
           echo "Paths:     $(tail -n +2 traffic-data/data/paths.csv | wc -l) records"
           echo "Stats:     $(tail -n +2 traffic-data/data/repo-stats.csv | wc -l) days"
           echo "Release Downloads Snapshots: $(tail -n +2 traffic-data/data/release-downloads.csv | wc -l) days"
+          echo "PSGallery Snapshots: $(tail -n +2 traffic-data/data/psgallery-downloads.csv | wc -l) records"
 
       - name: Generate dashboard HTML for GitHub Pages
         shell: pwsh

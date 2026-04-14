@@ -1,8 +1,8 @@
 # Roadmap
 
-## Current Release: v2.0.0
+## Current Release: v2.1.0
 
-> **v2.0.0 Module Conversion Complete:** Standalone script converted to PowerShell module with Public/Private layout, PSGallery publishing, and CI/CD automation. No new features or behavior changes from v1.14.0.
+> **v2.1.0:** PSGallery download tracking, traffic dashboard fixes, smart default regions, and documentation improvements. See [CHANGELOG.md](CHANGELOG.md) for details.
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 

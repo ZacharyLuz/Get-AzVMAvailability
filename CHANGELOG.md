@@ -5,13 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.0] — 2026-07-17
 
 ### Added
 - **Smart default regions** — Default regions now auto-detect based on cloud environment and user timezone. Sovereign clouds (Gov, China) use their native regions; commercial cloud defaults match the user's local timezone geo (Americas, Europe, India/ME, APAC, Australia). New private function `Get-SmartDefaultRegions`.
+- **PSGallery download tracking** — Traffic collector and CI workflow now fetch PSGallery total download counts alongside GitHub views/clones/stars.
 
 ### Documentation
 - Split README into focused docs/ pages — README is now a concise landing page linking to 11 topic guides under `docs/`
+
+### Fixed
+- **Traffic dashboard off-by-one** — Date filtering in `dashboard.js` used `>=` cutoff comparison, making 7-day windows span 8 days. Fixed `filterByDays`, `windowData`, and `rollingDelta` to use `>` with non-overlapping window boundaries.
+- **Traffic dashboard delta display** — Views and Clones delta percentages showed misleading "→ 0%" when no prior-period data existed. Now displays "— N/A" when `hasData` is false.
 
 ## [2.0.0] — Module Conversion
 

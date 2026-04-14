@@ -4,9 +4,9 @@
 
 .DESCRIPTION
     GitHub only retains traffic data for 14 days. This script captures views,
-    clones, referrers, and popular paths via the GitHub API and appends new
-    records to CSV files in the artifacts/traffic/ directory. Designed to be
-    run daily (manually, scheduled task, or GitHub Actions).
+    clones, referrers, and popular paths via the GitHub API, collects PSGallery
+    download stats, and appends new records to CSV files in the artifacts/traffic/
+    directory. Designed to be run daily (manually, scheduled task, or GitHub Actions).
 
     Requires: GitHub CLI (gh) authenticated with repo scope.
 
@@ -46,7 +46,9 @@ $PathsFile     = 'paths.csv'
 $StarsFile     = 'stars.csv'
 $RepoStatsFile = 'repo-stats.csv'
 $ReleaseDownloadsFile = 'release-downloads.csv'
+$PSGalleryFile = 'psgallery-downloads.csv'
 $StargazersPerPage = 100
+$PSGalleryModuleName = 'AzVMAvailability'
 #endregion
 
 #region Setup
@@ -394,6 +396,53 @@ try {
 }
 catch {
     Write-Warning "Failed to collect release download stats: $_"
+}
+#endregion
+
+#region Collect PSGallery Downloads
+Write-Host "`nCollecting PSGallery download stats..." -ForegroundColor Cyan
+try {
+    $galleryUrl = "https://www.powershellgallery.com/api/v2/FindPackagesById()?id='$PSGalleryModuleName'"
+    $packages = Invoke-RestMethod -Uri $galleryUrl -ErrorAction Stop
+    $galleryRecords = @()
+    $totalGalleryDownloads = 0
+
+    foreach ($pkg in $packages) {
+        $props = $pkg.properties
+        $version = $props.Version
+        $versionDownloads = [int]$props.VersionDownloadCount.'#text'
+        $totalDownloads = [int]$props.DownloadCount.'#text'
+        $isLatest = $props.IsLatestVersion.'#text' -eq 'true'
+        $totalGalleryDownloads = $totalDownloads
+
+        $galleryRecords += [PSCustomObject]@{
+            Date             = $collectedDate
+            Version          = $version
+            VersionDownloads = $versionDownloads
+            TotalDownloads   = $totalDownloads
+            IsLatestVersion  = $isLatest
+        }
+    }
+
+    $psGalleryPath = Join-Path $OutputDir $PSGalleryFile
+    $existingGallery = Get-ExistingData -FilePath $psGalleryPath
+
+    # Snapshot merge: skip if today already collected (all versions are a batch)
+    $alreadyCollected = $existingGallery | Where-Object { $_.Date -eq $collectedDate }
+    if ($alreadyCollected) {
+        $totalNew += 0
+        Write-Host "  PSGallery: 0 new records (today already collected, $($existingGallery.Count) total)" -ForegroundColor Green
+    }
+    else {
+        $merged = @($existingGallery) + @($galleryRecords)
+        $merged | Sort-Object Date, Version | Export-Csv -Path $psGalleryPath -NoTypeInformation
+        $totalNew += $galleryRecords.Count
+        Write-Host "  PSGallery: $($galleryRecords.Count) new records ($($merged.Count) total)" -ForegroundColor Green
+    }
+    Write-Host "  Summary: $totalGalleryDownloads total downloads across $($galleryRecords.Count) version(s)" -ForegroundColor Gray
+}
+catch {
+    Write-Warning "Failed to collect PSGallery download stats: $_"
 }
 #endregion
 
