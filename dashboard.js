@@ -70,6 +70,42 @@ function lineOpts(legend) {
   };
 }
 
+// ── Shared release annotation plugin builder ──
+// Returns a Chart.js plugin that draws vertical dashed lines at release dates
+function makeReleasePlugin(releases, filteredDatesRef) {
+  return {
+    id: 'releaseLines',
+    afterDraw: function(chart) {
+      if (!releases || !releases.length) return;
+      var dates = filteredDatesRef();
+      var visible = releases.filter(function(r) { return dates.indexOf(r.date) !== -1; });
+      if (!visible.length) return;
+      var ctx = chart.ctx;
+      var xAxis = chart.scales.x;
+      var yAxis = chart.scales.y;
+      ctx.save();
+      visible.forEach(function(r) {
+        var idx = dates.indexOf(r.date);
+        if (idx === -1) return;
+        var x = xAxis.getPixelForValue(idx);
+        ctx.beginPath();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = 1;
+        ctx.moveTo(x, yAxis.top);
+        ctx.lineTo(x, yAxis.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = '10px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(r.version, x, yAxis.top - 6);
+      });
+      ctx.restore();
+    }
+  };
+}
+
 // ── Chart instances ──
 var viewsChart, clonesChart, starsChart, psGalleryChart;
 
@@ -99,6 +135,8 @@ function buildCharts(allData, days) {
   // Views
   var v = filterByDays(allData.views.dates, allData.views.total, allData.views.unique);
   var vc = document.getElementById('viewsChart').getContext('2d');
+  var viewsOpts = lineOpts(true);
+  viewsOpts.layout = { padding: { top: 18 } };
   viewsChart = new Chart(vc, {
     type: 'line',
     data: {
@@ -108,7 +146,8 @@ function buildCharts(allData, days) {
         { label: 'Unique', data: v.arrays[1], borderColor: '#22c55e', backgroundColor: grad(vc, 34, 197, 94), fill: true, tension: 0.4 }
       ]
     },
-    options: lineOpts(true)
+    options: viewsOpts,
+    plugins: [makeReleasePlugin(allData.releases, function() { return v.dates; })]
   });
   var viewsSum = v.arrays[0].reduce(function(a, b) { return a + b; }, 0);
   document.getElementById('viewsStat').textContent = viewsSum.toLocaleString();
@@ -116,6 +155,8 @@ function buildCharts(allData, days) {
   // Clones
   var cl = filterByDays(allData.clones.dates, allData.clones.total, allData.clones.unique);
   var cc = document.getElementById('clonesChart').getContext('2d');
+  var clonesOpts = lineOpts(true);
+  clonesOpts.layout = { padding: { top: 18 } };
   clonesChart = new Chart(cc, {
     type: 'line',
     data: {
@@ -125,7 +166,8 @@ function buildCharts(allData, days) {
         { label: 'Unique', data: cl.arrays[1], borderColor: '#f43f5e', backgroundColor: grad(cc, 244, 63, 94), fill: true, tension: 0.4 }
       ]
     },
-    options: lineOpts(true)
+    options: clonesOpts,
+    plugins: [makeReleasePlugin(allData.releases, function() { return cl.dates; })]
   });
   var clonesSum = cl.arrays[0].reduce(function(a, b) { return a + b; }, 0);
   document.getElementById('clonesStat').textContent = clonesSum.toLocaleString();
@@ -174,55 +216,20 @@ function buildCharts(allData, days) {
           }
         }
       },
-      scales: { y: gY, x: gX }
-    }
+      scales: { y: gY, x: gX },
+      layout: { padding: { top: 18 } }
+    },
+    plugins: [makeReleasePlugin(allData.releases, function() { return st.dates; })]
   });
   if (st.arrays[0].length > 0) {
     document.getElementById('starsStat').textContent = st.arrays[0][st.arrays[0].length - 1];
   }
 
-  // PSGallery Downloads (cumulative) with version annotations
+  // PSGallery Downloads (cumulative) with release annotations
   var pgEl = document.getElementById('psGalleryChart');
   if (pgEl && allData.psGallery && allData.psGallery.dates.length > 0) {
     var pg = filterByDays(allData.psGallery.dates, allData.psGallery.totalDl);
     var pgc = pgEl.getContext('2d');
-
-    // Build version annotation lines within the visible date range
-    var vMarkers = (allData.psGallery.versions || []).filter(function(v) {
-      return pg.dates.indexOf(v.date) !== -1;
-    });
-
-    // Custom plugin: draw vertical dashed lines + version labels
-    var versionLinePlugin = {
-      id: 'versionLines',
-      afterDraw: function(chart) {
-        if (!vMarkers.length) return;
-        var ctx = chart.ctx;
-        var xAxis = chart.scales.x;
-        var yAxis = chart.scales.y;
-        ctx.save();
-        vMarkers.forEach(function(m) {
-          var idx = pg.dates.indexOf(m.date);
-          if (idx === -1) return;
-          var x = xAxis.getPixelForValue(idx);
-          // Dashed vertical line
-          ctx.beginPath();
-          ctx.setLineDash([4, 4]);
-          ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-          ctx.lineWidth = 1;
-          ctx.moveTo(x, yAxis.top);
-          ctx.lineTo(x, yAxis.bottom);
-          ctx.stroke();
-          ctx.setLineDash([]);
-          // Version label at top
-          ctx.fillStyle = 'rgba(255,255,255,0.7)';
-          ctx.font = '10px Inter, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText(m.version, x, yAxis.top - 6);
-        });
-        ctx.restore();
-      }
-    };
 
     var pgOpts = lineOpts(false);
     pgOpts.layout = { padding: { top: 18 } };
@@ -240,7 +247,7 @@ function buildCharts(allData, days) {
         }]
       },
       options: pgOpts,
-      plugins: [versionLinePlugin]
+      plugins: [makeReleasePlugin(allData.releases, function() { return pg.dates; })]
     });
     if (pg.arrays[0].length > 0) {
       document.getElementById('psGalleryStat').textContent = pg.arrays[0][pg.arrays[0].length - 1].toLocaleString();
