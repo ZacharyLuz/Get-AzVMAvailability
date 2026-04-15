@@ -70,6 +70,9 @@ function lineOpts(legend) {
   };
 }
 
+// Layout constant — shared across all charts that show release annotations
+var RELEASE_LABEL_PADDING = 40;
+
 // ── Shared release annotation plugin builder ──
 // Returns a Chart.js plugin that draws vertical dashed lines at release dates.
 // Staggers labels vertically when releases are too close together to avoid overlap.
@@ -92,15 +95,18 @@ function makeReleasePlugin(releases, filteredDatesRef) {
       // Measure label widths and assign stagger tiers to avoid overlap
       var minGap = 8; // px padding between labels
       var tierSpacing = 12; // vertical px between stagger tiers
+      var topPad = (chart.options.layout && chart.options.layout.padding) ? chart.options.layout.padding.top : RELEASE_LABEL_PADDING;
+      var maxTiers = Math.max(1, Math.floor(topPad / tierSpacing));
       var placed = []; // {left, right, tier}
       visible.forEach(function(r) {
         var x = xAxis.getPixelForValue(r.idx);
         var w = ctx.measureText(r.version).width;
         var left = x - w / 2;
         var right = x + w / 2;
-        // Find lowest tier that doesn't collide
+        // Find lowest tier that doesn't collide, clamped to maxTiers
         var tier = 0;
-        for (var t = 0; t < 6; t++) {
+        var foundTier = false;
+        for (var t = 0; t < maxTiers; t++) {
           var collision = false;
           for (var p = 0; p < placed.length; p++) {
             if (placed[p].tier === t && !(right + minGap < placed[p].left || left - minGap > placed[p].right)) {
@@ -108,15 +114,17 @@ function makeReleasePlugin(releases, filteredDatesRef) {
               break;
             }
           }
-          if (!collision) { tier = t; break; }
-          tier = t + 1;
+          if (!collision) { tier = t; foundTier = true; break; }
         }
+        if (!foundTier) { tier = maxTiers - 1; }
         placed.push({ left: left, right: right, tier: tier });
         r.x = x;
         r.tier = tier;
       });
+      // Draw lines and labels (font already set above)
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.textAlign = 'center';
       visible.forEach(function(r) {
-        // Dashed vertical line
         ctx.beginPath();
         ctx.setLineDash([4, 4]);
         ctx.strokeStyle = 'rgba(255,255,255,0.35)';
@@ -125,10 +133,6 @@ function makeReleasePlugin(releases, filteredDatesRef) {
         ctx.lineTo(r.x, yAxis.bottom);
         ctx.stroke();
         ctx.setLineDash([]);
-        // Label — staggered upward by tier
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        ctx.font = '10px Inter, sans-serif';
-        ctx.textAlign = 'center';
         ctx.fillText(r.version, r.x, yAxis.top - 6 - (r.tier * tierSpacing));
       });
       ctx.restore();
@@ -169,7 +173,7 @@ function buildCharts(allData, days) {
   var v = filterByDays(allData.views.dates, allData.views.total, allData.views.unique);
   var vc = document.getElementById('viewsChart').getContext('2d');
   var viewsOpts = lineOpts(true);
-  viewsOpts.layout = { padding: { top: 40 } };
+  viewsOpts.layout = { padding: { top: RELEASE_LABEL_PADDING } };
   viewsChart = new Chart(vc, {
     type: 'line',
     data: {
@@ -189,7 +193,7 @@ function buildCharts(allData, days) {
   var cl = filterByDays(allData.clones.dates, allData.clones.total, allData.clones.unique);
   var cc = document.getElementById('clonesChart').getContext('2d');
   var clonesOpts = lineOpts(true);
-  clonesOpts.layout = { padding: { top: 40 } };
+  clonesOpts.layout = { padding: { top: RELEASE_LABEL_PADDING } };
   clonesChart = new Chart(cc, {
     type: 'line',
     data: {
@@ -250,7 +254,7 @@ function buildCharts(allData, days) {
         }
       },
       scales: { y: gY, x: gX },
-      layout: { padding: { top: 40 } }
+      layout: { padding: { top: RELEASE_LABEL_PADDING } }
     },
     plugins: showReleases ? [makeReleasePlugin(allData.releases, function() { return st.dates; })] : []
   });
@@ -265,7 +269,7 @@ function buildCharts(allData, days) {
     var pgc = pgEl.getContext('2d');
 
     var pgOpts = lineOpts(false);
-    pgOpts.layout = { padding: { top: 40 } };
+    pgOpts.layout = { padding: { top: RELEASE_LABEL_PADDING } };
 
     psGalleryChart = new Chart(pgc, {
       type: 'line',
