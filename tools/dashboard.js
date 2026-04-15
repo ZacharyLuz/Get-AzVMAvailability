@@ -108,8 +108,11 @@ function makeReleasePlugin(releases, filteredDatesRef) {
 
 // ── Chart instances ──
 var viewsChart, clonesChart, starsChart, psGalleryChart;
+var showReleases = true;
+var currentDays = 0;
 
 function buildCharts(allData, days) {
+  currentDays = days;
   function filterByDays(dates) {
     var arrays = Array.prototype.slice.call(arguments, 1);
     if (!days || days === 0) { return { dates: dates, arrays: arrays }; }
@@ -147,7 +150,7 @@ function buildCharts(allData, days) {
       ]
     },
     options: viewsOpts,
-    plugins: [makeReleasePlugin(allData.releases, function() { return v.dates; })]
+    plugins: showReleases ? [makeReleasePlugin(allData.releases, function() { return v.dates; })] : []
   });
   var viewsSum = v.arrays[0].reduce(function(a, b) { return a + b; }, 0);
   document.getElementById('viewsStat').textContent = viewsSum.toLocaleString();
@@ -167,7 +170,7 @@ function buildCharts(allData, days) {
       ]
     },
     options: clonesOpts,
-    plugins: [makeReleasePlugin(allData.releases, function() { return cl.dates; })]
+    plugins: showReleases ? [makeReleasePlugin(allData.releases, function() { return cl.dates; })] : []
   });
   var clonesSum = cl.arrays[0].reduce(function(a, b) { return a + b; }, 0);
   document.getElementById('clonesStat').textContent = clonesSum.toLocaleString();
@@ -219,7 +222,7 @@ function buildCharts(allData, days) {
       scales: { y: gY, x: gX },
       layout: { padding: { top: 18 } }
     },
-    plugins: [makeReleasePlugin(allData.releases, function() { return st.dates; })]
+    plugins: showReleases ? [makeReleasePlugin(allData.releases, function() { return st.dates; })] : []
   });
   if (st.arrays[0].length > 0) {
     document.getElementById('starsStat').textContent = st.arrays[0][st.arrays[0].length - 1];
@@ -247,7 +250,7 @@ function buildCharts(allData, days) {
         }]
       },
       options: pgOpts,
-      plugins: [makeReleasePlugin(allData.releases, function() { return pg.dates; })]
+      plugins: showReleases ? [makeReleasePlugin(allData.releases, function() { return pg.dates; })] : []
     });
     if (pg.arrays[0].length > 0) {
       document.getElementById('psGalleryStat').textContent = pg.arrays[0][pg.arrays[0].length - 1].toLocaleString();
@@ -475,4 +478,15 @@ function initDashboard(allData, refData, pathData) {
     buildCharts(allData, days);
     updateMetrics(allData, days);
   };
+
+  // Wire up release annotation toggle
+  window.toggleReleases = function() {
+    showReleases = !showReleases;
+    var btn = document.getElementById('releaseToggle');
+    if (btn) { btn.classList.toggle('active-toggle', showReleases); }
+    buildCharts(allData, currentDays);
+  };
+  // Set initial active state
+  var initBtn = document.getElementById('releaseToggle');
+  if (initBtn) { initBtn.classList.toggle('active-toggle', showReleases); }
 }

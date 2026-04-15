@@ -231,7 +231,7 @@ $html = @'
 
   .page {
     position: relative; z-index: 1;
-    max-width: 1400px; margin: 0 auto; padding: 0 32px 48px;
+    max-width: 1800px; margin: 0 auto; padding: 0 32px 48px;
   }
 
   /* Header */
@@ -409,6 +409,7 @@ $html = @'
     transition: background 0.15s, border-color 0.15s;
   }
   .range-btn:hover { background: var(--surface-raised); border-color: rgba(255,255,255,0.12); }
+  .range-btn.active-toggle { background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa; }
   .range-btn .cal-icon { font-size: 14px; }
   .range-btn .arrow { font-size: 10px; color: var(--text-3); }
   .range-menu {
@@ -660,6 +661,10 @@ $html += @'
         <div class="range-opt active" data-days="0" onclick="setRange(0, this)">All Time <span class="check">&#x2713;</span></div>
       </div>
     </div>
+    <button class="range-btn" id="releaseToggle" onclick="toggleReleases()" title="Show/hide release version lines on charts">
+      <span>&#x1F3F7;&#xFE0F;</span>
+      <span id="releaseToggleLabel">Releases</span>
+    </button>
   </div>
 '@
 
