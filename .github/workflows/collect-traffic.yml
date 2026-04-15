@@ -215,10 +215,12 @@ jobs:
           else
             echo "Date,Version,VersionDownloads,TotalDownloads,IsLatestVersion" > /tmp/psgallery_existing.csv
           fi
-          if ! grep -q "^\"*${TODAY}" /tmp/psgallery_existing.csv 2>/dev/null; then
-            # Parse OData XML response — extract Version, VersionDownloadCount, DownloadCount, IsLatestVersion per entry
-            if command -v python3 &>/dev/null; then
-              python3 -c "
+          # PSGallery counts are cumulative — replace today's rows with fresh data on each run
+          grep -v "^\"*${TODAY}" /tmp/psgallery_existing.csv > /tmp/psgallery_filtered.csv 2>/dev/null || true
+          mv /tmp/psgallery_filtered.csv /tmp/psgallery_existing.csv
+          # Parse OData XML response — extract Version, VersionDownloadCount, DownloadCount, IsLatestVersion per entry
+          if command -v python3 &>/dev/null; then
+            python3 -c "
           import xml.etree.ElementTree as ET, sys
           ns = {'a': 'http://www.w3.org/2005/Atom', 'd': 'http://schemas.microsoft.com/ado/2007/08/dataservices', 'm': 'http://schemas.microsoft.com/ado/2007/08/dataservices/metadata'}
           tree = ET.parse('/tmp/psgallery.xml')
@@ -233,9 +235,8 @@ jobs:
               if ver is not None:
                   print(f'{today},{ver.text},{vdl.text if vdl is not None else 0},{tdl.text if tdl is not None else 0},{ilv.text if ilv is not None else \"false\"}')
           " "$TODAY" >> /tmp/psgallery_existing.csv
-            else
-              echo "Warning: python3 not available, skipping PSGallery XML parse"
-            fi
+          else
+            echo "Warning: python3 not available, skipping PSGallery XML parse"
           fi
           cp /tmp/psgallery_existing.csv traffic-data/data/psgallery-downloads.csv
 
