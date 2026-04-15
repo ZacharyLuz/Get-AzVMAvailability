@@ -71,35 +71,65 @@ function lineOpts(legend) {
 }
 
 // ── Shared release annotation plugin builder ──
-// Returns a Chart.js plugin that draws vertical dashed lines at release dates
+// Returns a Chart.js plugin that draws vertical dashed lines at release dates.
+// Staggers labels vertically when releases are too close together to avoid overlap.
 function makeReleasePlugin(releases, filteredDatesRef) {
   return {
     id: 'releaseLines',
     afterDraw: function(chart) {
       if (!releases || !releases.length) return;
       var dates = filteredDatesRef();
-      var visible = releases.filter(function(r) { return dates.indexOf(r.date) !== -1; });
+      var visible = releases
+        .filter(function(r) { return dates.indexOf(r.date) !== -1; })
+        .map(function(r) { return { version: r.version, date: r.date, idx: dates.indexOf(r.date) }; })
+        .sort(function(a, b) { return a.idx - b.idx; });
       if (!visible.length) return;
       var ctx = chart.ctx;
       var xAxis = chart.scales.x;
       var yAxis = chart.scales.y;
       ctx.save();
+      ctx.font = '10px Inter, sans-serif';
+      // Measure label widths and assign stagger tiers to avoid overlap
+      var minGap = 8; // px padding between labels
+      var tierSpacing = 12; // vertical px between stagger tiers
+      var placed = []; // {left, right, tier}
       visible.forEach(function(r) {
-        var idx = dates.indexOf(r.date);
-        if (idx === -1) return;
-        var x = xAxis.getPixelForValue(idx);
+        var x = xAxis.getPixelForValue(r.idx);
+        var w = ctx.measureText(r.version).width;
+        var left = x - w / 2;
+        var right = x + w / 2;
+        // Find lowest tier that doesn't collide
+        var tier = 0;
+        for (var t = 0; t < 6; t++) {
+          var collision = false;
+          for (var p = 0; p < placed.length; p++) {
+            if (placed[p].tier === t && !(right + minGap < placed[p].left || left - minGap > placed[p].right)) {
+              collision = true;
+              break;
+            }
+          }
+          if (!collision) { tier = t; break; }
+          tier = t + 1;
+        }
+        placed.push({ left: left, right: right, tier: tier });
+        r.x = x;
+        r.tier = tier;
+      });
+      visible.forEach(function(r) {
+        // Dashed vertical line
         ctx.beginPath();
         ctx.setLineDash([4, 4]);
         ctx.strokeStyle = 'rgba(255,255,255,0.35)';
         ctx.lineWidth = 1;
-        ctx.moveTo(x, yAxis.top);
-        ctx.lineTo(x, yAxis.bottom);
+        ctx.moveTo(r.x, yAxis.top);
+        ctx.lineTo(r.x, yAxis.bottom);
         ctx.stroke();
         ctx.setLineDash([]);
+        // Label — staggered upward by tier
         ctx.fillStyle = 'rgba(255,255,255,0.7)';
         ctx.font = '10px Inter, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(r.version, x, yAxis.top - 6);
+        ctx.fillText(r.version, r.x, yAxis.top - 6 - (r.tier * tierSpacing));
       });
       ctx.restore();
     }
@@ -139,7 +169,7 @@ function buildCharts(allData, days) {
   var v = filterByDays(allData.views.dates, allData.views.total, allData.views.unique);
   var vc = document.getElementById('viewsChart').getContext('2d');
   var viewsOpts = lineOpts(true);
-  viewsOpts.layout = { padding: { top: 18 } };
+  viewsOpts.layout = { padding: { top: 40 } };
   viewsChart = new Chart(vc, {
     type: 'line',
     data: {
@@ -159,7 +189,7 @@ function buildCharts(allData, days) {
   var cl = filterByDays(allData.clones.dates, allData.clones.total, allData.clones.unique);
   var cc = document.getElementById('clonesChart').getContext('2d');
   var clonesOpts = lineOpts(true);
-  clonesOpts.layout = { padding: { top: 18 } };
+  clonesOpts.layout = { padding: { top: 40 } };
   clonesChart = new Chart(cc, {
     type: 'line',
     data: {
@@ -220,7 +250,7 @@ function buildCharts(allData, days) {
         }
       },
       scales: { y: gY, x: gX },
-      layout: { padding: { top: 18 } }
+      layout: { padding: { top: 40 } }
     },
     plugins: showReleases ? [makeReleasePlugin(allData.releases, function() { return st.dates; })] : []
   });
@@ -235,7 +265,7 @@ function buildCharts(allData, days) {
     var pgc = pgEl.getContext('2d');
 
     var pgOpts = lineOpts(false);
-    pgOpts.layout = { padding: { top: 18 } };
+    pgOpts.layout = { padding: { top: 40 } };
 
     psGalleryChart = new Chart(pgc, {
       type: 'line',
