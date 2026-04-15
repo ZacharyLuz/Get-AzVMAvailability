@@ -209,6 +209,10 @@ jobs:
           fi
           cp /tmp/release_downloads_existing.csv traffic-data/data/release-downloads.csv
 
+          # ── Individual Release Dates (rebuilt each run from releases API) ──
+          echo "TagName,PublishedDate" > traffic-data/data/releases.csv
+          jq -r '.[] | [.tag_name, (.published_at | split("T")[0])] | @csv' /tmp/releases.json >> traffic-data/data/releases.csv
+
           # ── PSGallery Downloads (daily snapshot per version) ──
           if [ -f traffic-data/data/psgallery-downloads.csv ]; then
             cp traffic-data/data/psgallery-downloads.csv /tmp/psgallery_existing.csv
@@ -248,6 +252,7 @@ jobs:
           echo "Paths:     $(tail -n +2 traffic-data/data/paths.csv | wc -l) records"
           echo "Stats:     $(tail -n +2 traffic-data/data/repo-stats.csv | wc -l) days"
           echo "Release Downloads Snapshots: $(tail -n +2 traffic-data/data/release-downloads.csv | wc -l) days"
+          echo "Releases: $(tail -n +2 traffic-data/data/releases.csv | wc -l) tags"
           echo "PSGallery Snapshots: $(tail -n +2 traffic-data/data/psgallery-downloads.csv | wc -l) records"
 
       - name: Generate dashboard HTML for GitHub Pages

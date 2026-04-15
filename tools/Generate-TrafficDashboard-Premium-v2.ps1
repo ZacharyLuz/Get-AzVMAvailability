@@ -48,6 +48,7 @@ $referrersPath = Join-Path $InputDir 'referrers.csv'
 $pathsPath     = Join-Path $InputDir 'paths.csv'
 $repoStatsPath = Join-Path $InputDir 'repo-stats.csv'
 $releaseDownloadsPath = Join-Path $InputDir 'release-downloads.csv'
+$releasesPath = Join-Path $InputDir 'releases.csv'
 $psGalleryPath = Join-Path $InputDir 'psgallery-downloads.csv'
 
 $views     = @(if (Test-Path $viewsPath)     { Import-Csv $viewsPath     | Sort-Object Date })
@@ -55,6 +56,9 @@ $clones    = @(if (Test-Path $clonesPath)    { Import-Csv $clonesPath    | Sort-
 $stars     = @(if (Test-Path $starsPath)     { Import-Csv $starsPath     | Sort-Object Date })
 $repoStats = @(if (Test-Path $repoStatsPath) { Import-Csv $repoStatsPath | Sort-Object Date })
 $releaseDownloads = @(if (Test-Path $releaseDownloadsPath) { Import-Csv $releaseDownloadsPath | Sort-Object Date })
+
+# Individual release tags with publish dates (for chart annotations)
+$releases = @(if (Test-Path $releasesPath) { Import-Csv $releasesPath | Sort-Object PublishedDate })
 
 # PSGallery: one row per date (prefer IsLatestVersion=true)
 $psGalleryRaw = @(if (Test-Path $psGalleryPath) { Import-Csv $psGalleryPath | Sort-Object Date })
@@ -82,7 +86,7 @@ if (Test-Path $pathsPath) {
     $paths = @($allPaths | Where-Object { $_.CollectedDate -eq $latestDate } | Sort-Object { [int]$_.TotalViews } -Descending | Select-Object -First 10)
 }
 
-Write-Host "Loaded: $($views.Count) view days, $($clones.Count) clone days, $($stars.Count) stars, $($referrers.Count) referrers, $($paths.Count) paths, $(@($releaseDownloads).Count) release download snapshots, $($psGallery.Count) PSGallery snapshots" -ForegroundColor Cyan
+Write-Host "Loaded: $($views.Count) view days, $($clones.Count) clone days, $($stars.Count) stars, $($referrers.Count) referrers, $($paths.Count) paths, $(@($releaseDownloads).Count) release download snapshots, $($releases.Count) releases, $($psGallery.Count) PSGallery snapshots" -ForegroundColor Cyan
 #endregion
 
 #region Build JSON — use @() to guarantee arrays for ConvertTo-Json
@@ -101,24 +105,14 @@ $starUsers      = @($stars | ForEach-Object { $_.User })               | Convert
 $psGalleryDates   = @($psGallery | ForEach-Object { $_.Date })                | ConvertTo-Json -Compress -AsArray
 $psGalleryTotalDl = @($psGallery | ForEach-Object { [long]$_.TotalDownloads })| ConvertTo-Json -Compress -AsArray
 
-# Detect version transitions (where Version changes between consecutive dates)
-$psGalleryVersionChanges = @()
-for ($i = 1; $i -lt $psGallery.Count; $i++) {
-    if ($psGallery[$i].Version -ne $psGallery[$i - 1].Version) {
-        $psGalleryVersionChanges += [PSCustomObject]@{
-            date    = $psGallery[$i].Date
-            version = "v$($psGallery[$i].Version)"
-        }
+# Build release annotations from actual GitHub release publish dates
+$releaseAnnotations = @($releases | ForEach-Object {
+    [PSCustomObject]@{
+        date    = $_.PublishedDate
+        version = $_.TagName
     }
-}
-# Include the first version as an annotation too
-if ($psGallery.Count -gt 0) {
-    $psGalleryVersionChanges = @([PSCustomObject]@{
-        date    = $psGallery[0].Date
-        version = "v$($psGallery[0].Version)"
-    }) + $psGalleryVersionChanges
-}
-$psGalleryVersionsJson = $psGalleryVersionChanges | ConvertTo-Json -Compress -AsArray
+})
+$releasesJson = $releaseAnnotations | ConvertTo-Json -Compress -AsArray
 
 $refLabels  = @($referrers | ForEach-Object { $_.Referrer })           | ConvertTo-Json -Compress -AsArray
 $refViews   = @($referrers | ForEach-Object { [int]$_.TotalViews })    | ConvertTo-Json -Compress -AsArray
@@ -737,7 +731,8 @@ var allData = {
   views:  { dates: $viewDates, total: $viewTotals, unique: $viewUniques },
   clones: { dates: $cloneDates, total: $cloneTotals, unique: $cloneUniques },
   stars:  { dates: $starDates, cumulative: $starCumulative, users: $starUsers },
-  psGallery: { dates: $psGalleryDates, totalDl: $psGalleryTotalDl, versions: $psGalleryVersionsJson }
+  psGallery: { dates: $psGalleryDates, totalDl: $psGalleryTotalDl },
+  releases: $releasesJson
 };
 var refData = { labels: $refLabels, views: $refViews, uniques: $refUniques };
 var pathData = { labels: $pathLabels, views: $pathViews };
