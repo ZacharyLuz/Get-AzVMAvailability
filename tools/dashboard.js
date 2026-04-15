@@ -71,7 +71,7 @@ function lineOpts(legend) {
 }
 
 // Layout constant — shared across all charts that show release annotations
-var RELEASE_LABEL_PADDING = 40;
+var RELEASE_LABEL_PADDING = 56;
 
 // ── Shared release annotation plugin builder ──
 // Returns a Chart.js plugin that draws vertical dashed lines at release dates.
@@ -87,6 +87,23 @@ function makeReleasePlugin(releases, filteredDatesRef) {
         .map(function(r) { return { version: r.version, date: r.date, idx: dates.indexOf(r.date) }; })
         .sort(function(a, b) { return a.idx - b.idx; });
       if (!visible.length) return;
+      // Deduplicate: keep only the highest version per chart date
+      var deduped = {};
+      visible.forEach(function(r) {
+        var key = r.idx;
+        if (!(key in deduped)) {
+          deduped[key] = r;
+        } else {
+          var cur = deduped[key].version.replace(/^v/, '').split('.').map(Number);
+          var cand = r.version.replace(/^v/, '').split('.').map(Number);
+          for (var i = 0; i < 3; i++) {
+            if ((cand[i] || 0) > (cur[i] || 0)) { deduped[key] = r; break; }
+            if ((cand[i] || 0) < (cur[i] || 0)) break;
+          }
+        }
+      });
+      visible = Object.keys(deduped).map(function(k) { return deduped[k]; })
+        .sort(function(a, b) { return a.idx - b.idx; });
       var ctx = chart.ctx;
       var xAxis = chart.scales.x;
       var yAxis = chart.scales.y;
@@ -94,7 +111,7 @@ function makeReleasePlugin(releases, filteredDatesRef) {
       ctx.font = '10px Inter, sans-serif';
       // Measure label widths and assign stagger tiers to avoid overlap
       var minGap = 8; // px padding between labels
-      var tierSpacing = 12; // vertical px between stagger tiers
+      var tierSpacing = 14; // vertical px between stagger tiers
       var topPad = (chart.options.layout && chart.options.layout.padding) ? chart.options.layout.padding.top : RELEASE_LABEL_PADDING;
       var maxTiers = Math.max(1, Math.floor(topPad / tierSpacing));
       var placed = []; // {left, right, tier}
