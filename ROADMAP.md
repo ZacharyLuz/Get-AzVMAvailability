@@ -1,8 +1,8 @@
 # Roadmap
 
-## Current Release: v2.1.0
+## Current Release: v2.1.1
 
-> **v2.1.0:** PSGallery download tracking, traffic dashboard fixes, smart default regions, and documentation improvements. See [CHANGELOG.md](CHANGELOG.md) for details.
+> **v2.1.1:** Pipeline capture detection UX improvement and roadmap accuracy updates. See [CHANGELOG.md](CHANGELOG.md) for details.
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
@@ -192,9 +192,9 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 - [x] **Agent Integration** - Shipped in v1.11.1 as Copilot skill (`.github/skills/azure-vm-availability/SKILL.md`)
 
 ### PowerShell Module Refactoring
-- [x] **Module Structure** - Partially shipped in v1.12.3: 34 functions extracted to `AzVMAvailability/` module with Private/ subdirectory layout. Full module conversion deferred to v2.0.0
-- [x] **Backward-Compatible Wrapper** - Shipped in v1.12.4: inline function fallback when module directory is absent
-- [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent (v2.0.0)
+- [x] **Module Structure** - Shipped in v2.0.0: full Public/Private module layout with 43 private functions
+- [x] **Backward-Compatible Wrapper** - Shipped in v2.0.0: `Get-AzVMAvailability.ps1` imports module and forwards parameters
+- [x] **Shared Helpers** - Shipped in v2.0.0: Private/ functions reusable across scanner, recommender, and Agent
 
 ### Azure Resource Graph Integration
 - [x] **Current VM Inventory** - Shipped in v1.14.0 as `-LifecycleScan`
@@ -219,14 +219,18 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
-## Version 2.0.0 (Future)
+## Version 2.0.0 (Released)
 **Theme: Module Implementation**
 
-- [ ] **Module Structure** - Refactor into `AzVMAvailability` module with Public/Private functions
-- [ ] **Backward-Compatible Wrapper** - Keep `Get-AzVMAvailability.ps1` as entry point
-- [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent
-- [ ] **Module Manifest + Validation** - Add and validate `.psd1` manifest in CI
-- [ ] **Migration Guidance** - Document script-to-module migration path and examples
+- [x] **Module Structure** - Refactored into `AzVMAvailability` module with Public/Private functions (43 private, 1 public)
+- [x] **Backward-Compatible Wrapper** - `Get-AzVMAvailability.ps1` as thin wrapper that imports module and forwards `@PSBoundParameters`
+- [x] **Shared Helpers** - Private/ functions enable reuse across scanner, recommender, and Agent
+- [x] **Module Manifest + Validation** - `.psd1` manifest with Az module dependencies; CI validates module import
+- [x] **Migration Guidance** - Script vs Module comparison in README; identical parameters and output
+- [x] **PSGallery Publishing** - `release-publish.yml` workflow publishes to PowerShell Gallery on GitHub Release
+- [x] **Module Tests** - `tests/Module.Tests.ps1` validates import, exports, version, and private function isolation
+- [x] **Parameter Parity Tests** - `tests/ParameterParity.Tests.ps1` validates all 39 parameters
+- [x] **PR Verification Gate** - `pr-verification-gate.yml` CI gate with Verification-First checklist
 - [ ] **Pipeline Emit as Opt-In** - Add `-PassThru` switch for pipeline output; do NOT emit `$familyDetails` unconditionally (breaks terminal UX when output is captured via `*>&1` or `Tee-Object` — 223 lines → 2,478 lines). In module mode, objects become primary output with Write-Host as secondary display.
 
 ---
@@ -253,7 +257,18 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
-## Version 2.1.0 (Future)
+## Version 2.1.0 (Released)
+**Theme: Smart Defaults & Documentation**
+
+### Shipped Features
+- [x] **Smart Default Regions** — Auto-detect default regions based on cloud environment and user timezone
+- [x] **PSGallery Download Tracking** — Traffic collector now fetches PSGallery total download counts
+- [x] **README Split** — README is now a concise landing page linking to 11 topic guides under `docs/`
+- [x] **Traffic Dashboard Fixes** — Fixed off-by-one date filtering and delta display for N/A periods
+
+---
+
+## Version 2.2.0 (Future)
 **Theme: MCP Server Interface** ([#28](https://github.com/ZacharyLuz/Get-AzVMAvailability/issues/28))
 
 Expose VM availability data as MCP tools so AI coding agents (Copilot, Claude, etc.) can pre-validate SKU selection during Terraform/Bicep authoring — before deployment fails.

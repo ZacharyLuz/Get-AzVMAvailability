@@ -175,7 +175,7 @@ param(
 )
 
 # Version for Validate-Script.ps1 parity check (must match .psd1 ModuleVersion)
-$ScriptVersion = "2.1.0"
+$ScriptVersion = "2.1.1"
 Write-Verbose "Get-AzVMAvailability wrapper v$ScriptVersion"
 
 # Import the AzVMAvailability module from the same directory as this script

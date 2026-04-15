@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] — 2026-04-14
+
+### Changed
+- **Pipeline capture detection** — When users pipe `Get-AzVMAvailability` output interactively (e.g., `| Select-Object SKU`) and no objects emit, a yellow TIP now appears explaining the three ways to get structured data: `-JsonOutput`, file redirection (`>`), or `-AutoExport`. Zero overhead when using `-JsonOutput` or file redirection — the call stack check only runs in interactive-no-redirect mode.
+
+### Documentation
+- **ROADMAP accuracy** — Marked v2.0.0 and v2.1.0 as Released with all shipped items checked. Corrected backlog items (Module Structure, Shared Helpers) to reference v2.0.0 shipment.
+
 ## [2.1.0] — 2026-07-17
 
 ### Added
