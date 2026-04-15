@@ -211,7 +211,7 @@ jobs:
 
           # ── Individual Release Dates (rebuilt each run from releases API) ──
           echo "TagName,PublishedDate" > traffic-data/data/releases.csv
-          jq -r '.[] | [.tag_name, (.published_at | split("T")[0])] | @csv' /tmp/releases.json >> traffic-data/data/releases.csv
+          jq -r '.[] | (.published_at // .created_at) as $release_date | select($release_date | type == "string") | [.tag_name, ($release_date | split("T")[0])] | @csv' /tmp/releases.json >> traffic-data/data/releases.csv
 
           # ── PSGallery Downloads (daily snapshot per version) ──
           if [ -f traffic-data/data/psgallery-downloads.csv ]; then
@@ -220,15 +220,14 @@ jobs:
             echo "Date,Version,VersionDownloads,TotalDownloads,IsLatestVersion" > /tmp/psgallery_existing.csv
           fi
           # PSGallery counts are cumulative — replace today's rows with fresh data on each run
-          grep -v "^\"*${TODAY}" /tmp/psgallery_existing.csv > /tmp/psgallery_filtered.csv 2>/dev/null || true
-          mv /tmp/psgallery_filtered.csv /tmp/psgallery_existing.csv
-          # Parse OData XML response — extract Version, VersionDownloadCount, DownloadCount, IsLatestVersion per entry
+          # Only remove+reinsert when python3 is available and parse succeeds, to avoid data loss
           if command -v python3 &>/dev/null; then
             python3 -c "
           import xml.etree.ElementTree as ET, sys
           ns = {'a': 'http://www.w3.org/2005/Atom', 'd': 'http://schemas.microsoft.com/ado/2007/08/dataservices', 'm': 'http://schemas.microsoft.com/ado/2007/08/dataservices/metadata'}
           tree = ET.parse('/tmp/psgallery.xml')
           today = sys.argv[1]
+          rows = []
           for entry in tree.findall('.//a:entry', ns):
               props = entry.find('.//m:properties', ns)
               if props is None: continue
@@ -237,8 +236,19 @@ jobs:
               tdl = props.find('d:DownloadCount', ns)
               ilv = props.find('d:IsLatestVersion', ns)
               if ver is not None:
-                  print(f'{today},{ver.text},{vdl.text if vdl is not None else 0},{tdl.text if tdl is not None else 0},{ilv.text if ilv is not None else \"false\"}')
-          " "$TODAY" >> /tmp/psgallery_existing.csv
+                  rows.append(f'{today},{ver.text},{vdl.text if vdl is not None else 0},{tdl.text if tdl is not None else 0},{ilv.text if ilv is not None else \"false\"}')
+          if rows:
+              for r in rows: print(r)
+          else:
+              sys.exit(1)
+          " "$TODAY" > /tmp/psgallery_new_rows.csv 2>/dev/null
+            if [ $? -eq 0 ] && [ -s /tmp/psgallery_new_rows.csv ]; then
+              grep -v "^\"*${TODAY}" /tmp/psgallery_existing.csv > /tmp/psgallery_filtered.csv 2>/dev/null || true
+              mv /tmp/psgallery_filtered.csv /tmp/psgallery_existing.csv
+              cat /tmp/psgallery_new_rows.csv >> /tmp/psgallery_existing.csv
+            else
+              echo "Warning: PSGallery XML parse returned no rows, keeping existing data"
+            fi
           else
             echo "Warning: python3 not available, skipping PSGallery XML parse"
           fi
