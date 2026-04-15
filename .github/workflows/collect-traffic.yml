@@ -260,6 +260,7 @@ jobs:
         run: |
           ./tools/Generate-TrafficDashboard-Premium-v2.ps1 -InputDir "./traffic-data/data" -OutputFile "./traffic-data/dashboard.html"
           Copy-Item "./traffic-data/dashboard.html" "./traffic-data/index.html" -Force
+          Copy-Item "./tools/dashboard.js" "./traffic-data/dashboard.js" -Force
 
       - name: Commit and push
         working-directory: traffic-data
