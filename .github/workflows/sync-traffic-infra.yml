@@ -55,8 +55,9 @@ jobs:
             echo "In sync: tools/dashboard.js"
           fi
 
-          # 2. collect-traffic.yml — PSGallery ID substitution
-          sed "s/id='${SOURCE_PSGALLERY_ID}'/id='${TARGET_PSGALLERY_ID}'/g" \
+          # 2. collect-traffic.yml — repo name + PSGallery ID substitution
+          sed -e "s/${SOURCE_REPO_NAME}/${TARGET_REPO_NAME}/g" \
+              -e "s/id='${SOURCE_PSGALLERY_ID}'/id='${TARGET_PSGALLERY_ID}'/g" \
             .github/workflows/collect-traffic.yml > /tmp/collect-traffic.yml
           if ! diff -q /tmp/collect-traffic.yml target/.github/workflows/collect-traffic.yml >/dev/null 2>&1; then
             cp /tmp/collect-traffic.yml target/.github/workflows/collect-traffic.yml
@@ -66,8 +67,9 @@ jobs:
             echo "In sync: .github/workflows/collect-traffic.yml"
           fi
 
-          # 3. Generate-TrafficDashboard-Premium-v2.ps1 — repo name substitution
-          sed "s/${SOURCE_REPO_NAME}/${TARGET_REPO_NAME}/g" \
+          # 3. Generate-TrafficDashboard-Premium-v2.ps1 — repo name + PSGallery ID substitution
+          sed -e "s/${SOURCE_REPO_NAME}/${TARGET_REPO_NAME}/g" \
+              -e "s/id='${SOURCE_PSGALLERY_ID}'/id='${TARGET_PSGALLERY_ID}'/g" \
             tools/Generate-TrafficDashboard-Premium-v2.ps1 > /tmp/dashboard-gen.ps1
           if ! diff -q /tmp/dashboard-gen.ps1 target/tools/Generate-TrafficDashboard-Premium-v2.ps1 >/dev/null 2>&1; then
             cp /tmp/dashboard-gen.ps1 target/tools/Generate-TrafficDashboard-Premium-v2.ps1
