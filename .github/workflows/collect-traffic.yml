@@ -222,6 +222,7 @@ jobs:
           # PSGallery counts are cumulative — replace today's rows with fresh data on each run
           # Only remove+reinsert when python3 is available and parse succeeds, to avoid data loss
           if command -v python3 &>/dev/null; then
+            set +e
             python3 -c "
           import xml.etree.ElementTree as ET, sys
           ns = {'a': 'http://www.w3.org/2005/Atom', 'd': 'http://schemas.microsoft.com/ado/2007/08/dataservices', 'm': 'http://schemas.microsoft.com/ado/2007/08/dataservices/metadata'}
@@ -242,7 +243,9 @@ jobs:
           else:
               sys.exit(1)
           " "$TODAY" > /tmp/psgallery_new_rows.csv 2>/dev/null
-            if [ $? -eq 0 ] && [ -s /tmp/psgallery_new_rows.csv ]; then
+            psg_rc=$?
+            set -e
+            if [ $psg_rc -eq 0 ] && [ -s /tmp/psgallery_new_rows.csv ]; then
               grep -v "^\"*${TODAY}" /tmp/psgallery_existing.csv > /tmp/psgallery_filtered.csv 2>/dev/null || true
               mv /tmp/psgallery_filtered.csv /tmp/psgallery_existing.csv
               cat /tmp/psgallery_new_rows.csv >> /tmp/psgallery_existing.csv
