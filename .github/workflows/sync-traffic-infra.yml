@@ -1,0 +1,114 @@
+name: Sync Traffic Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/dashboard.js'
+      - 'tools/Generate-TrafficDashboard-Premium-v2.ps1'
+      - '.github/workflows/collect-traffic.yml'
+  workflow_dispatch:  # manual trigger for catch-up syncs
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - repo: ZacharyLuz/Get-AzAIModelAvailability
+            repoName: Get-AzAIModelAvailability
+            psGalleryId: Get-AzAIModelAvailability
+          - repo: ZacharyLuz/Get-AzPaaSAvailability
+            repoName: Get-AzPaaSAvailability
+            psGalleryId: Get-AzPaaSAvailability
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.target.repo }}
+          token: ${{ secrets.TRAFFIC_SYNC_TOKEN }}
+          path: target
+          fetch-depth: 1
+
+      - name: Sync files with repo-specific substitutions
+        shell: bash
+        run: |
+          SOURCE_REPO_NAME="Get-AzVMAvailability"
+          SOURCE_PSGALLERY_ID="AzVMAvailability"
+          TARGET_REPO_NAME="${{ matrix.target.repoName }}"
+          TARGET_PSGALLERY_ID="${{ matrix.target.psGalleryId }}"
+
+          changed=0
+
+          # 1. dashboard.js — straight copy (no substitutions)
+          if ! diff -q tools/dashboard.js target/tools/dashboard.js >/dev/null 2>&1; then
+            cp tools/dashboard.js target/tools/dashboard.js
+            echo "Updated: tools/dashboard.js"
+            changed=1
+          else
+            echo "In sync: tools/dashboard.js"
+          fi
+
+          # 2. collect-traffic.yml — PSGallery ID substitution
+          sed "s/id='${SOURCE_PSGALLERY_ID}'/id='${TARGET_PSGALLERY_ID}'/g" \
+            .github/workflows/collect-traffic.yml > /tmp/collect-traffic.yml
+          if ! diff -q /tmp/collect-traffic.yml target/.github/workflows/collect-traffic.yml >/dev/null 2>&1; then
+            cp /tmp/collect-traffic.yml target/.github/workflows/collect-traffic.yml
+            echo "Updated: .github/workflows/collect-traffic.yml"
+            changed=1
+          else
+            echo "In sync: .github/workflows/collect-traffic.yml"
+          fi
+
+          # 3. Generate-TrafficDashboard-Premium-v2.ps1 — repo name substitution
+          sed "s/${SOURCE_REPO_NAME}/${TARGET_REPO_NAME}/g" \
+            tools/Generate-TrafficDashboard-Premium-v2.ps1 > /tmp/dashboard-gen.ps1
+          if ! diff -q /tmp/dashboard-gen.ps1 target/tools/Generate-TrafficDashboard-Premium-v2.ps1 >/dev/null 2>&1; then
+            cp /tmp/dashboard-gen.ps1 target/tools/Generate-TrafficDashboard-Premium-v2.ps1
+            echo "Updated: tools/Generate-TrafficDashboard-Premium-v2.ps1"
+            changed=1
+          else
+            echo "In sync: tools/Generate-TrafficDashboard-Premium-v2.ps1"
+          fi
+
+          echo "changed=$changed" >> "$GITHUB_ENV"
+
+      - name: Create PR if files changed
+        if: env.changed == '1'
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ secrets.TRAFFIC_SYNC_TOKEN }}
+        run: |
+          BRANCH="chore/sync-traffic-infra"
+          COMMIT_SHA="${{ github.sha }}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Clean up stale sync branch if it exists
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -b "$BRANCH"
+          git add tools/dashboard.js .github/workflows/collect-traffic.yml tools/Generate-TrafficDashboard-Premium-v2.ps1
+          git commit -m "chore: sync traffic infrastructure from Get-AzVMAvailability ($SHORT_SHA)"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --repo "${{ matrix.target.repo }}" \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore: sync traffic infrastructure from Get-AzVMAvailability" \
+            --body "Auto-synced traffic collection files from [Get-AzVMAvailability@\`$SHORT_SHA\`](https://github.com/ZacharyLuz/Get-AzVMAvailability/commit/$COMMIT_SHA).
+
+          ### Files synced
+          - \`tools/dashboard.js\`
+          - \`.github/workflows/collect-traffic.yml\`
+          - \`tools/Generate-TrafficDashboard-Premium-v2.ps1\`
+
+          Triggered by: https://github.com/ZacharyLuz/Get-AzVMAvailability/actions/runs/${{ github.run_id }}"

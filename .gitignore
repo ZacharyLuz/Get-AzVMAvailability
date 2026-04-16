@@ -115,3 +115,6 @@ fix-review-log.ps1
 
 # AI session replay logs
 .specstory/
+
+# Local TODO review files (not project docs)
+TODO-*.md
