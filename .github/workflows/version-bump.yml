@@ -125,9 +125,9 @@ jobs:
               $updated = [regex]::Replace($text, $t.Pattern, $replacement, 1)
               if ($updated -eq $text) { throw "Replacement made no change in $($t.Path)" }
               $hadTrailingNewline = $text.EndsWith("`n")
-              Set-Content -Path $t.Path -Value $updated -NoNewline
+              Set-Content -Path $t.Path -Value $updated -NoNewline -Encoding utf8
               if ($hadTrailingNewline -and -not $updated.EndsWith("`n")) {
-                  Add-Content -Path $t.Path -Value ''
+                  Add-Content -Path $t.Path -Value '' -Encoding utf8
               }
           }
 
@@ -151,12 +151,15 @@ jobs:
           $stub = ($stubLines -join "`n")
 
           $anchorMatch = [regex]::Match($changelog, '(?m)^## \[')
-          if (-not $anchorMatch.Success) { throw "No existing release header in CHANGELOG.md" }
-          $newChangelog = $changelog.Substring(0, $anchorMatch.Index) + $stub + $changelog.Substring($anchorMatch.Index)
+          if ($anchorMatch.Success) {
+              $newChangelog = $changelog.Substring(0, $anchorMatch.Index) + $stub + $changelog.Substring($anchorMatch.Index)
+          } else {
+              $newChangelog = $stub + $changelog
+          }
           $hadTrailingNewline = $changelog.EndsWith("`n")
-          Set-Content -Path $changelogPath -Value $newChangelog -NoNewline
+          Set-Content -Path $changelogPath -Value $newChangelog -NoNewline -Encoding utf8
           if ($hadTrailingNewline -and -not $newChangelog.EndsWith("`n")) {
-              Add-Content -Path $changelogPath -Value ''
+              Add-Content -Path $changelogPath -Value '' -Encoding utf8
           }
 
           "current_version=$currentVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
@@ -177,18 +180,27 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
+          function Invoke-Git {
+              param(
+                  [Parameter(ValueFromRemainingArguments = $true)]
+                  [string[]] $Arguments
+              )
+              & git @Arguments
+              if ($LASTEXITCODE -ne 0) { throw "git $($Arguments -join ' ') failed with exit code $LASTEXITCODE" }
+          }
+
           $branch = "chore/version-bump-$($env:NEW_VERSION)"
 
-          git config user.name  'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git checkout -b $branch
+          Invoke-Git config user.name  'github-actions[bot]'
+          Invoke-Git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          Invoke-Git checkout -b $branch
 
-          git add Get-AzVMAvailability.ps1 `
+          Invoke-Git add Get-AzVMAvailability.ps1 `
                   AzVMAvailability/AzVMAvailability.psd1 `
                   AzVMAvailability/Public/Get-AzVMAvailability.ps1 `
                   CHANGELOG.md
-          git commit -m "chore: bump version $($env:CURRENT_VERSION) -> $($env:NEW_VERSION) ($($env:BUMP_TYPE))"
-          git push -u origin $branch
+          Invoke-Git commit -m "chore: bump version $($env:CURRENT_VERSION) -> $($env:NEW_VERSION) ($($env:BUMP_TYPE))"
+          Invoke-Git push -u origin $branch
 
           $landmarks = $env:LANDMARKS | ConvertFrom-Json
           $tableRows = foreach ($l in $landmarks) {
