@@ -1,0 +1,27 @@
+# CODEOWNERS — auto-requests review from the listed owners when matched paths change.
+# Path matching rules: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+#
+# Last matching pattern wins. Keep broad defaults first, then narrow overrides below.
+
+# Default: anything not matched by a more specific rule.
+* @ZacharyLuz
+
+# Module source — the behavioral core. Any change here affects parity guarantees.
+/AzVMAvailability/ @ZacharyLuz
+
+# Thin wrapper script — backward-compat entry point. Changes here are high-blast-radius.
+/Get-AzVMAvailability.ps1 @ZacharyLuz
+
+# CI/CD, release, and policy — changes here can weaken guardrails if misconfigured.
+/.github/ @ZacharyLuz
+/.github/workflows/ @ZacharyLuz
+/tools/ @ZacharyLuz
+
+# Tests — review ensures coverage doesn't quietly shrink.
+/tests/ @ZacharyLuz
+
+# Release + metadata artifacts that the release-metadata-guard workflow enforces.
+/CHANGELOG.md @ZacharyLuz
+/AzVMAvailability/AzVMAvailability.psd1 @ZacharyLuz
+/README.md @ZacharyLuz
+/ROADMAP.md @ZacharyLuz

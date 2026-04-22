@@ -34,8 +34,12 @@ jobs:
               if: always()
 
     test:
-        name: Pester Tests
-        runs-on: ubuntu-latest
+        name: Pester Tests (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, windows-latest]
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4.2.2
@@ -53,12 +57,42 @@ jobs:
               shell: pwsh
               run: |
                   $unitTests = Get-ChildItem ./tests/*.Tests.ps1 | Where-Object Name -ne 'Integration.Tests.ps1'
-                  $results = Invoke-Pester -Path $unitTests.FullName -Output Detailed -PassThru
+                  $config = New-PesterConfiguration
+                  $config.Run.Path = $unitTests.FullName
+                  $config.Run.PassThru = $true
+                  $config.Output.Verbosity = 'Detailed'
+                  $config.TestResult.Enabled = $true
+                  $config.TestResult.OutputFormat = 'NUnitXml'
+                  $config.TestResult.OutputPath = "./artifacts/pester-${{ matrix.os }}.xml"
+                  $config.CodeCoverage.Enabled = $true
+                  $config.CodeCoverage.Path = @(
+                      './AzVMAvailability/Public/*.ps1',
+                      './AzVMAvailability/Private/**/*.ps1'
+                  )
+                  $config.CodeCoverage.OutputFormat = 'JaCoCo'
+                  $config.CodeCoverage.OutputPath = "./artifacts/coverage-${{ matrix.os }}.xml"
+                  New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
+                  $results = Invoke-Pester -Configuration $config
                   if ($results.FailedCount -gt 0) {
                     throw "$($results.FailedCount) test(s) failed"
                   }
 
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: pester-results-${{ matrix.os }}
+                  path: ./artifacts/pester-${{ matrix.os }}.xml
+
+            - name: Upload coverage
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: coverage-${{ matrix.os }}
+                  path: ./artifacts/coverage-${{ matrix.os }}.xml
+
             - name: Upload module artifact
+              if: matrix.os == 'ubuntu-latest'
               uses: actions/upload-artifact@v4
               with:
                   name: AzVMAvailability-module

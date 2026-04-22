@@ -1,0 +1,285 @@
+name: "Version Bump"
+
+# Deterministic version-bump helper.
+# Updates the four authoritative version strings atomically, prepends a CHANGELOG
+# stub, opens a PR with a pre-populated Verification Checklist (including the
+# Verified Landmark Table required by pr-verification-gate.yml).
+#
+# This workflow makes NO behavior changes to the module. Metadata-only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Semver segment to bump"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      changelog_summary:
+        description: "One-line summary for CHANGELOG stub (leave blank to fill in PR)"
+        required: false
+        type: string
+        default: ""
+      draft_pr:
+        description: "Open PR as draft"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Compute, update, and open PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Compute next version and update files
+        id: bump
+        env:
+          BUMP_TYPE: ${{ inputs.bump_type }}
+          CHANGELOG_SUMMARY: ${{ inputs.changelog_summary }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $targets = @(
+              @{
+                  Path    = 'Get-AzVMAvailability.ps1'
+                  Pattern = '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"'
+                  Format  = '$ScriptVersion = "{0}"'
+                  Label   = 'wrapper $ScriptVersion'
+              },
+              @{
+                  Path    = 'Get-AzVMAvailability.ps1'
+                  Pattern = '(?m)^(\s*Version:\s*)([0-9]+\.[0-9]+\.[0-9]+)\s*$'
+                  Format  = '    Version:        {0}'
+                  Label   = 'wrapper .NOTES Version'
+              },
+              @{
+                  Path    = 'AzVMAvailability/AzVMAvailability.psd1'
+                  Pattern = "(?m)^(\s*ModuleVersion\s*=\s*')([^']+)(')"
+                  Format  = "    ModuleVersion     = '{0}'"
+                  Label   = 'manifest ModuleVersion'
+              },
+              @{
+                  Path    = 'AzVMAvailability/Public/Get-AzVMAvailability.ps1'
+                  Pattern = '(?m)^(\s*Version:\s*)([0-9]+\.[0-9]+\.[0-9]+)\s*$'
+                  Format  = '    Version:        {0}'
+                  Label   = 'public function .NOTES Version'
+              }
+          )
+
+          $wrapperText = Get-Content $targets[0].Path -Raw
+          $firstMatch = [regex]::Match($wrapperText, $targets[0].Pattern)
+          if (-not $firstMatch.Success) {
+              throw "Could not parse ScriptVersion from $($targets[0].Path)"
+          }
+          $currentVersion = $firstMatch.Groups[1].Value
+          Write-Host "Current version: $currentVersion"
+
+          $observedLines = @()
+          foreach ($t in $targets) {
+              $text = Get-Content $t.Path -Raw
+              $m = [regex]::Match($text, $t.Pattern)
+              if (-not $m.Success) {
+                  throw "Pattern did not match in $($t.Path) for $($t.Label)"
+              }
+              $found = if ($m.Groups.Count -ge 3) { $m.Groups[2].Value } else { $m.Groups[1].Value }
+              if ($found -ne $currentVersion) {
+                  throw "Pre-bump parity failure: $($t.Label) in $($t.Path) = '$found' but wrapper = '$currentVersion'. Fix drift first."
+              }
+              $lineNumber = ($text.Substring(0, $m.Index) -split "`n").Count
+              $observedLines += @{ Path = $t.Path; Line = $lineNumber; Label = $t.Label }
+          }
+
+          $parts = $currentVersion.Split('.')
+          if ($parts.Count -ne 3) { throw "Unexpected version format: $currentVersion" }
+          $major = [int]$parts[0]; $minor = [int]$parts[1]; $patch = [int]$parts[2]
+          switch ($env:BUMP_TYPE) {
+              'major' { $major++; $minor = 0; $patch = 0 }
+              'minor' { $minor++; $patch = 0 }
+              'patch' { $patch++ }
+              default { throw "Unknown bump type: $($env:BUMP_TYPE)" }
+          }
+          $newVersion = "$major.$minor.$patch"
+          Write-Host "New version:     $newVersion"
+
+          foreach ($t in $targets) {
+              $text = Get-Content $t.Path -Raw
+              $replacement = $t.Format -f $newVersion
+              $updated = [regex]::Replace($text, $t.Pattern, $replacement, 1)
+              if ($updated -eq $text) { throw "Replacement made no change in $($t.Path)" }
+              $hadTrailingNewline = $text.EndsWith("`n")
+              Set-Content -Path $t.Path -Value $updated -NoNewline
+              if ($hadTrailingNewline -and -not $updated.EndsWith("`n")) {
+                  Add-Content -Path $t.Path -Value ''
+              }
+          }
+
+          $changelogPath = 'CHANGELOG.md'
+          $changelog = Get-Content $changelogPath -Raw
+          $date = (Get-Date -Format 'yyyy-MM-dd')
+          $summary = $env:CHANGELOG_SUMMARY
+          $summaryLine = if ([string]::IsNullOrWhiteSpace($summary)) {
+              '- _TODO: describe the change before merging._'
+          } else {
+              "- $summary"
+          }
+          $stubLines = @(
+              "## [$newVersion] - $date",
+              '',
+              '### Changed',
+              $summaryLine,
+              '',
+              ''
+          )
+          $stub = ($stubLines -join "`n")
+
+          $anchorMatch = [regex]::Match($changelog, '(?m)^## \[')
+          if (-not $anchorMatch.Success) { throw "No existing release header in CHANGELOG.md" }
+          $newChangelog = $changelog.Substring(0, $anchorMatch.Index) + $stub + $changelog.Substring($anchorMatch.Index)
+          $hadTrailingNewline = $changelog.EndsWith("`n")
+          Set-Content -Path $changelogPath -Value $newChangelog -NoNewline
+          if ($hadTrailingNewline -and -not $newChangelog.EndsWith("`n")) {
+              Add-Content -Path $changelogPath -Value ''
+          }
+
+          "current_version=$currentVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "new_version=$newVersion"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $landmarkJson = $observedLines | ConvertTo-Json -Compress
+          "landmarks=$landmarkJson"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Create branch, commit, and open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_VERSION: ${{ steps.bump.outputs.current_version }}
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          LANDMARKS: ${{ steps.bump.outputs.landmarks }}
+          BUMP_TYPE: ${{ inputs.bump_type }}
+          CHANGELOG_SUMMARY: ${{ inputs.changelog_summary }}
+          DRAFT_PR: ${{ inputs.draft_pr }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $branch = "chore/version-bump-$($env:NEW_VERSION)"
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b $branch
+
+          git add Get-AzVMAvailability.ps1 `
+                  AzVMAvailability/AzVMAvailability.psd1 `
+                  AzVMAvailability/Public/Get-AzVMAvailability.ps1 `
+                  CHANGELOG.md
+          git commit -m "chore: bump version $($env:CURRENT_VERSION) -> $($env:NEW_VERSION) ($($env:BUMP_TYPE))"
+          git push -u origin $branch
+
+          $landmarks = $env:LANDMARKS | ConvertFrom-Json
+          $tableRows = foreach ($l in $landmarks) {
+              "| $($l.Label) updated to $($env:NEW_VERSION) | $($l.Path) L$($l.Line) - read by workflow, regex-replaced | [OBSERVED] |"
+          }
+          $tableRows = @($tableRows) + @("| CHANGELOG stub prepended for $($env:NEW_VERSION) | CHANGELOG.md - release header inserted before prior top release | [OBSERVED] |")
+
+          $summaryDisplay = if ([string]::IsNullOrWhiteSpace($env:CHANGELOG_SUMMARY)) {
+              '_Not provided at dispatch - fill in before requesting review._'
+          } else {
+              $env:CHANGELOG_SUMMARY
+          }
+
+          $bodyLines = @(
+              '## Description',
+              '',
+              "Automated version bump from **$($env:CURRENT_VERSION)** to **$($env:NEW_VERSION)** (``$($env:BUMP_TYPE)``).",
+              '',
+              'This PR updates the four authoritative version strings and prepends a CHANGELOG stub.',
+              'No module behavior is changed. Generated by `.github/workflows/version-bump.yml`.',
+              '',
+              "**Changelog summary provided:** $summaryDisplay",
+              '',
+              '## Verification Checklist',
+              '',
+              '<!-- Populated by the version-bump workflow from files actually read. -->',
+              '',
+              '### Phase 0 - Repo Facts',
+              '- [x] Workflow read every version string before editing and confirmed pre-bump parity. **[OBSERVED]**',
+              '- [x] Entrypoint verification:',
+              '  - [x] `Get-AzVMAvailability.ps1` wrapper `$ScriptVersion` updated **[OBSERVED]**',
+              '  - [x] `AzVMAvailability.psd1` `ModuleVersion` updated **[OBSERVED]**',
+              '- [x] No line numbers were claimed without reading the file. **[OBSERVED]**',
+              '- [x] Verified Landmark Table populated below. **[OBSERVED]**',
+              '',
+              '### Verified Landmark Table',
+              '',
+              '| Landmark / Claim | Evidence (file + how verified) | Tag |',
+              '|---|---|---|'
+          )
+          $bodyLines += $tableRows
+          $bodyLines += @(
+              '',
+              '### Scope Guardrails (No Feature Creep)',
+              '- [x] No new parameters, modes, report columns, file formats, or endpoints.',
+              '- [x] No behavior change - metadata-only update.',
+              '',
+              '### Behavior Parity',
+              '- [x] No code paths modified. Parity is preserved by construction:',
+              '  - [x] Interactive default UX - unchanged',
+              '  - [x] `-NoPrompt` mode - unchanged',
+              '  - [x] `-JsonOutput` mode - unchanged',
+              '  - [x] Export paths (CSV / XLSX) - unchanged',
+              '- [x] Parity tests not re-run by this workflow; run `tools/Validate-Script.ps1` locally before merge.',
+              '',
+              '## Behavior Changes',
+              '',
+              '- None.',
+              '',
+              '## Type of Change',
+              '',
+              '- [x] Code quality (refactoring, comments, tests - no behavior change)',
+              '',
+              '## Quality Checklist',
+              '',
+              '- [x] **PR markdown renders correctly** - written via `--body-file`',
+              '- [x] **Version strings in sync** - all four authoritative locations updated atomically in one commit',
+              '- [ ] **PSScriptAnalyzer clean** - run locally before merge',
+              '- [ ] **Pester tests pass** - run locally before merge',
+              '- [ ] **Syntax valid** - `.\tools\Validate-Script.ps1` before merge',
+              '- [x] **CHANGELOG.md updated** - stub inserted; fill bullets before merge',
+              '- [x] **Release/tag plan prepared** - `release-on-main.yml` will detect drift on merge and open release PR',
+              '',
+              '## Validation',
+              '',
+              '- [ ] Run `.\tools\Validate-Script.ps1` locally - workflow does not run it',
+              '- [ ] Confirm CHANGELOG bullets describe the actual release content before requesting review'
+          )
+
+          $body = ($bodyLines -join "`n")
+          $bodyFile = Join-Path $env:RUNNER_TEMP 'pr-body.md'
+          Set-Content -Path $bodyFile -Value $body -Encoding utf8
+
+          $prArgs = @(
+              'pr', 'create',
+              '--base', 'main',
+              '--head', $branch,
+              '--title', "chore: bump version $($env:CURRENT_VERSION) -> $($env:NEW_VERSION)",
+              '--body-file', $bodyFile
+          )
+          if ($env:DRAFT_PR -eq 'true') { $prArgs += '--draft' }
+
+          gh @prArgs
+          if ($LASTEXITCODE -ne 0) { throw "gh pr create failed with exit code $LASTEXITCODE" }
