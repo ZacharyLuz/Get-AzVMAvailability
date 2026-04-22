@@ -79,21 +79,21 @@ jobs:
 
             - name: Upload test results
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: pester-results-${{ matrix.os }}
                   path: ./artifacts/pester-${{ matrix.os }}.xml
 
             - name: Upload coverage
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: coverage-${{ matrix.os }}
                   path: ./artifacts/coverage-${{ matrix.os }}.xml
 
             - name: Upload module artifact
               if: matrix.os == 'ubuntu-latest'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: AzVMAvailability-module
                   path: AzVMAvailability/
@@ -119,7 +119,7 @@ jobs:
                     -MaxAllowedCritical 2
 
             - name: Upload audit report
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               if: always()
               with:
                   name: audit-report
