@@ -26,10 +26,10 @@ jobs:
             psGalleryId: Get-AzPaaSAvailability
     steps:
       - name: Checkout source repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout target repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ matrix.target.repo }}
           token: ${{ secrets.TRAFFIC_SYNC_TOKEN }}

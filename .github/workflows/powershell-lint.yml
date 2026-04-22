@@ -17,7 +17,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4.2.2
+              uses: actions/checkout@v6
 
             - name: Run PSScriptAnalyzer
               uses: microsoft/psscriptanalyzer-action@v1.1
@@ -42,7 +42,7 @@ jobs:
                 os: [ubuntu-latest, windows-latest]
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4.2.2
+              uses: actions/checkout@v6
 
             - name: Install test dependencies
               shell: pwsh
@@ -103,7 +103,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4.2.2
+              uses: actions/checkout@v6
 
             - name: Install PSScriptAnalyzer
               shell: pwsh

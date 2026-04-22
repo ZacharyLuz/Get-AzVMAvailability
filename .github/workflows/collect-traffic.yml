@@ -25,12 +25,12 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout source branch (workflow + scripts)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
       - name: Checkout traffic-data branch (publish target)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: traffic-data
           path: traffic-data
