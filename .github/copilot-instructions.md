@@ -39,6 +39,48 @@ If you are not 100% certain about a structural fact, you MUST say "I don't know 
 
 ---
 
+## Coding Behavior Rules
+
+### 1. Think Before Coding
+State assumptions explicitly before implementing. If uncertain, ask — do not pick silently.
+
+- If multiple valid interpretations exist, present them.
+- If a simpler approach exists, name it and push back if warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+- Surface tradeoffs rather than hiding them in implementation choices.
+
+### 2. Simplicity First
+Write the minimum code that solves the problem. Nothing speculative.
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+- Ask: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+Touch only what the request requires. Do not clean up adjacent code.
+
+- Don't improve unrelated code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it — don't delete it.
+- When your changes make imports/variables/functions unused, remove only those orphans **your changes created**. Leave pre-existing dead code alone unless asked.
+- Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+Define success criteria before implementing. For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+```
+
+Transform vague tasks into verifiable goals before starting ("fix the bug" → "write a test that reproduces it, then make it pass"). Weak criteria require constant clarification; strong criteria let you loop independently.
+
+---
+
 ## Project Goal
 
 The standalone `Get-AzVMAvailability.ps1` script has been converted into a **production-grade PowerShell module** (`AzVMAvailability/`) preserving **100% behavioral parity**.
