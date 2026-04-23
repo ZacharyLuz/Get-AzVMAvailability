@@ -27,7 +27,7 @@ Describe 'Get-AzVMAvailability Parameter Parity' {
             'Recommend', 'TopN', 'MinScore', 'MinvCPU', 'MinMemoryGB', 'JsonOutput',
             'AllowMixedArch', 'SkipRegionValidation', 'Inventory', 'InventoryFile',
             'GenerateInventoryTemplate', 'RateOptimization', 'LifecycleRecommendations',
-            'LifecycleScan', 'ManagementGroup', 'ResourceGroup', 'Tag', 'SubMap', 'RGMap'
+            'LifecycleFile', 'LifecycleScan', 'ManagementGroup', 'ResourceGroup', 'Tag', 'SubMap', 'RGMap'
         ) | ForEach-Object { @{ Name = $_ } }
 
         It 'Has parameter: <Name>' -TestCases $testCases {
@@ -71,7 +71,8 @@ Describe 'Get-AzVMAvailability Parameter Parity' {
             @{ Name = 'InventoryFile';             ExpectedType = 'System.String' }
             @{ Name = 'GenerateInventoryTemplate'; ExpectedType = 'System.Management.Automation.SwitchParameter' }
             @{ Name = 'RateOptimization';          ExpectedType = 'System.Management.Automation.SwitchParameter' }
-            @{ Name = 'LifecycleRecommendations';  ExpectedType = 'System.String' }
+            @{ Name = 'LifecycleRecommendations';  ExpectedType = 'System.Management.Automation.SwitchParameter' }
+            @{ Name = 'LifecycleFile';              ExpectedType = 'System.String' }
             @{ Name = 'LifecycleScan';             ExpectedType = 'System.Management.Automation.SwitchParameter' }
             @{ Name = 'ManagementGroup';           ExpectedType = 'System.String[]' }
             @{ Name = 'ResourceGroup';             ExpectedType = 'System.String[]' }
