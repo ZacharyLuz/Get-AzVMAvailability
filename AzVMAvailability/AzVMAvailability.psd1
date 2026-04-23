@@ -23,7 +23,7 @@
             Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
             LicenseUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability'
-            ReleaseNotes = 'v2.0.0: Module conversion — Public/Private layout, PSGallery publishing, thin wrapper script, CI/CD release automation. No new features or behavior changes.'
+            ReleaseNotes = 'v2.1.1: Pipeline capture detection UX improvement and roadmap accuracy updates. No new features or behavior changes.'
         }
     }
 }

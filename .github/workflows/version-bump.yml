@@ -1,9 +1,10 @@
 name: "Version Bump"
 
 # Deterministic version-bump helper.
-# Updates the four authoritative version strings atomically, prepends a CHANGELOG
-# stub, opens a PR with a pre-populated Verification Checklist (including the
-# Verified Landmark Table required by pr-verification-gate.yml).
+# Updates version stamps across all tracked locations: four function metadata
+# strings, README badge, demo guide, ROADMAP header, psd1 ReleaseNotes.
+# Prepends a CHANGELOG stub and opens a PR with a pre-populated Verification
+# Checklist (including the Verified Landmark Table required by pr-verification-gate.yml).
 #
 # This workflow makes NO behavior changes to the module. Metadata-only.
 
@@ -81,6 +82,24 @@ jobs:
                   Pattern = '(?m)^(\s*Version:\s*)([0-9]+\.[0-9]+\.[0-9]+)\s*$'
                   Format  = '    Version:        {0}'
                   Label   = 'public function .NOTES Version'
+              },
+              @{
+                  Path    = 'README.md'
+                  Pattern = '(?m)!\[Version\]\(https://img\.shields\.io/badge/Version-([0-9]+\.[0-9]+\.[0-9]+)-brightgreen\)'
+                  Format  = '![Version](https://img.shields.io/badge/Version-{0}-brightgreen)'
+                  Label   = 'README version badge'
+              },
+              @{
+                  Path    = 'demo/DEMO-GUIDE.md'
+                  Pattern = '(?m)^(\*\*Version:\*\*\s+)([0-9]+\.[0-9]+\.[0-9]+)'
+                  Format  = '**Version:** {0}'
+                  Label   = 'DEMO-GUIDE version'
+              },
+              @{
+                  Path    = 'ROADMAP.md'
+                  Pattern = '(?m)^(## Current Release: v)([0-9]+\.[0-9]+\.[0-9]+)'
+                  Format  = '## Current Release: v{0}'
+                  Label   = 'ROADMAP Current Release header'
               }
           )
 
@@ -162,6 +181,25 @@ jobs:
               Add-Content -Path $changelogPath -Value '' -Encoding utf8
           }
 
+          # Update psd1 ReleaseNotes (version prefix + description from changelog_summary; not in $targets since it requires human-provided text)
+          $psdPath = 'AzVMAvailability/AzVMAvailability.psd1'
+          $psdContent = Get-Content $psdPath -Raw
+          $releaseDesc = if ([string]::IsNullOrWhiteSpace($env:CHANGELOG_SUMMARY)) {
+              "TODO: describe changes for $newVersion before merging."
+          } else {
+              $env:CHANGELOG_SUMMARY
+          }
+          $psdRnPattern  = "(?m)^\\s*ReleaseNotes\\s*=\\s*'[^']+'" 
+          $psdRnReplacement = "        ReleaseNotes = 'v${newVersion}: ${releaseDesc}'"
+          $psdUpdated = [regex]::Replace($psdContent, $psdRnPattern, $psdRnReplacement)
+          if ($psdUpdated -eq $psdContent) { throw "ReleaseNotes pattern did not match in $psdPath" }
+          $psdHadTrailing = $psdContent.EndsWith("`n")
+          Set-Content -Path $psdPath -Value $psdUpdated -NoNewline -Encoding utf8
+          if ($psdHadTrailing -and -not $psdUpdated.EndsWith("`n")) {
+              Add-Content -Path $psdPath -Value '' -Encoding utf8
+          }
+          Write-Host "Updated $psdPath ReleaseNotes -> v${newVersion}: ${releaseDesc}"
+
           "current_version=$currentVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "new_version=$newVersion"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           $landmarkJson = $observedLines | ConvertTo-Json -Compress
@@ -198,6 +236,9 @@ jobs:
           Invoke-Git add Get-AzVMAvailability.ps1 `
                   AzVMAvailability/AzVMAvailability.psd1 `
                   AzVMAvailability/Public/Get-AzVMAvailability.ps1 `
+                  README.md `
+                  demo/DEMO-GUIDE.md `
+                  ROADMAP.md `
                   CHANGELOG.md
           Invoke-Git commit -m "chore: bump version $($env:CURRENT_VERSION) -> $($env:NEW_VERSION) ($($env:BUMP_TYPE))"
           Invoke-Git push -u origin $branch
@@ -207,6 +248,7 @@ jobs:
               "| $($l.Label) updated to $($env:NEW_VERSION) | $($l.Path) L$($l.Line) - read by workflow, regex-replaced | [OBSERVED] |"
           }
           $tableRows = @($tableRows) + @("| CHANGELOG stub prepended for $($env:NEW_VERSION) | CHANGELOG.md - release header inserted before prior top release | [OBSERVED] |")
+          $tableRows = @($tableRows) + @("| psd1 ReleaseNotes updated to v$($env:NEW_VERSION) | AzVMAvailability/AzVMAvailability.psd1 - version prefix + changelog_summary | [OBSERVED] |")
 
           $summaryDisplay = if ([string]::IsNullOrWhiteSpace($env:CHANGELOG_SUMMARY)) {
               '_Not provided at dispatch - fill in before requesting review._'
@@ -219,8 +261,11 @@ jobs:
               '',
               "Automated version bump from **$($env:CURRENT_VERSION)** to **$($env:NEW_VERSION)** (``$($env:BUMP_TYPE)``).",
               '',
-              'This PR updates the four authoritative version strings and prepends a CHANGELOG stub.',
+              'This PR updates eight version locations and prepends a CHANGELOG stub.',
               'No module behavior is changed. Generated by `.github/workflows/version-bump.yml`.',
+              '',
+              '> **Note:** `psd1 ReleaseNotes` uses the `changelog_summary` input for the description. Fill it at dispatch or update before merging.',
+              '> **Action required:** Update the `ROADMAP.md` description line (`> **vX.Y.Z:**`) to describe the new release before merging.',
               '',
               "**Changelog summary provided:** $summaryDisplay",
               '',
