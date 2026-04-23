@@ -24,7 +24,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 - **CI/CD publishing** — automated PSGallery + GitHub Release publishing on merge to main
 
 ### v1.14.0 — Lifecycle & Deployment Mapping (April 2026)
-- **Lifecycle Recommendations** — feed a CSV/JSON/XLSX of deployed VMs and get retirement risk analysis with up to 6 upgrade alternatives per SKU, powered by a curated upgrade-path knowledge base
+- **Lifecycle Recommendations** — run `-LifecycleRecommendations` for a fully autonomous scan: pulls live VM inventory via Azure Resource Graph, analyzes retirement risk, and provides up to 6 upgrade alternatives per SKU with pricing, powered by a curated upgrade-path knowledge base. Optionally use `-LifecycleFile` to load VMs from a CSV/JSON/XLSX instead of live scan
 - **`-SubMap` / `-RGMap`** — new deployment mapping sheets in XLSX exports, grouping affected VMs by subscription or resource group with risk-level enrichment
 - **`-Tag` filter** — filter live VM inventory scans by Azure resource tags (key=value or key=`*`)
 - **`-RateOptimization`** — opt-in Savings Plan and Reserved Instance pricing columns alongside PAYG
@@ -35,8 +35,8 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 
 - **Multi-Region Parallel Scanning** - Scan 10+ regions in ~15 seconds using concurrent HttpClient-based REST calls
 - **SKU Filtering** - Filter to specific SKUs with wildcard support (e.g., `Standard_D*_v5`)
-- **Lifecycle Recommendations** - Analyze deployed VMs for retirement risk; get up to 6 upgrade alternatives per SKU from a curated knowledge base + real-time scoring engine
-- **Live Lifecycle Scan** - Pull VM inventory directly from Azure via Resource Graph with management group, resource group, and tag filters
+- **Lifecycle Recommendations** - Run fully autonomous with `-LifecycleRecommendations` — no prompts, auto-enables pricing, Excel export, savings plan/reservation details, and quota. Without `-LifecycleFile`, pulls live VM inventory from Azure via Resource Graph. With `-LifecycleFile`, loads VMs from a CSV/JSON/XLSX file
+- **Live Lifecycle Scan** - `-LifecycleScan` pulls VM inventory directly from Azure via Resource Graph with management group, resource group, and tag filters
 - **Deployment Mapping** - `-SubMap` / `-RGMap` sheets group affected VMs by subscription or resource group with risk enrichment
 - **Pricing Information** - Show hourly/monthly pricing (retail or negotiated EA/MCA rates) with optional Savings Plan and Reserved Instance comparisons
 - **Spot VM Pricing** - Include Spot pricing alongside on-demand rates
@@ -78,7 +78,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 - **PowerShell 7.0+** (required)
 - **Azure PowerShell Modules**: `Az.Accounts`, `Az.Compute`, `Az.Resources`
 - **Optional**: `ImportExcel` module for styled XLSX export
-- **Optional**: `Az.ResourceGraph` module for `-LifecycleScan` live VM inventory
+- **Optional**: `Az.ResourceGraph` module for `-LifecycleRecommendations` and `-LifecycleScan` live VM inventory
 
 ## Quick Start
 
@@ -114,14 +114,18 @@ Connect-AzAccount -Tenant YourTenantIdHere -subscription YourSubIdHere
 # Inventory readiness check from CSV file
 .\Get-AzVMAvailability.ps1 -InventoryFile .\examples\fleet-bom.csv -Region "eastus" -NoPrompt
 
-# Lifecycle analysis — find old-gen SKUs and recommend replacements
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
+# Lifecycle scan — pull live VM inventory from Azure and analyze retirement risk
+# Runs fully autonomous: no prompts, auto-enables pricing, Excel export, and quota
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations
+
+# Lifecycle analysis — load VMs from a CSV/JSON/XLSX file instead of live scan
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations -LifecycleFile .\my-vms.csv -Region "eastus"
 
 # Lifecycle analysis — from Azure portal VM export (XLSX)
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -NoPrompt
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations -LifecycleFile .\AzureVirtualMachines.xlsx
 
-# Live lifecycle scan — pull VM inventory directly from Azure
-.\Get-AzVMAvailability.ps1 -LifecycleScan -NoPrompt
+# Live lifecycle scan with filters — management group, resource group, or tag scoping
+.\Get-AzVMAvailability.ps1 -LifecycleScan -ManagementGroup "Corp" -Tag @{Environment='prod'} -NoPrompt
 ```
 
 ## Script vs Module
