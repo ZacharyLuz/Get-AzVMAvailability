@@ -138,7 +138,7 @@ function Get-AzActualPricing {
     try {
         $psUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$expand=properties/meterDetails&`$top=1000"
         Write-Verbose "Tier 1 (Price Sheet): calling $psUrl"
-        Write-Host "  Initial download of discounted pricing data (~15-20 min, one-time)..." -ForegroundColor Cyan
+        Write-Host "  Initial download of discounted pricing data (duration varies by connection speed, one-time)..." -ForegroundColor Cyan
         Write-Host "  Subsequent runs will use cached data (valid $PriceSheetCacheTTLDays days)." -ForegroundColor DarkGray
 
         $totalItems = 0

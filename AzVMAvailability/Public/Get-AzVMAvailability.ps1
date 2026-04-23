@@ -1276,7 +1276,7 @@ if (-not $ExportPath -and -not $NoPrompt -and -not $LifecycleRecommendations -an
 # Pricing prompt
 $FetchPricing = $ShowPricing.IsPresent
 if (-not $ShowPricing -and -not $NoPrompt -and -not $LifecycleRecommendations) {
-    Write-Host "`nInclude estimated pricing? (first run downloads the price sheet, ~15-20 min; cached afterwards) (y/N): " -ForegroundColor Yellow -NoNewline
+    Write-Host "`nInclude estimated pricing? (first run downloads the price sheet — duration varies by connection speed; cached afterwards) (y/N): " -ForegroundColor Yellow -NoNewline
     $pricingInput = Read-Host
     if ($pricingInput -match '^y(es)?$') { $FetchPricing = $true }
 }
