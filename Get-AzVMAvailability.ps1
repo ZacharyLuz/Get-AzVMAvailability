@@ -151,8 +151,11 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Include Savings Plan and Reserved Instance pricing columns in lifecycle reports. Requires -ShowPricing. Without this flag, only PAYG pricing is shown.")]
     [switch]$RateOptimization,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis.")]
-    [string]$LifecycleRecommendations,
+    [Parameter(Mandatory = $false, HelpMessage = "Enable lifecycle recommendations mode with auto-defaults (pricing, Excel, savings/reservation, quota). Without -LifecycleFile, performs a live ARG scan.")]
+    [switch]$LifecycleRecommendations,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Requires -LifecycleRecommendations.")]
+    [string]$LifecycleFile,
 
     [Parameter(Mandatory = $false, HelpMessage = "Pull live VM inventory from Azure via Resource Graph for lifecycle analysis.")]
     [switch]$LifecycleScan,

@@ -927,6 +927,10 @@ if (-not $PSBoundParameters.ContainsKey('MinScore')) {
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
+# If LifecycleScan already discovered subscription IDs from ARG, use those
+if (-not $TargetSubIds -and $allVMs -and $allVMs.Count -gt 0) {
+    $TargetSubIds = @($allVMs | ForEach-Object { $_.subscriptionId } | Select-Object -Unique)
+}
 $Regions = $Region
 $EnableDrill = $EnableDrillDown.IsPresent
 $script:RunContext.ShowPlacement = $ShowPlacement.IsPresent
