@@ -239,11 +239,16 @@ function Get-AzVMAvailability {
     .\Get-AzVMAvailability.ps1 -InventoryFile .\inventory-template.csv -Region "eastus" -NoPrompt
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
-    Lifecycle analysis: loads a list of current VM SKUs, runs compatibility-validated
-    recommendations for each, and produces a consolidated risk summary identifying
-    old-generation SKUs, capacity-constrained SKUs, and recommended replacements.
-    The CSV supports optional columns: Region (deployed location) and Qty (VM count).
+    .\Get-AzVMAvailability.ps1 -LifecycleRecommendations
+    Lifecycle analysis: pulls live VM inventory from Azure Resource Graph and runs
+    compatibility-validated recommendations with pricing, savings plan/reservation
+    details, quota, and auto-exports to Excel in the current directory.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -LifecycleRecommendations -LifecycleFile .\my-vms.csv -Region "eastus"
+    Lifecycle analysis from file: loads a list of current VM SKUs from a CSV/JSON/XLSX,
+    runs recommendations for each, and produces a consolidated risk summary.
+    The file supports optional columns: Region (deployed location) and Qty (VM count).
     When Qty is provided, quota is checked against the required vCPUs (Qty x vCPU)
     for both the current SKU and the recommended replacement.
 
@@ -368,8 +373,11 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Include Savings Plan and Reserved Instance pricing columns in lifecycle reports. Requires -ShowPricing. Without this flag, only PAYG pricing is shown.")]
     [switch]$RateOptimization,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Runs compatibility-validated recommendations for each SKU and flags lifecycle risks. CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects. Qty column is optional. XLSX: supports native Azure portal VM exports (maps SIZE/LOCATION columns automatically).")]
-    [string]$LifecycleRecommendations,
+    [Parameter(Mandatory = $false, HelpMessage = "Run lifecycle recommendations with auto-enabled pricing, Excel export, savings plan/reservation details, and quota. Without -LifecycleFile, pulls live VM inventory from Azure via Resource Graph. With -LifecycleFile, loads SKUs from a CSV/JSON/XLSX file.")]
+    [switch]$LifecycleRecommendations,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Use with -LifecycleRecommendations. CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects. Qty column is optional. XLSX: supports native Azure portal VM exports (maps SIZE/LOCATION columns automatically).")]
+    [string]$LifecycleFile,
 
     [Parameter(Mandatory = $false, HelpMessage = "Pull live VM inventory from Azure via Resource Graph for lifecycle analysis. Scopes to -SubscriptionId if specified; use -ManagementGroup or -ResourceGroup for further filtering.")]
     [switch]$LifecycleScan,
@@ -504,14 +512,14 @@ if ($Inventory -and $Inventory.Count -gt 0) {
     Write-Verbose "Inventory mode: derived SkuFilter from $($Inventory.Count) Inventory SKUs"
 }
 
-# LifecycleRecommendations: load CSV/JSON/XLSX into $lifecycleEntries list (SKU + optional Region)
-if ($LifecycleRecommendations) {
+# LifecycleRecommendations: load from file (-LifecycleFile) or fall through to live ARG scan
+if ($LifecycleRecommendations -and $LifecycleFile) {
     if ($LifecycleScan) { throw "Cannot specify both -LifecycleRecommendations and -LifecycleScan. Use one or the other." }
     if ($Recommend) { throw "Cannot specify both -Recommend and -LifecycleRecommendations. Use one or the other." }
     if ($Inventory -or $InventoryFile) { throw "Cannot specify both -LifecycleRecommendations and -Inventory/-InventoryFile. They are separate modes." }
-    if (-not (Test-Path -LiteralPath $LifecycleRecommendations -PathType Leaf)) { throw "Lifecycle file not found or is not a file: $LifecycleRecommendations" }
-    $ext = [System.IO.Path]::GetExtension($LifecycleRecommendations).ToLower()
-    if ($ext -notin '.csv', '.json', '.xlsx') { throw "Unsupported file type '$ext'. LifecycleRecommendations must be .csv, .json, or .xlsx" }
+    if (-not (Test-Path -LiteralPath $LifecycleFile -PathType Leaf)) { throw "Lifecycle file not found or is not a file: $LifecycleFile" }
+    $ext = [System.IO.Path]::GetExtension($LifecycleFile).ToLower()
+    if ($ext -notin '.csv', '.json', '.xlsx') { throw "Unsupported file type '$ext'. -LifecycleFile must be .csv, .json, or .xlsx" }
     if ($ext -eq '.xlsx' -and -not (Get-Module -ListAvailable ImportExcel)) { throw "ImportExcel module required for .xlsx files. Install with: Install-Module ImportExcel -Scope CurrentUser" }
     $lifecycleEntries = [System.Collections.Generic.List[PSCustomObject]]::new()
     $compositeKeys = @{}
@@ -564,18 +572,18 @@ if ($LifecycleRecommendations) {
         }
     }
     if ($ext -eq '.json') {
-        $jsonData = @(Get-Content -LiteralPath $LifecycleRecommendations -Raw | ConvertFrom-Json)
+        $jsonData = @(Get-Content -LiteralPath $LifecycleFile -Raw | ConvertFrom-Json)
         foreach ($item in $jsonData) { & $parseRow $item }
     }
     elseif ($ext -eq '.xlsx') {
-        $xlsxData = Import-Excel -Path $LifecycleRecommendations
+        $xlsxData = Import-Excel -Path $LifecycleFile
         foreach ($row in $xlsxData) { & $parseRow $row }
     }
     else {
-        $csvData = Import-Csv -LiteralPath $LifecycleRecommendations
+        $csvData = Import-Csv -LiteralPath $LifecycleFile
         foreach ($row in $csvData) { & $parseRow $row }
     }
-    if ($lifecycleEntries.Count -eq 0) { throw "No valid SKU rows found in $LifecycleRecommendations. Expected column: SKU, Size, or VmSize (falls back to Name)" }
+    if ($lifecycleEntries.Count -eq 0) { throw "No valid SKU rows found in $LifecycleFile. Expected column: SKU, Size, or VmSize (falls back to Name)" }
     $SkuFilter = @($lifecycleEntries | ForEach-Object { $_.SKU })
 
     # Auto-merge per-SKU regions into the -Region parameter so all needed regions get scanned
@@ -592,7 +600,7 @@ if ($LifecycleRecommendations) {
     }
 
     $totalVMs = ($lifecycleEntries | Measure-Object -Property Qty -Sum).Sum
-    if (-not $JsonOutput) { Write-Host "Lifecycle analysis: loaded $($lifecycleEntries.Count) SKU entries ($totalVMs VMs) from $LifecycleRecommendations" -ForegroundColor Cyan }
+    if (-not $JsonOutput) { Write-Host "Lifecycle analysis: loaded $($lifecycleEntries.Count) SKU entries ($totalVMs VMs) from $LifecycleFile" -ForegroundColor Cyan }
 
     #region Build Deployment Map from File Data (-SubMap / -RGMap)
     if ($captureDeploymentMap -and $fileVMRows.Count -gt 0) {
@@ -639,6 +647,16 @@ if ($LifecycleRecommendations) {
         }
     }
     #endregion Build Deployment Map from File Data
+}
+
+# -LifecycleRecommendations without -LifecycleFile: use live ARG scan
+if ($LifecycleRecommendations -and -not $LifecycleFile -and -not $lifecycleEntries) {
+    $LifecycleScan = [switch]::new($true)
+}
+
+# Guard: -LifecycleFile requires -LifecycleRecommendations
+if ($LifecycleFile -and -not $LifecycleRecommendations) {
+    throw "-LifecycleFile requires -LifecycleRecommendations. Use: -LifecycleRecommendations -LifecycleFile '$LifecycleFile'"
 }
 
 # Validate -SubMap / -RGMap require a lifecycle mode
@@ -1187,6 +1205,18 @@ if ($validatedRegions.Count -eq 0) {
 }
 
 $Regions = $validatedRegions
+
+# LifecycleRecommendations defaults: auto-enable pricing, Excel export, savings/reservation details, and quota
+if ($LifecycleRecommendations) {
+    if (-not $ShowPricing)      { $ShowPricing = [switch]::new($true) }
+    if (-not $AutoExport)       { $AutoExport  = [switch]::new($true) }
+    if (-not $RateOptimization) { $RateOptimization = [switch]::new($true) }
+    if ($NoQuota)               { } else { $NoQuota = $false }
+    if (-not $ExportPath)       { $ExportPath = $defaultExportPath }
+    if (-not $JsonOutput) {
+        Write-Host "Lifecycle mode: auto-enabled pricing, Excel export, savings plan/reservation details, and quota" -ForegroundColor DarkGray
+    }
+}
 
 # Validate region count limit (skip for lifecycle scans — all deployed regions need pricing)
 $maxRegions = 5
@@ -2520,13 +2550,13 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
     # XLSX Export — auto-export lifecycle results
     if (-not $JsonOutput -and (Test-ImportExcelModule)) {
         $lcTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        if ($LifecycleRecommendations) {
-            $sourceDir = [System.IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $LifecycleRecommendations).Path)
-            $sourceBase = [System.IO.Path]::GetFileNameWithoutExtension($LifecycleRecommendations)
+        if ($LifecycleFile) {
+            $sourceDir = [System.IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $LifecycleFile).Path)
+            $sourceBase = [System.IO.Path]::GetFileNameWithoutExtension($LifecycleFile)
         }
         else {
             $sourceDir = $PWD.Path
-            $sourceBase = 'LifecycleScan'
+            $sourceBase = 'AzVMAvailability'
         }
         $lcXlsxFile = Join-Path $sourceDir "${sourceBase}_Lifecycle_Recommendations_${lcTimestamp}.xlsx"
 
