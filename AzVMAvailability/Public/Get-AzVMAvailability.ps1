@@ -1043,9 +1043,10 @@ $script:RunContext.AzureEndpoints = $script:AzureEndpoints
 #endregion Initialize Azure Endpoints
 #region Interactive Prompts
 # Prompt user for subscription(s) if not provided via parameters
+# LifecycleRecommendations: ARG scan already discovered subscriptions and regions from live VMs
 
-if (-not $TargetSubIds) {
-    if ($NoPrompt -or $LifecycleRecommendations) {
+if (-not $TargetSubIds -and -not $LifecycleRecommendations) {
+    if ($NoPrompt) {
         $ctx = Get-AzContext -ErrorAction SilentlyContinue
         if ($ctx -and $ctx.Subscription.Id) {
             $TargetSubIds = @($ctx.Subscription.Id)
@@ -1081,9 +1082,9 @@ if (-not $TargetSubIds) {
     }
 }
 
-if (-not $Regions) {
+if (-not $Regions -and -not $LifecycleRecommendations) {
     $smartDefaults = Get-SmartDefaultRegions -CloudEnvironment $script:TargetEnvironment
-    if ($NoPrompt -or $LifecycleRecommendations) {
+    if ($NoPrompt) {
         $Regions = $smartDefaults.Regions
         Write-Host "Using default regions ($($smartDefaults.Source)): $($Regions -join ', ')" -ForegroundColor Cyan
     }
