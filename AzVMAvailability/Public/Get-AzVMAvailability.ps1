@@ -1946,16 +1946,17 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
     }
 
     # Fetch retirement data from Azure Advisor (authoritative source, supersedes pattern table)
+    # Single tenant-wide query via ARG advisorresources table (falls back to REST for first sub)
     try {
         $advisorArmUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
         $advisorTokenResult = Get-AzAccessToken -ResourceUrl $advisorArmUrl -ErrorAction Stop
         $advisorToken = if ($advisorTokenResult.Token -is [System.Security.SecureString]) {
             [System.Net.NetworkCredential]::new('', $advisorTokenResult.Token).Password
         } else { $advisorTokenResult.Token }
-        $advisorRetirement = Get-AdvisorRetirementData -SubscriptionId $subId -ArmUrl $advisorArmUrl -BearerToken $advisorToken -MaxRetries $MaxRetries
+        $advisorRetirement = Get-AdvisorRetirementData -SubscriptionId $TargetSubIds -ManagementGroup $ManagementGroup -ArmUrl $advisorArmUrl -BearerToken $advisorToken -MaxRetries $MaxRetries
         $advisorToken = $null
         if ($advisorRetirement.Count -gt 0) {
-            Write-Host "  Advisor: $($advisorRetirement.Count) retirement group(s) detected" -ForegroundColor DarkYellow
+            Write-Host "  Advisor: $($advisorRetirement.Count) retirement group(s) detected across $($TargetSubIds.Count) subscription(s)" -ForegroundColor DarkYellow
         }
     }
     catch {
