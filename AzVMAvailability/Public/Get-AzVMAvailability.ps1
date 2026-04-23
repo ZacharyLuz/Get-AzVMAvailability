@@ -396,6 +396,12 @@ param(
 
     $ProgressPreference = 'SilentlyContinue'
 
+    # Show startup banner in interactive mode only
+    if (-not $NoPrompt -and -not $JsonOutput) {
+        $moduleVersion = (Get-Module AzVMAvailability -ErrorAction SilentlyContinue)?.Version?.ToString() ?? '2.1.1'
+        Show-StartupBanner -Version $moduleVersion -UseAscii:$UseAsciiIcons
+    }
+
 #region GenerateInventoryTemplate
 if ($GenerateInventoryTemplate) {
     if ($JsonOutput) { throw "Cannot use -GenerateInventoryTemplate with -JsonOutput. Template generation writes files to disk, not JSON to stdout." }
