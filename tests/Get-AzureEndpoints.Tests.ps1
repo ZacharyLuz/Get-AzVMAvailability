@@ -38,10 +38,11 @@ Describe "Get-AzureEndpoints" {
 
             $endpoints.EnvironmentName | Should -Be 'AzureUSGovernment'
             $endpoints.ResourceManagerUrl | Should -Be 'https://management.usgovcloudapi.net'
-            $endpoints.PricingApiUrl | Should -Be 'https://prices.azure.us/api/retail/prices'
+            # Global endpoint — prices.azure.com serves all clouds via armRegionName filter
+            $endpoints.PricingApiUrl | Should -Be 'https://prices.azure.com/api/retail/prices'
         }
 
-        It "Handles portal.azure.us -> prices.azure.us transformation" {
+        It "Uses global pricing endpoint regardless of portal URL" {
             $mockEnv = [PSCustomObject]@{
                 Name                = 'AzureUSGovernment'
                 ResourceManagerUrl  = 'https://management.usgovcloudapi.net'
@@ -50,7 +51,7 @@ Describe "Get-AzureEndpoints" {
 
             $endpoints = Get-AzureEndpoints -AzEnvironment $mockEnv
 
-            $endpoints.PricingApiUrl | Should -Match 'prices\.azure\.us'
+            $endpoints.PricingApiUrl | Should -Be 'https://prices.azure.com/api/retail/prices'
         }
     }
 
@@ -66,7 +67,8 @@ Describe "Get-AzureEndpoints" {
 
             $endpoints.EnvironmentName | Should -Be 'AzureChinaCloud'
             $endpoints.ResourceManagerUrl | Should -Be 'https://management.chinacloudapi.cn'
-            $endpoints.PricingApiUrl | Should -Be 'https://prices.azure.cn/api/retail/prices'
+            # Global endpoint — prices.azure.com serves all clouds via armRegionName filter
+            $endpoints.PricingApiUrl | Should -Be 'https://prices.azure.com/api/retail/prices'
         }
     }
 
@@ -79,7 +81,7 @@ Describe "Get-AzureEndpoints" {
             $endpoints.PricingApiUrl | Should -Be 'https://prices.azure.com/api/retail/prices'
         }
 
-        It "Uses fallback when ManagementPortalUrl is missing" {
+        It "Uses global pricing endpoint when ManagementPortalUrl is missing" {
             $mockEnv = [PSCustomObject]@{
                 Name                = 'AzureUSGovernment'
                 ResourceManagerUrl  = 'https://management.usgovcloudapi.net'
@@ -88,8 +90,8 @@ Describe "Get-AzureEndpoints" {
 
             $endpoints = Get-AzureEndpoints -AzEnvironment $mockEnv
 
-            # Should use fallback based on environment name
-            $endpoints.PricingApiUrl | Should -Be 'https://prices.azure.us/api/retail/prices'
+            # Global endpoint — no sovereign-specific pricing API exists
+            $endpoints.PricingApiUrl | Should -Be 'https://prices.azure.com/api/retail/prices'
         }
     }
 
@@ -138,7 +140,7 @@ Describe "Endpoint Integration" {
             $filter = "armRegionName eq '$region' and priceType eq 'Consumption'"
             $fullUrl = "$($endpoints.PricingApiUrl)?`$filter=$([uri]::EscapeDataString($filter))"
 
-            $fullUrl | Should -Match 'prices\.azure\.us/api/retail/prices\?'
+            $fullUrl | Should -Match 'prices\.azure\.com/api/retail/prices\?'
             $fullUrl | Should -Match 'usgovvirginia'
         }
 
