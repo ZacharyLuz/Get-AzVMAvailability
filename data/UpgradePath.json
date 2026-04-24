@@ -2,7 +2,7 @@
   "_metadata": {
     "description": "Azure VM SKU family upgrade paths based on Microsoft official migration guidance",
     "version": "1.0.0",
-    "lastUpdated": "2026-03-31",
+    "lastUpdated": "2026-04-23",
     "source": "https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement-overview",
     "usage": "Keyed by SKU family+version (e.g., 'Dv2'). Each entry provides 3 upgrade recommendations: dropIn (lowest risk), futureProof (latest gen), costOptimized (AMD/alternative). The 'sizeMap' translates vCPU counts to specific SKU names for each path."
   },
@@ -698,9 +698,9 @@
     "NDv2": {
       "family": "ND",
       "version": 2,
-      "status": "Retiring",
+      "status": "Retired",
       "retireDate": "2025-09-30",
-      "summary": "NDv2 (V100 with NVLink) retiring September 2025. Move to NDAMv4_A100 or NDv5 (H100).",
+      "summary": "NDv2 (V100 with NVLink) retired September 2025. Move to NDAMv4_A100 or NDv5 (H100).",
       "dropIn": {
         "family": "ND",
         "series": "NDAMv4_A100",

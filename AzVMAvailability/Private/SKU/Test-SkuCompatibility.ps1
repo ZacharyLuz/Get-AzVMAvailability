@@ -58,6 +58,15 @@ function Test-SkuCompatibility {
         $failures.Add("DiskInterface: target uses NVMe, candidate only has SCSI")
     }
 
+    # GPU: if target has GPUs, candidate must also have GPUs
+    if ($Target.GPUCount -gt 0 -and ($Candidate.GPUCount -le 0 -or -not $Candidate.ContainsKey('GPUCount'))) {
+        $failures.Add("GPU: target has $($Target.GPUCount) GPU(s), candidate has none")
+    }
+    # GPU: if target has NO GPUs, candidate must NOT have GPUs
+    if (($Target.GPUCount -le 0 -or -not $Target.ContainsKey('GPUCount')) -and $Candidate.GPUCount -gt 0) {
+        $failures.Add("GPU: candidate has $($Candidate.GPUCount) GPU(s), target has none")
+    }
+
     # Ephemeral OS disk: if target uses it, candidate must support it
     if ($Target.EphemeralOSDiskSupported -eq $true -and $Candidate.EphemeralOSDiskSupported -ne $true) {
         $failures.Add("EphemeralOSDisk: target requires it, candidate lacks it")

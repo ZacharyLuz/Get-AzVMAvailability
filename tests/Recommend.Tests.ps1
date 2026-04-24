@@ -7,7 +7,7 @@ BeforeAll {
 
 Describe 'Get-SkuSimilarityScore' {
     Context 'Identical profiles' {
-        It 'Returns 93 for identical SKU profiles (version same = 5/12)' {
+        It 'Returns 91 for identical SKU profiles (version same = 6/15)' {
             $skuProfile = @{
                 vCPU             = 64
                 MemoryGB         = 512
@@ -19,7 +19,7 @@ Describe 'Get-SkuSimilarityScore' {
                 UncachedDiskIOPS = 80000
                 MaxDataDiskCount = 32
             }
-            Get-SkuSimilarityScore -Target $skuProfile -Candidate $skuProfile | Should -Be 93
+            Get-SkuSimilarityScore -Target $skuProfile -Candidate $skuProfile | Should -Be 91
         }
 
         It 'Returns 98 when candidate is same-family newer version with identical specs' {
@@ -45,7 +45,7 @@ Describe 'Get-SkuSimilarityScore' {
                 UncachedDiskIOPS = 80000
                 MaxDataDiskCount = 32
             }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 98
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 97
         }
     }
 
@@ -88,22 +88,22 @@ Describe 'Get-SkuSimilarityScore' {
     }
 
     Context 'Family scoring' {
-        It 'Gives 18 points for same family plus 5 version same-gen bonus (plus 15 for no IOPS/disk data)' {
+        It 'Gives 15 points for same family plus 6 version same-gen bonus (plus 15 for no IOPS/disk data)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'E'; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'E'; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 38
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 36
         }
 
-        It 'Gives 13 points for same category (Memory: E vs M) plus 15 bonus' {
+        It 'Gives 11 points for same category (Memory: E vs M) plus 15 bonus' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'E'; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'M'; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate -FamilyInfo $script:TestFamilyInfo | Should -Be 28
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate -FamilyInfo $script:TestFamilyInfo | Should -Be 26
         }
 
-        It 'Gives 13 points for EC vs E (same Memory category) plus 15 bonus' {
+        It 'Gives 11 points for EC vs E (same Memory category) plus 15 bonus' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'EC'; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'E'; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate -FamilyInfo $script:TestFamilyInfo | Should -Be 28
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate -FamilyInfo $script:TestFamilyInfo | Should -Be 26
         }
 
         It 'Gives 0 family points for different family and category (only 15 bonus)' {
@@ -120,16 +120,16 @@ Describe 'Get-SkuSimilarityScore' {
             Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 15
         }
 
-        It 'Cross-family v6 gets 9 version points (plus 15 bonus)' {
+        It 'Cross-family v6 gets 10 version points (plus 15 bonus)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'X'; FamilyVersion = 2; Generation = 'V2'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'Z'; FamilyVersion = 6; Generation = 'V1'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 24
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 25
         }
 
-        It 'Cross-family v7 gets 10 version points (plus 15 bonus)' {
+        It 'Cross-family v7 gets 12 version points (plus 15 bonus)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'X'; FamilyVersion = 2; Generation = 'V2'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'Z'; FamilyVersion = 7; Generation = 'V1'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 25
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 27
         }
     }
 
@@ -199,34 +199,34 @@ Describe 'Get-SkuSimilarityScore' {
     }
 
     Context 'Family version scoring' {
-        It 'Gives 10 points for same-family v5 upgrade (8+2 bonus, plus 18 family and 15 IOPS/disk)' {
+        It 'Gives 12 points for same-family v5 upgrade (8+4, plus 15 family and 15 IOPS/disk)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'D'; FamilyVersion = 2; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'D'; FamilyVersion = 5; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 43
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 42
         }
 
-        It 'Gives 12 points for same-family v7 upgrade (8+4 bonus, plus 18 family and 15 IOPS/disk)' {
+        It 'Gives 14 points for same-family v7 upgrade (8+6, plus 15 family and 15 IOPS/disk)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'D'; FamilyVersion = 2; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'D'; FamilyVersion = 7; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 45
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 44
         }
 
-        It 'Gives 5 points for same-family same version (plus 18 family and 15 IOPS/disk)' {
+        It 'Gives 6 points for same-family same version (plus 15 family and 15 IOPS/disk)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'D'; FamilyVersion = 3; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'D'; FamilyVersion = 3; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 38
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 36
         }
 
-        It 'Gives 1 point for same-family version downgrade (plus 18 family and 15 IOPS/disk)' {
+        It 'Gives 1 point for same-family version downgrade (plus 15 family and 15 IOPS/disk)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'D'; FamilyVersion = 5; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'D'; FamilyVersion = 2; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 34
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 31
         }
 
-        It 'Cross-family v5 candidate gets 7 version points (plus 15 bonus)' {
+        It 'Cross-family v5 candidate gets 8 version points (plus 15 bonus)' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'E'; FamilyVersion = 3; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $candidate = @{ vCPU = 0; MemoryGB = 0; Family = 'D'; FamilyVersion = 5; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
-            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 22
+            Get-SkuSimilarityScore -Target $target -Candidate $candidate | Should -Be 23
         }
 
         It 'Cross-family v1 candidate gets 0 version points (only 15 bonus)' {
@@ -244,7 +244,7 @@ Describe 'Get-SkuSimilarityScore' {
             $scoreV2 = Get-SkuSimilarityScore -Target $target -Candidate $v2lateral
 
             $scoreV5 | Should -BeGreaterThan $scoreV2
-            ($scoreV5 - $scoreV2) | Should -Be 5
+            ($scoreV5 - $scoreV2) | Should -Be 6
         }
 
         It 'Same-family v7 upgrade scores higher than v5 upgrade' {

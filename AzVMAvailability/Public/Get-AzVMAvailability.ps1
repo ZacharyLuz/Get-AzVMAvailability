@@ -1596,12 +1596,24 @@ $allSubscriptionData = @()
 $initialAzContext = Get-AzContext -ErrorAction SilentlyContinue
 $initialSubscriptionId = if ($initialAzContext -and $initialAzContext.Subscription) { [string]$initialAzContext.Subscription.Id } else { $null }
 
+# Lifecycle mode: scan SKUs from current-context sub only (SKU data is identical across subs
+# in the same tenant; quotas merge in the index builder). $TargetSubIds is preserved for Advisor.
+$ScanSubIds = if ($LifecycleRecommendations -or $LifecycleScan) {
+    $ctxSubId = if ($initialAzContext -and $initialAzContext.Subscription) { $initialAzContext.Subscription.Id } else { $TargetSubIds[0] }
+    if ($TargetSubIds.Count -gt 1) {
+        Write-Verbose "Lifecycle mode: scanning SKUs from current-context subscription only ($ctxSubId). SKU data is tenant-wide; quotas are per-sub."
+    }
+    @($ctxSubId)
+} else {
+    $TargetSubIds
+}
+
 # Outer try/finally ensures Az context is restored even if Ctrl+C or PipelineStoppedException
 # interrupts parallel scanning, results processing, or export
 $scanStartTime = Get-Date
 try {
     try {
-        foreach ($subId in $TargetSubIds) {
+        foreach ($subId in $ScanSubIds) {
         $subscriptionScanStartTime = Get-Date
         try {
             Use-SubscriptionContextSafely -SubscriptionId $subId | Out-Null
@@ -1866,6 +1878,29 @@ try {
             }
         }
 
+        # Retry failed regions sequentially (parallel pressure may have caused throttling)
+        $failedRegions = @($regionData | Where-Object { $_.Error })
+        if ($failedRegions.Count -gt 0) {
+            $regionNames = @($failedRegions | ForEach-Object { $_.Region }) -join ', '
+            Write-Warning "Retrying $($failedRegions.Count) failed region(s) sequentially: $regionNames"
+            $successfulData = [System.Collections.Generic.List[object]]::new()
+            foreach ($rd in $regionData) {
+                if (-not $rd.Error) { $successfulData.Add($rd) }
+            }
+            foreach ($failedRd in $failedRegions) {
+                Write-Verbose "Retry: $($failedRd.Region) (original error: $($failedRd.Error))"
+                $retryResult = & $scanRegionScript -region ([string]$failedRd.Region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern -skipQuota $NoQuota.IsPresent
+                if ($retryResult.Error) {
+                    Write-Warning "Region '$($failedRd.Region)' failed after retry: $($retryResult.Error) — data excluded from analysis"
+                }
+                else {
+                    Write-Host "  Retry succeeded: $($failedRd.Region) ($($retryResult.Skus.Count) SKUs, $($retryResult.Quotas.Count) quotas)" -ForegroundColor Green
+                }
+                $successfulData.Add($retryResult)
+            }
+            $regionData = $successfulData.ToArray()
+        }
+
         # Zero out bearer token after use
         $bearerToken = $null
 
@@ -2049,17 +2084,97 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             $riskReasons = [System.Collections.Generic.List[string]]::new()
             if ($isOldGen) { $riskReasons.Add("Gen v$generation"); $riskLevel = 'Medium' }
             $retirementInfo = Get-SkuRetirementInfo -SkuName $target.Name
-            if ($retirementInfo) {
-                $retireLabel = if ($retirementInfo.Status -eq 'Retired') { "Retired $($retirementInfo.RetireDate)" } else { "Retiring $($retirementInfo.RetireDate)" }
-                $riskReasons.Add($retireLabel)
+
+            # Advisor retirement lookup — authoritative, tenant-specific signal
+            $advisorInfo = $null
+            if ($advisorRetirement -and $advisorRetirement.Count -gt 0) {
+                $normalizedFamily = if ($target.Family -cmatch '^([A-Z]+)S$' -and $target.Family -notin 'NVS','NCS','NDS','HBS','HCS','HXS','FXS') { $Matches[1] } else { $target.Family }
+                $seriesIds = [System.Collections.Generic.List[string]]::new()
+                if ($generation -gt 1) {
+                    $seriesIds.Add("${normalizedFamily}v${generation}")
+                    if ($normalizedFamily -ne $target.Family) { $seriesIds.Add("$($target.Family)v${generation}") }
+                }
+                else {
+                    $seriesIds.Add($normalizedFamily)
+                    $seriesIds.Add("${normalizedFamily}v1")
+                    if ($normalizedFamily -ne $target.Family) { $seriesIds.Add($target.Family); $seriesIds.Add("$($target.Family)v1") }
+                }
+                if ($retirementInfo -and $retirementInfo.Series -and $retirementInfo.Series -notin $seriesIds) {
+                    $seriesIds.Add($retirementInfo.Series)
+                }
+                # Direct key lookup first
+                foreach ($sid in $seriesIds) {
+                    if ($advisorRetirement.ContainsKey($sid)) { $advisorInfo = $advisorRetirement[$sid]; break }
+                }
+                # Fuzzy match if direct lookup misses (handles long-form keys like "Virtual Machines - Dv2 Series")
+                if (-not $advisorInfo) {
+                    foreach ($sid in $seriesIds) {
+                        $escapedSid = [regex]::Escape($sid)
+                        foreach ($advKey in $advisorRetirement.Keys) {
+                            if ($advKey -match "(^|[^A-Za-z])${escapedSid}([^A-Za-z0-9]|$)") {
+                                $advisorInfo = $advisorRetirement[$advKey]
+                                break
+                            }
+                        }
+                        if ($advisorInfo) { break }
+                    }
+                }
+            }
+
+            # Combine retirement signals: Advisor is authoritative, static table is fallback
+            $hasRetirement = $retirementInfo -or $advisorInfo
+            if ($hasRetirement) {
+                if ($advisorInfo -and $retirementInfo) {
+                    # Both sources — Advisor wins; flag date discrepancy if any
+                    $retireLabel = if ($advisorInfo.Status -eq 'Retired') { "Retired $($advisorInfo.RetireDate)" } else { "Retiring $($advisorInfo.RetireDate)" }
+                    $retireLabel += ' (Advisor)'
+                    if ($advisorInfo.RetireDate -ne $retirementInfo.RetireDate) {
+                        $retireLabel += " [DATE MISMATCH: Table=$($retirementInfo.RetireDate)]"
+                    }
+                    $riskReasons.Add($retireLabel)
+                    if ($advisorInfo.VMs.Count -gt 0) { $riskReasons.Add("$($advisorInfo.VMs.Count) VM(s) affected in tenant") }
+                }
+                elseif ($advisorInfo) {
+                    # Advisor-only — retirement not yet in static table
+                    $retireLabel = if ($advisorInfo.Status -eq 'Retired') { "Retired $($advisorInfo.RetireDate)" } else { "Retiring $($advisorInfo.RetireDate)" }
+                    $retireLabel += ' (Advisor-only)'
+                    $riskReasons.Add($retireLabel)
+                    if ($advisorInfo.VMs.Count -gt 0) { $riskReasons.Add("$($advisorInfo.VMs.Count) VM(s) affected in tenant") }
+                }
+                else {
+                    # Static table only (Advisor had no data for this series)
+                    $retireLabel = if ($retirementInfo.Status -eq 'Retired') { "Retired $($retirementInfo.RetireDate)" } else { "Retiring $($retirementInfo.RetireDate)" }
+                    $riskReasons.Add($retireLabel)
+                }
                 $riskLevel = 'High'
             }
+
+            # NotAvailableForNewDeployments — early retirement signal from Azure SKU API
+            $notAvailForNew = $false
+            $lookupRegionsForRestrict = if ($deployedRegion) { @($deployedRegion) } else { @($lcSkuIndex.Keys | ForEach-Object { ($_ -split '\|',2)[1] } | Select-Object -Unique) }
+            foreach ($rRegion in $lookupRegionsForRestrict) {
+                $rawTargetSku = $lcSkuIndex["$($target.Name)|$rRegion"]
+                if ($rawTargetSku -and $rawTargetSku.Restrictions) {
+                    foreach ($restr in $rawTargetSku.Restrictions) {
+                        if ($restr.ReasonCode -eq 'NotAvailableForNewDeployments') {
+                            $notAvailForNew = $true
+                            break
+                        }
+                    }
+                }
+                if ($notAvailForNew) { break }
+            }
+            if ($notAvailForNew) {
+                $riskReasons.Add("Not available for new deployments$(if ($deployedRegion) { " ($deployedRegion)" } else { '' })")
+                if ($riskLevel -ne 'High') { $riskLevel = 'High' }
+            }
+
             if ($hasCapacityIssues) { $riskReasons.Add("Capacity$(if ($deployedRegion) { " ($deployedRegion)" } else { '' })"); $riskLevel = 'High' }
             if ($quotaInsufficient) { $riskReasons.Add("Quota: need $($entryQty)x$($target.vCPU)vCPU"); $riskLevel = 'High' }
-            if ($noAlternatives -and ($isOldGen -or $hasCapacityIssues -or $retirementInfo)) { $riskReasons.Add("No alternatives"); $riskLevel = 'High' }
+            if ($noAlternatives -and ($isOldGen -or $hasCapacityIssues -or $hasRetirement -or $notAvailForNew)) { $riskReasons.Add("No alternatives"); $riskLevel = 'High' }
 
             # Current-gen (v4+) SKUs with quota as the only risk → recommend quota increase, not SKU change
-            $isQuotaOnlyCurrentGen = (-not $isOldGen) -and (-not $hasCapacityIssues) -and (-not $retirementInfo) -and $quotaInsufficient
+            $isQuotaOnlyCurrentGen = (-not $isOldGen) -and (-not $hasCapacityIssues) -and (-not $hasRetirement) -and (-not $notAvailForNew) -and $quotaInsufficient
 
             # Select up to 3 weighted recommendations: like-for-like, best fit, alternative
             $ScoreCloseThreshold = 10
@@ -2161,6 +2276,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                         UncachedDiskIOPS         = $upCaps.UncachedDiskIOPS
                                         UncachedDiskBytesPerSecond = $upCaps.UncachedDiskBytesPerSecond
                                         EncryptionAtHostSupported = $upCaps.EncryptionAtHostSupported
+                                        GPUCount                 = $upCaps.GPUCount
                                     }
                                 }
                                 # Compute similarity score against the target profile

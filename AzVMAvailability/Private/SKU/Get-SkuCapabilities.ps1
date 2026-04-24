@@ -27,6 +27,7 @@ function Get-SkuCapabilities {
         UncachedDiskBytesPerSecond   = 0
         EncryptionAtHostSupported    = $false
         TrustedLaunchDisabled        = $false
+        GPUCount                     = 0
     }
 
     if ($Sku.Capabilities) {
@@ -66,6 +67,10 @@ function Get-SkuCapabilities {
                 'UncachedDiskBytesPerSecond' {
                     $val = 0
                     if ([long]::TryParse($cap.Value, [ref]$val)) { $capabilities.UncachedDiskBytesPerSecond = $val }
+                }
+                'GPUs' {
+                    $val = 0
+                    if ([int]::TryParse($cap.Value, [ref]$val)) { $capabilities.GPUCount = $val }
                 }
                 'EncryptionAtHostSupported' {
                     $capabilities.EncryptionAtHostSupported = $cap.Value -eq 'True'

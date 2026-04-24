@@ -91,6 +91,7 @@ function Invoke-RecommendMode {
         UncachedDiskIOPS         = $targetCaps.UncachedDiskIOPS
         UncachedDiskBytesPerSecond = $targetCaps.UncachedDiskBytesPerSecond
         EncryptionAtHostSupported = $targetCaps.EncryptionAtHostSupported
+        GPUCount                 = $targetCaps.GPUCount
     }
 
     # Score all candidate SKUs across all regions
@@ -140,6 +141,7 @@ function Invoke-RecommendMode {
                         UncachedDiskIOPS         = $caps.UncachedDiskIOPS
                         UncachedDiskBytesPerSecond = $caps.UncachedDiskBytesPerSecond
                         EncryptionAtHostSupported = $caps.EncryptionAtHostSupported
+                        GPUCount                 = $caps.GPUCount
                     }
                     if ($SkuProfileCache) {
                         $SkuProfileCache[$sku.Name] = @{ Profile = $candidateProfile; Caps = $caps; Processor = $candidateProcessor; DiskCode = $candidateDiskCode }
