@@ -1535,7 +1535,7 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
 
 # Start transcript logging (opt-in via -LogFile)
 if ($LogFile) {
-    $logDir = if ($ExportPath) { $ExportPath } else { $PWD.Path }
+    $logDir = $PWD.Path
     $logTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $logFilePath = Join-Path $logDir "AzVMAvailability_${logTimestamp}.log"
     try {
