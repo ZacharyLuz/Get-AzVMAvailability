@@ -2246,6 +2246,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                 $cached = if ($lcProfileCache.ContainsKey($mappedSku)) { $lcProfileCache[$mappedSku] } else { $null }
                                 if ($cached) {
                                     $upVcpu = $cached.Profile.vCPU
+                                    $upACU = $cached.Profile.ACU
                                     $upMemGiB = $cached.Profile.MemoryGB
                                     $upIOPS = $cached.Caps.UncachedDiskIOPS
                                     $upMaxDisks = $cached.Caps.MaxDataDiskCount
@@ -2254,12 +2255,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                 else {
                                     $upCaps = Get-SkuCapabilities -Sku $rawUpgradeSku
                                     $upVcpu = [int](Get-CapValue $rawUpgradeSku 'vCPUs')
+                                    $upACU = [int](Get-CapValue $rawUpgradeSku 'ACUs')
                                     $upMemGiB = [int](Get-CapValue $rawUpgradeSku 'MemoryGB')
                                     $upIOPS = $upCaps.UncachedDiskIOPS
                                     $upMaxDisks = $upCaps.MaxDataDiskCount
                                     $upCandidateProfile = @{
                                         Name     = $mappedSku
                                         vCPU     = $upVcpu
+                                        ACU      = $upACU
                                         MemoryGB = $upMemGiB
                                         Family   = Get-SkuFamily $mappedSku
                                         Generation               = $upCaps.HyperVGenerations
@@ -2291,6 +2294,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                     Rec = [pscustomobject]@{
                                         sku      = $mappedSku
                                         vCPU     = $upVcpu
+                                        ACU      = $upACU
                                         memGiB   = $upMemGiB
                                         family   = Get-SkuFamily $mappedSku
                                         score    = $upScore
@@ -2398,6 +2402,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     TopAlternative   = if ($riskLevel -eq 'Low') { 'N/A' } elseif ($isQuotaOnlyCurrentGen) { 'Request quota increase' } else { '-' }
                     AltScore         = ''
                     CpuDelta         = '-'
+                    AcuDelta         = '-'
                     MemDelta         = '-'
                     DiskDelta        = '-'
                     IopsDelta        = '-'
@@ -2456,8 +2461,16 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
                     # Compute CPU, memory, and disk deltas
                     $isUnscannedUpgrade = ($rec.capacity -eq 'Not scanned')
+                    # Resolve ACU for this alternative — upgrade-path recs carry it; weighted recs need SKU index lookup
+                    $recACU = if ($rec.PSObject.Properties['ACU']) { [int]$rec.ACU } else {
+                        $acuRaw = $lcSkuIndex["$($rec.sku)|$($deployedRegion)"]
+                        if ($acuRaw) { [int](Get-CapValue $acuRaw 'ACUs') } else { 0 }
+                    }
+                    $targetACU = [int](Get-CapValue ($lcSkuIndex["$($target.Name)|$($deployedRegion)"]) 'ACUs')
+
                     if ($isUnscannedUpgrade) {
                         $cpuDiff = 0; $cpuDeltaStr = '-'
+                        $acuDeltaStr = '-'
                         $memDiff = 0; $memDeltaStr = '-'
                         $diskDeltaStr = '-'
                         $iopsDiff = 0; $iopsDeltaStr = '-'
@@ -2465,6 +2478,8 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     else {
                         $cpuDiff = [int]$rec.vCPU - [int]$target.vCPU
                         $cpuDeltaStr = if ($cpuDiff -eq 0) { '=' } elseif ($cpuDiff -gt 0) { "+$cpuDiff" } else { "$cpuDiff" }
+                        $acuDiff = $recACU - $targetACU
+                        $acuDeltaStr = if ($targetACU -eq 0 -or $recACU -eq 0) { '-' } elseif ($acuDiff -eq 0) { '=' } elseif ($acuDiff -gt 0) { "+$acuDiff" } else { "$acuDiff" }
                         $memDiff = [double]$rec.memGiB - [double]$target.MemoryGB
                         $memDeltaStr = if ($memDiff -eq 0) { '=' } elseif ($memDiff -gt 0) { "+$memDiff" } else { "$memDiff" }
                         $diskDiff = [int]$rec.MaxDisks - [int]$target.MaxDataDiskCount
@@ -2559,6 +2574,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         TopAlternative   = $rec.sku
                         AltScore         = if ($rec.score -is [ValueType] -and $rec.score -isnot [bool]) { "$([int]$rec.score)%" } else { '' }
                         CpuDelta         = $cpuDeltaStr
+                        AcuDelta         = $acuDeltaStr
                         MemDelta         = $memDeltaStr
                         DiskDelta        = $diskDeltaStr
                         IopsDelta        = $iopsDeltaStr
@@ -2593,12 +2609,12 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
         # Lifecycle console: quota columns moved to SubMap/RGMap tabs
         if ($FetchPricing) {
-            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8} {15,-10} {16,-12}"
-            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Price Diff', 'Total') -ForegroundColor White
+            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-5} {14,-7} {15,-8} {16,-10} {17,-12}"
+            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'ACU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Price Diff', 'Total') -ForegroundColor White
         }
         else {
-            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8}"
-            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-') -ForegroundColor White
+            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-5} {14,-7} {15,-8}"
+            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'ACU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-') -ForegroundColor White
         }
         Write-Host (' ' + ('-' * ($script:OutputWidth - 2))) -ForegroundColor DarkGray
 
@@ -2616,7 +2632,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             else {
                 $riskColor = $lastSeenRiskColor
             }
-            [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta)
+            [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.AcuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta)
             if ($FetchPricing) { $fmtArgs += @($r.PriceDiff, $r.TotalPriceDiff) }
             $line = $sumFmt -f $fmtArgs
             Write-Host $line -ForegroundColor $riskColor
@@ -2709,7 +2725,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
                 @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E={$_.RiskReasons}},
                 @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='ACU +/-';E={$_.AcuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
                 @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
             ) + $pricingCols + @(@{N='Details';E={$_.Details}})
             $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
@@ -2815,7 +2831,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
                 @{N='Risk Reasons';E={$_.RiskReasons}},
                 @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='ACU +/-';E={$_.AcuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
                 @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
             ) + $pricingCols + @(@{N='Details';E={$_.Details}})
             $highRows = @($highBase | Select-Object -Property $hrProps)
@@ -2845,7 +2861,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
                 @{N='Risk Reasons';E={$_.RiskReasons}},
                 @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='ACU +/-';E={$_.AcuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
                 @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
             ) + $pricingCols + @(@{N='Details';E={$_.Details}})
             $medRows = @($medBase | Select-Object -Property $mrProps)
