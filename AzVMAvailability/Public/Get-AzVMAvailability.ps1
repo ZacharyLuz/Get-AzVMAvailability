@@ -654,6 +654,11 @@ if ($LifecycleRecommendations -and -not $LifecycleFile -and -not $lifecycleEntri
     $LifecycleScan = [switch]::new($true)
 }
 
+# Auto-enable SubMap and RGMap for lifecycle ARG scans — quota is per-subscription
+# so the deployment map tabs provide the proper per-sub quota context.
+if ($LifecycleScan -and -not $SubMap) { $SubMap = [switch]::new($true) }
+if ($LifecycleScan -and -not $RGMap) { $RGMap = [switch]::new($true) }
+
 # Guard: -LifecycleFile requires -LifecycleRecommendations
 if ($LifecycleFile -and -not $LifecycleRecommendations) {
     throw "-LifecycleFile requires -LifecycleRecommendations. Use: -LifecycleRecommendations -LifecycleFile '$LifecycleFile'"
@@ -1596,17 +1601,7 @@ $allSubscriptionData = @()
 $initialAzContext = Get-AzContext -ErrorAction SilentlyContinue
 $initialSubscriptionId = if ($initialAzContext -and $initialAzContext.Subscription) { [string]$initialAzContext.Subscription.Id } else { $null }
 
-# Lifecycle mode: scan SKUs from current-context sub only (SKU data is identical across subs
-# in the same tenant; quotas merge in the index builder). $TargetSubIds is preserved for Advisor.
-$ScanSubIds = if ($LifecycleRecommendations -or $LifecycleScan) {
-    $ctxSubId = if ($initialAzContext -and $initialAzContext.Subscription) { $initialAzContext.Subscription.Id } else { $TargetSubIds[0] }
-    if ($TargetSubIds.Count -gt 1) {
-        Write-Verbose "Lifecycle mode: scanning SKUs from current-context subscription only ($ctxSubId). SKU data is tenant-wide; quotas are per-sub."
-    }
-    @($ctxSubId)
-} else {
-    $TargetSubIds
-}
+$ScanSubIds = $TargetSubIds
 
 # Outer try/finally ensures Az context is restored even if Ctrl+C or PipelineStoppedException
 # interrupts parallel scanning, results processing, or export
@@ -1945,16 +1940,21 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
     # Pre-build indexes for O(1) lookups during the lifecycle loop
     $lcSkuIndex = @{}       # "SKUName|region" → raw SKU object (for .Family quota key)
-    $lcQuotaIndex = @{}     # "region" → hashtable of quota name → quota object
+    $lcQuotaIndex = @{}     # "region" → hashtable of quota name → quota object (first-sub wins for risk assessment)
+    $lcPerSubQuota = @{}    # "subId|region" → hashtable of quota name → quota object (per-sub for SubMap/RGMap)
     foreach ($subData in $allSubscriptionData) {
+        $subId = $subData.SubscriptionId
         foreach ($rd in $subData.RegionData) {
             if ($rd.Error) { continue }
             $regionKey = [string]$rd.Region
+            $qLookup = @{}
+            foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
+            # First-sub-wins for the flat index used by risk assessment
             if (-not $lcQuotaIndex.ContainsKey($regionKey)) {
-                $qLookup = @{}
-                foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
                 $lcQuotaIndex[$regionKey] = $qLookup
             }
+            # Per-sub index for SubMap/RGMap quota columns
+            $lcPerSubQuota["$subId|$regionKey"] = $qLookup
             foreach ($sku in $rd.Skus) {
                 $skuRegionKey = "$($sku.Name)|$regionKey"
                 if (-not $lcSkuIndex.ContainsKey($skuRegionKey)) {
@@ -2055,7 +2055,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             }
 
             # Quota analysis for target SKU: use pre-built indexes for O(1) lookup
-            $targetQuotaStatus = '-'
             $targetQuotaAvail = $null
             $quotaInsufficient = $false
             if (-not $NoQuota) {
@@ -2070,7 +2069,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         $qi = Get-QuotaAvailable -QuotaLookup $regionQuotas -SkuFamily $rawSku.Family -RequiredvCPUs $requiredvCPUs
                         if ($null -ne $qi.Available) {
                             $targetQuotaAvail = $qi
-                            $targetQuotaStatus = "$($qi.Current)/$($qi.Limit) (avail: $($qi.Available))"
                             if (-not $qi.OK) { $quotaInsufficient = $true }
                         }
                     }
@@ -2369,12 +2367,18 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 }
             }
 
+            # Detect sovereign/GOV regions where Savings Plans are not supported
+            $isSovereignRegion = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud') -or
+                ($deployedRegion -and $deployedRegion -match '^(usgov|usdod|usnat|ussec|china|germany)')
+
             # Look up savings plan and reservation pricing maps for this region
             $sp1YrMap = @{}; $sp3YrMap = @{}; $ri1YrMap = @{}; $ri3YrMap = @{}
             if ($RateOptimization -and $FetchPricing -and $deployedRegion -and $script:RunContext.RegionPricing[$deployedRegion]) {
                 $regionContainer = $script:RunContext.RegionPricing[$deployedRegion]
-                $sp1YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '1Yr'
-                $sp3YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                if (-not $isSovereignRegion) {
+                    $sp1YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '1Yr'
+                    $sp3YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                }
                 $ri1YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '1Yr'
                 $ri3YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '3Yr'
             }
@@ -2390,7 +2394,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     Generation       = "v$generation"
                     RiskLevel        = $riskLevel
                     RiskReasons      = ($riskReasons -join '; ')
-                    QuotaStatus      = $targetQuotaStatus
                     MatchType        = '-'
                     TopAlternative   = if ($riskLevel -eq 'Low') { 'N/A' } elseif ($isQuotaOnlyCurrentGen) { 'Request quota increase' } else { '-' }
                     AltScore         = ''
@@ -2399,13 +2402,12 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     DiskDelta        = '-'
                     IopsDelta        = '-'
                     AltCapacity      = '-'
-                    AltQuotaStatus   = '-'
                     PriceDiff        = '-'
                     TotalPriceDiff   = '-'
                     PAYG1Yr          = '-'
                     PAYG3Yr          = '-'
-                    SP1YrSavings     = '-'
-                    SP3YrSavings     = '-'
+                    SP1YrSavings     = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    SP3YrSavings     = if ($isSovereignRegion) { 'N/A' } else { '-' }
                     RI1YrSavings     = '-'
                     RI3YrSavings     = '-'
                     AlternativeCount = 0
@@ -2416,25 +2418,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $isFirstRow = $true
                 foreach ($sel in $selectedRecs) {
                     $rec = $sel.Rec
-                    # Quota lookup for this specific alternative
-                    $thisAltQuota = '-'
-                    if (-not $NoQuota) {
-                        $lookupRegions = if ($deployedRegion) { @($deployedRegion) } else { @($lcQuotaIndex.Keys) }
-                        foreach ($qRegion in $lookupRegions) {
-                            $altRawSku = $lcSkuIndex["$($rec.sku)|$qRegion"]
-                            if ($altRawSku) {
-                                $regionQuotas = $lcQuotaIndex[$qRegion]
-                                if ($regionQuotas) {
-                                    $altRequiredvCPUs = $entryQty * [int]$rec.vCPU
-                                    $altQi = Get-QuotaAvailable -QuotaLookup $regionQuotas -SkuFamily $altRawSku.Family -RequiredvCPUs $altRequiredvCPUs
-                                    if ($null -ne $altQi.Available) {
-                                        $thisAltQuota = "$($altQi.Current)/$($altQi.Limit) (avail: $($altQi.Available))"
-                                        break
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     # Calculate price difference for this alternative
                     $priceDiffStr = '-'
@@ -2453,14 +2436,18 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     }
 
                     # Look up savings plan and reservation savings vs PAYG fleet total
-                    $sp1YrSavingsStr = '-'; $sp3YrSavingsStr = '-'; $ri1YrSavingsStr = '-'; $ri3YrSavingsStr = '-'
+                    $sp1YrSavingsStr = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    $sp3YrSavingsStr = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    $ri1YrSavingsStr = '-'; $ri3YrSavingsStr = '-'
                     if ($RateOptimization -and $FetchPricing -and $null -ne $rec.priceMo) {
                         $recPaygFleet1Yr = [double]$rec.priceMo * 12 * $entryQty
                         $recPaygFleet3Yr = [double]$rec.priceMo * 36 * $entryQty
-                        $sp1Entry = $sp1YrMap[$rec.sku]
-                        if ($sp1Entry) { $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty; $sp1Savings = $recPaygFleet1Yr - $sp1Fleet; $sp1YrSavingsStr = '$' + $sp1Savings.ToString('N0') }
-                        $sp3Entry = $sp3YrMap[$rec.sku]
-                        if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
+                        if (-not $isSovereignRegion) {
+                            $sp1Entry = $sp1YrMap[$rec.sku]
+                            if ($sp1Entry) { $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty; $sp1Savings = $recPaygFleet1Yr - $sp1Fleet; $sp1YrSavingsStr = '$' + $sp1Savings.ToString('N0') }
+                            $sp3Entry = $sp3YrMap[$rec.sku]
+                            if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
+                        }
                         $ri1Entry = $ri1YrMap[$rec.sku]
                         if ($ri1Entry) { $ri1Fleet = [double]$ri1Entry.Total * $entryQty; $ri1Savings = $recPaygFleet1Yr - $ri1Fleet; $ri1YrSavingsStr = '$' + $ri1Savings.ToString('N0') }
                         $ri3Entry = $ri3YrMap[$rec.sku]
@@ -2568,7 +2555,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         Generation       = if ($isFirstRow) { "v$generation" } else { '' }
                         RiskLevel        = if ($isFirstRow) { $riskLevel } else { '' }
                         RiskReasons      = if ($isFirstRow) { ($riskReasons -join '; ') } else { '' }
-                        QuotaStatus      = if ($isFirstRow) { $targetQuotaStatus } else { '' }
                         MatchType        = $sel.MatchType
                         TopAlternative   = $rec.sku
                         AltScore         = if ($rec.score -is [ValueType] -and $rec.score -isnot [bool]) { "$([int]$rec.score)%" } else { '' }
@@ -2577,7 +2563,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         DiskDelta        = $diskDeltaStr
                         IopsDelta        = $iopsDeltaStr
                         AltCapacity      = $rec.capacity
-                        AltQuotaStatus   = $thisAltQuota
                         PriceDiff        = $priceDiffStr
                         TotalPriceDiff   = $totalDiffStr
                         PAYG1Yr          = $payg1YrStr
@@ -2606,25 +2591,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
         Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
         Write-Host ""
 
-        if ($NoQuota) {
-            if ($FetchPricing) {
-                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8} {15,-10} {16,-12}"
-                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Price Diff', 'Total') -ForegroundColor White
-            }
-            else {
-                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8}"
-                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-') -ForegroundColor White
-            }
+        # Lifecycle console: quota columns moved to SubMap/RGMap tabs
+        if ($FetchPricing) {
+            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8} {15,-10} {16,-12}"
+            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Price Diff', 'Total') -ForegroundColor White
         }
         else {
-            if ($FetchPricing) {
-                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-22} {8,-33} {9,-24} {10,-26} {11,-6} {12,-5} {13,-5} {14,-7} {15,-8} {16,-10} {17,-10} {18,-12}"
-                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Quota (used/limit)', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Alt Quota', 'Price Diff', 'Total') -ForegroundColor White
-            }
-            else {
-                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-22} {8,-33} {9,-24} {10,-26} {11,-6} {12,-5} {13,-5} {14,-7} {15,-8} {16,-10}"
-                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Quota (used/limit)', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Alt Quota') -ForegroundColor White
-            }
+            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8}"
+            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-') -ForegroundColor White
         }
         Write-Host (' ' + ('-' * ($script:OutputWidth - 2))) -ForegroundColor DarkGray
 
@@ -2642,12 +2616,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             else {
                 $riskColor = $lastSeenRiskColor
             }
-            if ($NoQuota) {
-                [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta)
-            }
-            else {
-                [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.QuotaStatus, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta, $r.AltQuotaStatus)
-            }
+            [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta)
             if ($FetchPricing) { $fmtArgs += @($r.PriceDiff, $r.TotalPriceDiff) }
             $line = $sumFmt -f $fmtArgs
             Write-Host $line -ForegroundColor $riskColor
@@ -2734,36 +2703,19 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 ) + $rateOptCols
             } else { @() }
 
-            if ($NoQuota) {
-                $lcProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
-                $riskColLetter = 'G'
-                $altColLetter = 'J'
-                $riskReasonsColNum = 8
-            }
-            else {
-                $lcProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Quota (Used/Limit)';E={$_.QuotaStatus}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}},
-                    @{N='Alt Quota';E={$_.AltQuotaStatus}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
-                $riskColLetter = 'G'
-                $altColLetter = 'K'
-                $riskReasonsColNum = 8
-            }
+            # Lifecycle Summary: quota columns moved to SubMap/RGMap tabs
+            $lcProps = @(
+                @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E={$_.RiskReasons}},
+                @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
+            ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+            $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
+            $riskColLetter = 'G'
+            $altColLetter = 'J'
+            $riskReasonsColNum = 8
 
             $excel = $lcExportRows | Export-Excel -Path $lcXlsxFile -WorksheetName "Lifecycle Summary" -AutoSize -AutoFilter -FreezeTopRow -PassThru
 
@@ -2858,30 +2810,15 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
             #region Risk Breakdown Sheet
             $highBase = @($lifecycleResults | Where-Object { $_._ParentRisk -eq 'High' })
-            if ($NoQuota) {
-                $hrProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $highRows = @($highBase | Select-Object -Property $hrProps)
-            }
-            else {
-                $hrProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Quota (Used/Limit)';E={$_.QuotaStatus}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}},
-                    @{N='Alt Quota';E={$_.AltQuotaStatus}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $highRows = @($highBase | Select-Object -Property $hrProps)
-            }
+            $hrProps = @(
+                @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                @{N='Risk Reasons';E={$_.RiskReasons}},
+                @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
+            ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+            $highRows = @($highBase | Select-Object -Property $hrProps)
 
             if ($highRows.Count -gt 0) {
                 $excel = $highRows | Export-Excel -ExcelPackage $excel -WorksheetName "High Risk" -AutoSize -AutoFilter -FreezeTopRow -PassThru
@@ -2903,30 +2840,15 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             }
 
             $medBase = @($lifecycleResults | Where-Object { $_._ParentRisk -eq 'Medium' })
-            if ($NoQuota) {
-                $mrProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $medRows = @($medBase | Select-Object -Property $mrProps)
-            }
-            else {
-                $mrProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Quota (Used/Limit)';E={$_.QuotaStatus}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}},
-                    @{N='Alt Quota';E={$_.AltQuotaStatus}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $medRows = @($medBase | Select-Object -Property $mrProps)
-            }
+            $mrProps = @(
+                @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                @{N='Risk Reasons';E={$_.RiskReasons}},
+                @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
+            ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+            $medRows = @($medBase | Select-Object -Property $mrProps)
 
             if ($medRows.Count -gt 0) {
                 $excel = $medRows | Export-Excel -ExcelPackage $excel -WorksheetName "Medium Risk" -AutoSize -AutoFilter -FreezeTopRow -PassThru
@@ -2977,6 +2899,22 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     $props['Qty']         = $mapRow.Qty
                     $props['RiskLevel']   = if ($risk) { $risk.RiskLevel } else { 'Low' }
                     $props['RiskReasons'] = if ($risk) { $risk.RiskReasons } else { '' }
+                    # Per-subscription quota lookup
+                    if (-not $NoQuota) {
+                        $quotaStr = '-'
+                        $subQuotas = $lcPerSubQuota["$($mapRow.SubscriptionId)|$($mapRow.Region)"]
+                        if ($subQuotas) {
+                            $rawSku = $lcSkuIndex[$rKey]
+                            if ($rawSku) {
+                                $skuVcpu = [int](Get-CapValue $rawSku 'vCPUs')
+                                $qi = Get-QuotaAvailable -QuotaLookup $subQuotas -SkuFamily $rawSku.Family -RequiredvCPUs ([int]$mapRow.Qty * $skuVcpu)
+                                if ($null -ne $qi.Available) {
+                                    $quotaStr = "$($qi.Current)/$($qi.Limit) (avail: $($qi.Available))"
+                                }
+                            }
+                        }
+                        $props['Quota (Used/Limit)'] = $quotaStr
+                    }
                     $enriched.Add([pscustomobject]$props)
                 }
                 $excel = $enriched | Export-Excel -ExcelPackage $excel -WorksheetName $sheetName -AutoSize -AutoFilter -FreezeTopRow -PassThru
@@ -2988,8 +2926,9 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $mapHeader.Style.Font.Color.SetColor([System.Drawing.Color]::White)
                 $mapHeader.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
                 $mapHeader.Style.Fill.BackgroundColor.SetColor($headerBlue)
-                $riskColNum = if ($hasRG) { 7 } else { 6 }
-                $riskColLtr = ConvertTo-ExcelColumnLetter $riskColNum
+                # RiskLevel column position depends on RG column and Quota column presence
+                $riskColBase = if ($hasRG) { 7 } else { 6 }
+                $riskColLtr = ConvertTo-ExcelColumnLetter $riskColBase
                 for ($row = 2; $row -le $mapLastRow; $row++) {
                     $rowRange = $wsMap.Cells["A$row`:$(ConvertTo-ExcelColumnLetter $mapLastCol)$row"]
                     $rowRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
@@ -3031,10 +2970,10 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             if ($highRows.Count -gt 0) { $sheetList += ", High Risk" }
             if ($medRows.Count -gt 0) { $sheetList += ", Medium Risk" }
             if ($SubMap -and $subMapRows -and $subMapRows.Count -gt 0) {
-                $sheetList += ", Subscription Map"
+                $sheetList += ", Subscription Map (incl. quota)"
             }
             if ($RGMap -and $rgMapRows -and $rgMapRows.Count -gt 0) {
-                $sheetList += ", Resource Group Map"
+                $sheetList += ", Resource Group Map (incl. quota)"
             }
             Write-Host "  Sheets: $sheetList" -ForegroundColor Cyan
         }
