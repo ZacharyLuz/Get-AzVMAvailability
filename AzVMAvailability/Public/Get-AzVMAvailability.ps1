@@ -1608,31 +1608,53 @@ $ScanSubIds = $TargetSubIds
 $scanStartTime = Get-Date
 try {
     try {
-        foreach ($subId in $ScanSubIds) {
-        $subscriptionScanStartTime = Get-Date
-        try {
-            Use-SubscriptionContextSafely -SubscriptionId $subId | Out-Null
-        }
-        catch {
-            Write-Warning "Failed to switch Azure context to subscription '$subId': $($_.Exception.Message)"
-            continue
-        }
+        # Single bearer token for the entire scan — REST URIs embed the subscription ID
+        # in the URL path, so no Az context switching is needed per subscription.
+        $armUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
+        $armUrl = $armUrl.TrimEnd('/')
+        $tokenResult = Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop
+        $bearerToken = if ($tokenResult.Token -is [System.Security.SecureString]) {
+            [System.Net.NetworkCredential]::new('', $tokenResult.Token).Password
+        } else { $tokenResult.Token }
 
-        $subName = (Get-AzSubscription -SubscriptionId $subId | Select-Object -First 1).Name
-        Write-Host "[$subName] Scanning $($Regions.Count) region(s)..." -ForegroundColor Yellow
-
-        # Progress indicator for parallel scanning
-        $regionCount = $Regions.Count
-        Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $regionCount region(s) in parallel..." -PercentComplete 0
+        # Resolve subscription names in one ARG batch query (avoids per-sub Get-AzSubscription calls)
+        $subNameLookup = @{}
+        if ($ScanSubIds.Count -gt 0) {
+            try {
+                $quotedIds = $ScanSubIds | ForEach-Object { "'$_'" }
+                $subFilter = $quotedIds -join ','
+                $subQuery = "ResourceContainers | where type =~ 'microsoft.resources/subscriptions' | where subscriptionId in~ ($subFilter) | project subscriptionId, name"
+                $subQueryParams = @{ Query = $subQuery; First = 1000 }
+                if ($ManagementGroup) { $subQueryParams['ManagementGroup'] = $ManagementGroup }
+                $subResults = Search-AzGraph @subQueryParams
+                foreach ($s in $subResults) { $subNameLookup[[string]$s.subscriptionId] = $s.name }
+            }
+            catch {
+                Write-Verbose "Could not batch-resolve subscription names via ARG: $_"
+            }
+        }
 
         # Shared retry error pattern for all scan paths
         $retryErrorPattern = '429|Too Many Requests|500|Internal Server Error|InternalServerError|503|ServiceUnavailable|Service Unavailable'
 
+        # Build work items: every (subscription × region) pair scanned in parallel
+        $workItems = [System.Collections.Generic.List[hashtable]]::new()
+        foreach ($wSubId in $ScanSubIds) {
+            foreach ($wRegion in $Regions) {
+                $workItems.Add(@{ SubscriptionId = [string]$wSubId; Region = [string]$wRegion })
+            }
+        }
+
+        $totalItems = $workItems.Count
+        Write-Host "Scanning $($ScanSubIds.Count) subscription(s) x $($Regions.Count) region(s) = $totalItems work items..." -ForegroundColor Yellow
+        Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $totalItems sub x region pairs in parallel..." -PercentComplete 0
+
+        # Sequential scan scriptblock — used as fallback for PS5 and for retrying failed items.
+        # Accepts $itemSubId and $region as parameters; token and armUrl from enclosing scope.
         $scanRegionScript = {
-            param($region, $skuFilterCopy, $maxRetries, $armUrl, $bearerToken, $retryPattern, $skipQuota)
+            param($itemSubId, $region, $skuFilterCopy, $maxRetries, $armUrl, $bearerToken, $retryPattern, $skipQuota)
             $boundRetryPattern = $retryPattern
 
-            # Inline retry — parallel runspaces cannot see script-scope functions
             $retryCall = {
                 param([scriptblock]$Action, [int]$Retries)
                 $attempt = 0
@@ -1658,10 +1680,9 @@ try {
             try {
                 $headers = @{ 'Authorization' = "Bearer $bearerToken"; 'Content-Type' = 'application/json' }
 
-                $skuUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
-                $quotaUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
+                $skuUri = "$armUrl/subscriptions/$itemSubId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
+                $quotaUri = "$armUrl/subscriptions/$itemSubId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
 
-                # Fetch SKUs with pagination
                 $skuResult = [System.Collections.Generic.List[object]]::new()
                 $nextLink = $skuUri
                 while ($nextLink) {
@@ -1671,64 +1692,52 @@ try {
                     $nextLink = $resp.nextLink
                 }
 
-                # Fetch quotas
                 $capturedQuotaUri = $quotaUri
                 $quotaResp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedQuotaUri -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
                 $quotaResult = $quotaResp.value
 
-                # Filter to virtualMachines only
                 $allSkus = @($skuResult | Where-Object { $_.resourceType -eq 'virtualMachines' })
 
-                # Apply SKU filter if specified
                 if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
                     $allSkus = @($allSkus | Where-Object {
                         $skuName = $_.name
                         $isMatch = $false
                         foreach ($pattern in $skuFilterCopy) {
-                            if ($skuName -like $pattern) {
-                                $isMatch = $true
-                                break
-                            }
+                            if ($skuName -like $pattern) { $isMatch = $true; break }
                         }
                         $isMatch
                     })
                 }
 
-                # Normalize REST response objects to match cmdlet output shape
                 $normalizedSkus = foreach ($sku in $allSkus) { ConvertFrom-RestSku -RestSku $sku }
                 $normalizedQuotas = if ($skipQuota) { @() } else {
                     foreach ($q in $quotaResult) { ConvertFrom-RestQuota -RestQuota $q }
                 }
 
-                @{ Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
+                @{ SubscriptionId = [string]$itemSubId; Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
             }
             catch {
-                @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                @{ SubscriptionId = [string]$itemSubId; Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
             }
         }
 
-        # Get bearer token for REST calls
-        $armUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
-        $armUrl = $armUrl.TrimEnd('/')
-        $tokenResult = Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop
-        $bearerToken = if ($tokenResult.Token -is [System.Security.SecureString]) {
-            [System.Net.NetworkCredential]::new('', $tokenResult.Token).Password
-        } else { $tokenResult.Token }
-
         $canUseParallel = $PSVersionTable.PSVersion.Major -ge 7
+        $allScanResults = @()
+
         if ($canUseParallel) {
             try {
-                $regionData = $Regions | ForEach-Object -Parallel {
-                    $region = [string]$_
+                $allScanResults = $workItems | ForEach-Object -Parallel {
+                    $item = $_
+                    $subId = $item.SubscriptionId
+                    $region = $item.Region
                     $skuFilterCopy = $using:SkuFilter
                     $maxRetries = $using:MaxRetries
                     $armUrl = $using:armUrl
                     $bearerToken = $using:bearerToken
-                    $subId = $using:subId
                     $retryPattern = $using:retryErrorPattern
                     $skipQuota = $using:NoQuota.IsPresent
 
-                    # Inline retry — parallel runspaces cannot see script-scope functions or external scriptblocks
+                    # Inline retry — parallel runspaces cannot see script-scope functions
                     $retryCall = {
                         param([scriptblock]$Action, [int]$Retries)
                         $attempt = 0
@@ -1757,7 +1766,7 @@ try {
                         $skuUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
                         $quotaUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
 
-                        # Concurrent first-page fetch: HttpClient fires SKU + quota in parallel
+                        # Concurrent SKU + quota fetch via HttpClient
                         $client = [System.Net.Http.HttpClient]::new()
                         $client.DefaultRequestHeaders.TryAddWithoutValidation('Authorization', "Bearer $bearerToken") | Out-Null
                         $skuTask   = $client.GetStringAsync($skuUri)
@@ -1772,18 +1781,17 @@ try {
                         $quotaJson = $quotaTask.Result | ConvertFrom-Json
 
                         $skuItems = [System.Collections.Generic.List[object]]::new()
-                        foreach ($item in $skuJson.value) { $skuItems.Add($item) }
+                        foreach ($skuItem in $skuJson.value) { $skuItems.Add($skuItem) }
 
-                        # Paginate remaining SKU pages sequentially
+                        # Paginate remaining SKU pages
                         $nextLink = $skuJson.nextLink
                         while ($nextLink) {
                             $capturedUri = $nextLink
                             $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedUri -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
-                            foreach ($item in $resp.value) { $skuItems.Add($item) }
+                            foreach ($skuItem in $resp.value) { $skuItems.Add($skuItem) }
                             $nextLink = $resp.nextLink
                         }
 
-                        # Filter to virtualMachines
                         $allSkus = @($skuItems | Where-Object { $_.resourceType -eq 'virtualMachines' })
 
                         if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
@@ -1791,10 +1799,7 @@ try {
                                 $skuName = $_.name
                                 $isMatch = $false
                                 foreach ($pattern in $skuFilterCopy) {
-                                    if ($skuName -like $pattern) {
-                                        $isMatch = $true
-                                        break
-                                    }
+                                    if ($skuName -like $pattern) { $isMatch = $true; break }
                                 }
                                 $isMatch
                             })
@@ -1853,47 +1858,63 @@ try {
                             }
                         }
 
-                        @{ Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
+                        @{ SubscriptionId = [string]$subId; Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
                     }
                     catch {
-                        @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                        @{ SubscriptionId = [string]$subId; Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
                     }
-                } -ThrottleLimit $ParallelThrottleLimit
+                } -ThrottleLimit ($ParallelThrottleLimit * 2)
             }
             catch {
-                Write-Warning "Parallel region scan failed: $($_.Exception.Message)"
+                Write-Warning "Parallel scan failed: $($_.Exception.Message)"
                 Write-Warning "Falling back to sequential scan mode for compatibility."
                 $canUseParallel = $false
             }
         }
 
         if (-not $canUseParallel) {
-            $regionData = foreach ($region in $Regions) {
-                & $scanRegionScript -region ([string]$region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern -skipQuota $NoQuota.IsPresent
+            $allScanResults = foreach ($wi in $workItems) {
+                & $scanRegionScript -itemSubId $wi.SubscriptionId -region $wi.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern -skipQuota $NoQuota.IsPresent
             }
         }
 
-        # Retry failed regions sequentially (parallel pressure may have caused throttling)
-        $failedRegions = @($regionData | Where-Object { $_.Error })
-        if ($failedRegions.Count -gt 0) {
-            $regionNames = @($failedRegions | ForEach-Object { $_.Region }) -join ', '
-            Write-Warning "Retrying $($failedRegions.Count) failed region(s) sequentially: $regionNames"
+        # Retry failed work items sequentially (parallel pressure may have caused throttling)
+        $failedItems = @($allScanResults | Where-Object { $_.Error })
+        if ($failedItems.Count -gt 0) {
+            $failedDesc = @($failedItems | ForEach-Object { "$($_.SubscriptionId):$($_.Region)" }) -join ', '
+            Write-Warning "Retrying $($failedItems.Count) failed work item(s) sequentially: $failedDesc"
             $successfulData = [System.Collections.Generic.List[object]]::new()
-            foreach ($rd in $regionData) {
-                if (-not $rd.Error) { $successfulData.Add($rd) }
+            foreach ($sr in $allScanResults) {
+                if (-not $sr.Error) { $successfulData.Add($sr) }
             }
-            foreach ($failedRd in $failedRegions) {
-                Write-Verbose "Retry: $($failedRd.Region) (original error: $($failedRd.Error))"
-                $retryResult = & $scanRegionScript -region ([string]$failedRd.Region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern -skipQuota $NoQuota.IsPresent
+            foreach ($failedItem in $failedItems) {
+                Write-Verbose "Retry: $($failedItem.SubscriptionId) / $($failedItem.Region) (original error: $($failedItem.Error))"
+                $retryResult = & $scanRegionScript -itemSubId $failedItem.SubscriptionId -region $failedItem.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern -skipQuota $NoQuota.IsPresent
                 if ($retryResult.Error) {
-                    Write-Warning "Region '$($failedRd.Region)' failed after retry: $($retryResult.Error) — data excluded from analysis"
+                    Write-Warning "Work item '$($failedItem.SubscriptionId):$($failedItem.Region)' failed after retry: $($retryResult.Error) — data excluded from analysis"
                 }
                 else {
-                    Write-Host "  Retry succeeded: $($failedRd.Region) ($($retryResult.Skus.Count) SKUs, $($retryResult.Quotas.Count) quotas)" -ForegroundColor Green
+                    $subLabel = if ($subNameLookup[$failedItem.SubscriptionId]) { $subNameLookup[$failedItem.SubscriptionId] } else { $failedItem.SubscriptionId }
+                    Write-Host "  Retry succeeded: $subLabel / $($failedItem.Region) ($($retryResult.Skus.Count) SKUs, $($retryResult.Quotas.Count) quotas)" -ForegroundColor Green
                 }
                 $successfulData.Add($retryResult)
             }
-            $regionData = $successfulData.ToArray()
+            $allScanResults = $successfulData.ToArray()
+        }
+
+        # Regroup parallel results by subscription into the $allSubscriptionData structure
+        $groupedBySub = $allScanResults | Group-Object -Property { $_['SubscriptionId'] }
+        foreach ($group in $groupedBySub) {
+            $gSubId = $group.Name
+            $gSubName = if ($subNameLookup[$gSubId]) { $subNameLookup[$gSubId] } else { $gSubId }
+            $regionData = @($group.Group | ForEach-Object {
+                @{ Region = $_['Region']; Skus = $_['Skus']; Quotas = $_['Quotas']; Error = $_['Error'] }
+            })
+            $allSubscriptionData += @{
+                SubscriptionId   = $gSubId
+                SubscriptionName = $gSubName
+                RegionData       = $regionData
+            }
         }
 
         # Zero out bearer token after use
@@ -1901,20 +1922,13 @@ try {
 
         Write-Progress -Activity "Scanning Azure Regions" -Completed
 
-        $scanElapsed = (Get-Date) - $subscriptionScanStartTime
-        Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
-
-        $allSubscriptionData += @{
-            SubscriptionId   = $subId
-            SubscriptionName = $subName
-            RegionData       = $regionData
-        }
+        $scanElapsed = (Get-Date) - $scanStartTime
+        Write-Host "Scan complete: $($ScanSubIds.Count) subscription(s) x $($Regions.Count) region(s) in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
     }
-}
-catch {
-    Write-Verbose "Scan loop interrupted: $($_.Exception.Message)"
-    throw
-}
+    catch {
+        Write-Verbose "Scan loop interrupted: $($_.Exception.Message)"
+        throw
+    }
 
 #endregion Data Collection
 #region Inventory Readiness
@@ -1942,6 +1956,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
     $lcSkuIndex = @{}       # "SKUName|region" → raw SKU object (for .Family quota key)
     $lcQuotaIndex = @{}     # "region" → hashtable of quota name → quota object (first-sub wins for risk assessment)
     $lcPerSubQuota = @{}    # "subId|region" → hashtable of quota name → quota object (per-sub for SubMap/RGMap)
+    $lcPerSubRestriction = @{} # "subId|SKUName|region" → restriction status string (per-sub for SubMap/RGMap)
     foreach ($subData in $allSubscriptionData) {
         $subId = $subData.SubscriptionId
         foreach ($rd in $subData.RegionData) {
@@ -1960,6 +1975,9 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 if (-not $lcSkuIndex.ContainsKey($skuRegionKey)) {
                     $lcSkuIndex[$skuRegionKey] = $sku
                 }
+                # Per-sub restriction status for SubMap/RGMap
+                $restrictions = Get-RestrictionDetails $sku
+                $lcPerSubRestriction["$subId|$skuRegionKey"] = $restrictions.Status
             }
         }
     }

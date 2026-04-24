@@ -41,7 +41,10 @@ function Invoke-RecommendMode {
     )
 
     $targetSku = $null
-    $targetRegionStatus = @()
+    # Deduplicate region status across subscriptions — keep the best (most permissive) status per region.
+    # Per-subscription detail is captured in SubMap/RGMap tabs; the summary shows the region-level picture.
+    $statusRank = @{ 'OK' = 0; 'PARTIAL' = 1; 'CAPACITY-CONSTRAINED' = 2; 'LIMITED' = 3; 'RESTRICTED' = 4; 'BLOCKED' = 5 }
+    $regionBest = @{}   # region → best [pscustomobject] seen so far
 
     foreach ($subData in $SubscriptionData) {
         foreach ($data in $subData.RegionData) {
@@ -50,16 +53,22 @@ function Invoke-RecommendMode {
             foreach ($sku in $data.Skus) {
                 if ($sku.Name -eq $TargetSkuName) {
                     $restrictions = Get-RestrictionDetails $sku
-                    $targetRegionStatus += [pscustomobject]@{
+                    $entry = [pscustomobject]@{
                         Region  = [string]$region
                         Status  = $restrictions.Status
                         ZonesOK = $restrictions.ZonesOK.Count
+                    }
+                    $prev = $regionBest[$region]
+                    if (-not $prev -or $statusRank[$restrictions.Status] -lt $statusRank[$prev.Status]) {
+                        $regionBest[$region] = $entry
                     }
                     if (-not $targetSku) { $targetSku = $sku }
                 }
             }
         }
     }
+
+    $targetRegionStatus = @($regionBest.Values)
 
     if (-not $targetSku) {
         Write-Host "`nSKU '$TargetSkuName' was not found in any scanned region." -ForegroundColor Red
