@@ -1724,6 +1724,9 @@ try {
         $canUseParallel = $PSVersionTable.PSVersion.Major -ge 7
         $allScanResults = @()
 
+        # Thread-safe counter for parallel progress reporting
+        $scanCounter = [System.Collections.Concurrent.ConcurrentDictionary[string,byte]]::new()
+
         if ($canUseParallel) {
             try {
                 $allScanResults = $workItems | ForEach-Object -Parallel {
@@ -1736,6 +1739,8 @@ try {
                     $bearerToken = $using:bearerToken
                     $retryPattern = $using:retryErrorPattern
                     $skipQuota = $using:NoQuota.IsPresent
+                    $counter = $using:scanCounter
+                    $total = $using:totalItems
 
                     # Inline retry — parallel runspaces cannot see script-scope functions
                     $retryCall = {
@@ -1858,11 +1863,18 @@ try {
                             }
                         }
 
-                        @{ SubscriptionId = [string]$subId; Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
+                        $result = @{ SubscriptionId = [string]$subId; Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
                     }
                     catch {
-                        @{ SubscriptionId = [string]$subId; Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                        $result = @{ SubscriptionId = [string]$subId; Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
                     }
+
+                    # Progress: track completed work items
+                    $counter.TryAdd("$subId|$region", 0) | Out-Null
+                    $done = $counter.Count
+                    $pct = [math]::Min(100, [math]::Floor(($done / $total) * 100))
+                    Write-Progress -Activity "Scanning Azure Regions" -Status "$done / $total work items complete" -PercentComplete $pct
+                    $result
                 } -ThrottleLimit ($ParallelThrottleLimit * 2)
             }
             catch {
@@ -1902,11 +1914,21 @@ try {
             $allScanResults = $successfulData.ToArray()
         }
 
-        # Regroup parallel results by subscription into the $allSubscriptionData structure
+        # Pre-declare lifecycle indexes so they are populated during regrouping (single pass)
+        $needLifecycleIndexes = ($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count -gt 0
+        $lcSkuIndex = @{}            # "SKUName|region" → raw SKU object (for .Family quota key)
+        $lcQuotaIndex = @{}          # "region" → hashtable of quota name → quota object (first-sub wins for risk assessment)
+        $lcPerSubQuota = @{}         # "subId|region" → hashtable of quota name → quota object (per-sub for SubMap/RGMap)
+        $lcPerSubRestriction = @{}   # "subId|SKUName|region" → restriction status string (per-sub for SubMap/RGMap)
+
+        # Regroup parallel results by subscription into $allSubscriptionData AND build lifecycle indexes
         $groupedBySub = $allScanResults | Group-Object -Property { $_['SubscriptionId'] }
+        $subGroupIndex = 0
+        $subGroupTotal = @($groupedBySub).Count
         foreach ($group in $groupedBySub) {
             $gSubId = $group.Name
             $gSubName = if ($subNameLookup[$gSubId]) { $subNameLookup[$gSubId] } else { $gSubId }
+            $subGroupIndex++
             $regionData = @($group.Group | ForEach-Object {
                 @{ Region = $_['Region']; Skus = $_['Skus']; Quotas = $_['Quotas']; Error = $_['Error'] }
             })
@@ -1915,6 +1937,34 @@ try {
                 SubscriptionName = $gSubName
                 RegionData       = $regionData
             }
+
+            # Build lifecycle indexes inline — avoids a second full iteration
+            if ($needLifecycleIndexes) {
+                foreach ($rd in $regionData) {
+                    if ($rd.Error) { continue }
+                    $regionKey = [string]$rd.Region
+                    $qLookup = @{}
+                    foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
+                    if (-not $lcQuotaIndex.ContainsKey($regionKey)) {
+                        $lcQuotaIndex[$regionKey] = $qLookup
+                    }
+                    $lcPerSubQuota["$gSubId|$regionKey"] = $qLookup
+                    foreach ($sku in $rd.Skus) {
+                        $skuRegionKey = "$($sku.Name)|$regionKey"
+                        if (-not $lcSkuIndex.ContainsKey($skuRegionKey)) {
+                            $lcSkuIndex[$skuRegionKey] = $sku
+                        }
+                        $restrictions = Get-RestrictionDetails $sku
+                        $lcPerSubRestriction["$gSubId|$skuRegionKey"] = $restrictions.Status
+                    }
+                }
+            }
+
+            # Per-subscription progress line
+            $subSkuCount = ($regionData | ForEach-Object { $_.Skus.Count } | Measure-Object -Sum).Sum
+            $subErrCount = @($regionData | Where-Object { $_.Error }).Count
+            $errLabel = if ($subErrCount -gt 0) { ", $subErrCount region error(s)" } else { '' }
+            Write-Host "  [$subGroupIndex/$subGroupTotal] $gSubName — $subSkuCount SKUs across $($regionData.Count) region(s)$errLabel" -ForegroundColor DarkGray
         }
 
         # Zero out bearer token after use
@@ -1952,35 +2002,8 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
     $lifecycleResults = [System.Collections.Generic.List[PSCustomObject]]::new()
     $skuIndex = 0
 
-    # Pre-build indexes for O(1) lookups during the lifecycle loop
-    $lcSkuIndex = @{}       # "SKUName|region" → raw SKU object (for .Family quota key)
-    $lcQuotaIndex = @{}     # "region" → hashtable of quota name → quota object (first-sub wins for risk assessment)
-    $lcPerSubQuota = @{}    # "subId|region" → hashtable of quota name → quota object (per-sub for SubMap/RGMap)
-    $lcPerSubRestriction = @{} # "subId|SKUName|region" → restriction status string (per-sub for SubMap/RGMap)
-    foreach ($subData in $allSubscriptionData) {
-        $subId = $subData.SubscriptionId
-        foreach ($rd in $subData.RegionData) {
-            if ($rd.Error) { continue }
-            $regionKey = [string]$rd.Region
-            $qLookup = @{}
-            foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
-            # First-sub-wins for the flat index used by risk assessment
-            if (-not $lcQuotaIndex.ContainsKey($regionKey)) {
-                $lcQuotaIndex[$regionKey] = $qLookup
-            }
-            # Per-sub index for SubMap/RGMap quota columns
-            $lcPerSubQuota["$subId|$regionKey"] = $qLookup
-            foreach ($sku in $rd.Skus) {
-                $skuRegionKey = "$($sku.Name)|$regionKey"
-                if (-not $lcSkuIndex.ContainsKey($skuRegionKey)) {
-                    $lcSkuIndex[$skuRegionKey] = $sku
-                }
-                # Per-sub restriction status for SubMap/RGMap
-                $restrictions = Get-RestrictionDetails $sku
-                $lcPerSubRestriction["$subId|$skuRegionKey"] = $restrictions.Status
-            }
-        }
-    }
+    # Lifecycle indexes ($lcSkuIndex, $lcQuotaIndex, $lcPerSubQuota, $lcPerSubRestriction)
+    # were already built during the scan regrouping pass above — no second iteration needed.
 
     # Candidate profile cache — populated on first Invoke-RecommendMode call, reused for all subsequent
     $lcProfileCache = @{}
