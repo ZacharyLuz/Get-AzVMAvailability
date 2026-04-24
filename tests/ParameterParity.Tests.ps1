@@ -27,7 +27,7 @@ Describe 'Get-AzVMAvailability Parameter Parity' {
             'Recommend', 'TopN', 'MinScore', 'MinvCPU', 'MinMemoryGB', 'JsonOutput',
             'AllowMixedArch', 'SkipRegionValidation', 'Inventory', 'InventoryFile',
             'GenerateInventoryTemplate', 'RateOptimization', 'LifecycleRecommendations',
-            'LifecycleFile', 'LifecycleScan', 'ManagementGroup', 'ResourceGroup', 'Tag', 'SubMap', 'RGMap'
+            'LifecycleFile', 'LifecycleScan', 'ManagementGroup', 'ResourceGroup', 'Tag', 'SubMap', 'RGMap', 'LogFile'
         ) | ForEach-Object { @{ Name = $_ } }
 
         It 'Has parameter: <Name>' -TestCases $testCases {

@@ -396,11 +396,17 @@ param(
     [switch]$SubMap,
 
     [Parameter(Mandatory = $false, HelpMessage = "Add a 'Resource Group Map' sheet to the lifecycle XLSX showing VM counts grouped by resource group, subscription, region, and SKU. Requires -LifecycleScan.")]
-    [switch]$RGMap
+    [switch]$RGMap,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Path to a log file for capturing terminal output. If a directory is specified, a timestamped log file is created. If omitted, no log is written.")]
+    [string]$LogFile
 )
 
     # Set console suppression for this invocation (module-scope flag)
     $script:SuppressConsole = $JsonOutput.IsPresent
+
+    # Transcript logging is deferred until after export path is resolved
+    $script:TranscriptStarted = $false
 
     $ProgressPreference = 'SilentlyContinue'
 
@@ -821,8 +827,12 @@ if ($LifecycleScan) {
 
 # Expand SKU filter to include upgrade path target SKUs so they get scanned
 if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
-    $upgradePathFile = Join-Path $PSScriptRoot 'data' 'UpgradePath.json'
-    if (Test-Path -LiteralPath $upgradePathFile) {
+    # Cascading lookup: module root (PSGallery install) → repo root (development)
+    $upgradePathFile = @(
+        (Join-Path $PSScriptRoot '..' 'data' 'UpgradePath.json'),
+        (Join-Path $PSScriptRoot '..' '..' 'data' 'UpgradePath.json')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($upgradePathFile) {
         try {
             $upData = Get-Content -LiteralPath $upgradePathFile -Raw | ConvertFrom-Json
             $upgradeSkus = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -1523,6 +1533,31 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
     Write-Host "Created: $ExportPath" -ForegroundColor Green
 }
 
+# Start transcript logging if -LogFile was specified
+if ($LogFile -or $VerbosePreference -eq 'Continue') {
+    if (-not $LogFile) {
+        $logDir = if ($ExportPath) { $ExportPath } else { $PWD.Path }
+        $logTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $LogFile = Join-Path $logDir "AzVMAvailability_${logTimestamp}.log"
+    }
+    elseif (Test-Path -LiteralPath $LogFile -PathType Container) {
+        $logTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $LogFile = Join-Path $LogFile "AzVMAvailability_${logTimestamp}.log"
+    }
+    try {
+        $logFileDir = Split-Path -Path $LogFile -Parent
+        if ($logFileDir -and -not (Test-Path -LiteralPath $logFileDir)) {
+            New-Item -Path $logFileDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+        $script:TranscriptStarted = $true
+        Write-Host "Logging to: $LogFile" -ForegroundColor DarkGray
+    }
+    catch {
+        Write-Warning "Failed to start transcript logging: $($_.Exception.Message)"
+    }
+}
+
 #endregion Interactive Prompts
 #region Data Collection
 
@@ -2010,8 +2045,12 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
     # Load upgrade path knowledge base for AI-curated recommendations
     $upgradePathData = $null
-    $upgradePathFile = Join-Path $PSScriptRoot 'data' 'UpgradePath.json'
-    if (Test-Path -LiteralPath $upgradePathFile) {
+    # Cascading lookup: module root (PSGallery install) → repo root (development)
+    $upgradePathFile = @(
+        (Join-Path $PSScriptRoot '..' 'data' 'UpgradePath.json'),
+        (Join-Path $PSScriptRoot '..' '..' 'data' 'UpgradePath.json')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($upgradePathFile) {
         try {
             $upgradePathData = Get-Content -LiteralPath $upgradePathFile -Raw | ConvertFrom-Json
             Write-Verbose "Loaded upgrade path knowledge base v$($upgradePathData._metadata.version) ($($upgradePathData._metadata.lastUpdated))"
@@ -2742,14 +2781,19 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
             $lcSortedResults = $lifecycleResults | Sort-Object @{e={switch($_._ParentRisk){'High'{0}'Medium'{1}'Low'{2}default{3}}}}, _ParentSKU, _GroupSeq, _RowSeq
 
-            # SP/RI columns included only with -RateOptimization flag
+            # Detect sovereign/GOV tenant — SP columns are N/A, so omit them entirely
+            $isSovereignTenant = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud')
+
+            # SP/RI columns included only with -RateOptimization flag (SP columns excluded for sovereign tenants)
             $rateOptCols = if ($RateOptimization) {
-                @(
-                    @{N='SP 1-Year Savings';E={$_.SP1YrSavings}},
-                    @{N='SP 3-Year Savings';E={$_.SP3YrSavings}},
-                    @{N='RI 1-Year Savings';E={$_.RI1YrSavings}},
-                    @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
-                )
+                $cols = @()
+                if (-not $isSovereignTenant) {
+                    $cols += @{N='SP 1-Year Savings';E={$_.SP1YrSavings}}
+                    $cols += @{N='SP 3-Year Savings';E={$_.SP3YrSavings}}
+                }
+                $cols += @{N='RI 1-Year Savings';E={$_.RI1YrSavings}}
+                $cols += @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
+                $cols
             } else { @() }
 
             # PAYG pricing columns included only with -ShowPricing
@@ -4284,5 +4328,8 @@ if ($ExportPath) {
 finally {
     $script:SuppressConsole = $false
     [void](Restore-OriginalSubscriptionContext -OriginalSubscriptionId $initialSubscriptionId)
+    if ($script:TranscriptStarted) {
+        try { Stop-Transcript | Out-Null } catch { Write-Verbose "Transcript already stopped: $($_.Exception.Message)" }
+    }
 }
 }
