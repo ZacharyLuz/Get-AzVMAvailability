@@ -2071,6 +2071,66 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
         Write-Verbose "Advisor retirement fetch skipped: $_"
     }
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Fix #1: Deduplicate candidate pool for lifecycle recommendations.
+    # $allSubscriptionData holds one entry per (subscription × region), and each
+    # contains the same ~526 SKUs since SKU capabilities don't differ across subs.
+    # The recommender's per-target candidate loop is O(subs × regions × skus).
+    # At enterprise scale (e.g., 196 subs) this becomes hours.
+    #
+    # Build a single synthetic "aggregate" subscription holding one row per
+    # (region, sku) — keeping the row with the best (lowest-rank) status across
+    # all subs so the recommender sees the best-case availability for each
+    # candidate. Per-sub status/quota detail remains in $allSubscriptionData
+    # and the lifecycle indexes for SubMap/RGMap output.
+    # NOTE: This dedup is local to the lifecycle recommendation pipeline only —
+    # it does NOT replace $allSubscriptionData used by core scan output.
+    # ─────────────────────────────────────────────────────────────────────────
+    $lcDedupStart = Get-Date
+    $statusRank = @{ 'OK' = 0; 'PARTIAL' = 1; 'CAPACITY-CONSTRAINED' = 2; 'LIMITED' = 3; 'RESTRICTED' = 4; 'BLOCKED' = 5 }
+    $dedupedRegionMap = @{}   # region → @{ skuName → @{ Sku=...; StatusRank=... } }
+    foreach ($subData in $allSubscriptionData) {
+        foreach ($rd in $subData.RegionData) {
+            if ($rd.Error) { continue }
+            $rKey = [string]$rd.Region
+            if (-not $dedupedRegionMap.ContainsKey($rKey)) {
+                $dedupedRegionMap[$rKey] = @{}
+            }
+            $skuMap = $dedupedRegionMap[$rKey]
+            foreach ($sku in $rd.Skus) {
+                $rest = Get-RestrictionDetails $sku
+                $rank = if ($statusRank.ContainsKey($rest.Status)) { $statusRank[$rest.Status] } else { 99 }
+                $existing = $skuMap[$sku.Name]
+                if (-not $existing -or $rank -lt $existing.StatusRank) {
+                    $skuMap[$sku.Name] = @{ Sku = $sku; StatusRank = $rank }
+                }
+            }
+        }
+    }
+    # Reshape into the same structure Invoke-RecommendMode expects, but slim:
+    # one synthetic subscription whose RegionData has one entry per scanned region.
+    $lcDedupedRegionData = @(
+        foreach ($rKey in $dedupedRegionMap.Keys) {
+            $regionSkus = @($dedupedRegionMap[$rKey].Values | ForEach-Object { $_.Sku })
+            # Find any quota set for this region (any sub's quota row will do for capability-only scoring)
+            $sampleQuotas = $null
+            foreach ($subData in $allSubscriptionData) {
+                $match = $subData.RegionData | Where-Object { $_.Region -eq $rKey -and -not $_.Error } | Select-Object -First 1
+                if ($match) { $sampleQuotas = $match.Quotas; break }
+            }
+            @{ Region = $rKey; Skus = $regionSkus; Quotas = $sampleQuotas; Error = $null }
+        }
+    )
+    $lcDedupedSubscriptionData = @(@{
+        SubscriptionId   = '_aggregate_'
+        SubscriptionName = '(aggregated for lifecycle recommendations)'
+        RegionData       = $lcDedupedRegionData
+    })
+    $lcDedupElapsed = (Get-Date) - $lcDedupStart
+    $lcOriginalCount = ($allSubscriptionData | ForEach-Object { $_.RegionData | ForEach-Object { $_.Skus.Count } } | Measure-Object -Sum).Sum
+    $lcDedupedCount = ($lcDedupedRegionData | ForEach-Object { $_.Skus.Count } | Measure-Object -Sum).Sum
+    Write-Verbose "Lifecycle dedup: $lcOriginalCount candidate rows → $lcDedupedCount unique (region,sku) pairs in $([math]::Round($lcDedupElapsed.TotalSeconds, 2))s"
+
     foreach ($entry in $lifecycleEntries) {
         $targetSku = $entry.SKU
         $deployedRegion = $entry.Region
@@ -2085,7 +2145,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
         }
 
-        Invoke-RecommendMode -TargetSkuName $targetSku -SubscriptionData $allSubscriptionData `
+        Invoke-RecommendMode -TargetSkuName $targetSku -SubscriptionData $lcDedupedSubscriptionData `
             -FamilyInfo $FamilyInfo -Icons $Icons -FetchPricing ([bool]$FetchPricing) `
             -ShowSpot $ShowSpot.IsPresent -ShowPlacement $ShowPlacement.IsPresent `
             -AllowMixedArch $AllowMixedArch.IsPresent -MinvCPU $MinvCPU -MinMemoryGB $MinMemoryGB `
