@@ -532,6 +532,7 @@ if ($LifecycleRecommendations -and $LifecycleFile) {
     if ($ext -eq '.xlsx' -and -not (Get-Module -ListAvailable ImportExcel)) { throw "ImportExcel module required for .xlsx files. Install with: Install-Module ImportExcel -Scope CurrentUser" }
     $lifecycleEntries = [System.Collections.Generic.List[PSCustomObject]]::new()
     $compositeKeys = @{}
+    $lcVMSubMap = @{}    # "SKUName|region" → @{ subId = qty } — used for accurate per-sub quota risk evaluation (file mode populates only when subscriptionId is in the file)
     # When -SubMap or -RGMap is set, capture per-row subscription/RG data for the deployment map
     $captureDeploymentMap = ($SubMap -or $RGMap)
     if ($captureDeploymentMap) { $fileVMRows = [System.Collections.Generic.List[PSCustomObject]]::new() }
@@ -583,6 +584,25 @@ if ($LifecycleRecommendations -and $LifecycleFile) {
                     qty              = $qty
                     zones            = $zoneArr
                 })
+            }
+            # Track per-sub VM count for accurate quota risk (used regardless of -SubMap/-RGMap)
+            $vmSubId = if ($subIdProp) { $subIdProp.Trim() } else { '' }
+            if (-not $vmSubId) {
+                # Pull the same way captureDeploymentMap branch did, even when those flags are off
+                $subIdAlt = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SubscriptionId|Subscription_Id|SUBSCRIPTION ID)$' } | Select-Object -First 1).Value
+                if (-not $subIdAlt) {
+                    $linkAlt = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(RESOURCE LINK|ResourceLink|Resource_Link)$' } | Select-Object -First 1).Value
+                    if ($linkAlt -and $linkAlt -match '/subscriptions/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') { $subIdAlt = $matches[1] }
+                }
+                if ($subIdAlt) { $vmSubId = $subIdAlt.Trim() }
+            }
+            if ($vmSubId) {
+                if (-not $lcVMSubMap.ContainsKey($compositeKey)) { $lcVMSubMap[$compositeKey] = @{} }
+                if ($lcVMSubMap[$compositeKey].ContainsKey($vmSubId)) {
+                    $lcVMSubMap[$compositeKey][$vmSubId] += $qty
+                } else {
+                    $lcVMSubMap[$compositeKey][$vmSubId] = $qty
+                }
             }
         }
     }
@@ -745,11 +765,21 @@ if ($LifecycleScan) {
     # Aggregate into lifecycle entries (same format as file-based input)
     $lifecycleEntries = [System.Collections.Generic.List[PSCustomObject]]::new()
     $compositeKeys = @{}
+    $lcVMSubMap = @{}    # "SKUName|region" → @{ subId = qty } — used for accurate per-sub quota risk evaluation
     foreach ($vm in $allVMs) {
         $clean = $vm.vmSize.Trim() -replace '^Standard_Standard_', 'Standard_'
         if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
         $regionClean = $vm.location.ToLower()
         $compositeKey = "$clean|$regionClean"
+        if (-not $lcVMSubMap.ContainsKey($compositeKey)) { $lcVMSubMap[$compositeKey] = @{} }
+        $vmSubId = [string]$vm.subscriptionId
+        if ($vmSubId) {
+            if ($lcVMSubMap[$compositeKey].ContainsKey($vmSubId)) {
+                $lcVMSubMap[$compositeKey][$vmSubId]++
+            } else {
+                $lcVMSubMap[$compositeKey][$vmSubId] = 1
+            }
+        }
         if ($compositeKeys.ContainsKey($compositeKey)) {
             $existingIdx = $compositeKeys[$compositeKey]
             $existing = $lifecycleEntries[$existingIdx]
@@ -1745,8 +1775,10 @@ try {
         }
 
         $totalItems = $workItems.Count
-        Write-Host "Scanning $($ScanSubIds.Count) subscription(s) x $($Regions.Count) region(s) = $totalItems work items..." -ForegroundColor Yellow
+        $scanStartTime = Get-Date
+        Write-Host "Scanning $($ScanSubIds.Count) subscription(s) x $($Regions.Count) region(s) = $totalItems work items (started $($scanStartTime.ToString('HH:mm:ss')))..." -ForegroundColor Yellow
         Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $totalItems sub x region pairs in parallel..." -PercentComplete 0
+        $scanStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
         # Sequential scan scriptblock — used as fallback for PS5 and for retrying failed items.
         # Accepts $itemSubId and $region as parameters; token and armUrl from enclosing scope.
@@ -2013,11 +2045,23 @@ try {
             $allScanResults = $successfulData.ToArray()
         }
 
+        # Stop timer and report wall-clock elapsed (mirrors the price-sheet completion line)
+        $scanStopwatch.Stop()
+        $scanElapsed = $scanStopwatch.Elapsed
+        $scanElapsedLabel = if ($scanElapsed.TotalMinutes -ge 1) {
+            "{0:N1} minutes" -f $scanElapsed.TotalMinutes
+        } else {
+            "{0:N1} seconds" -f $scanElapsed.TotalSeconds
+        }
+        $itemsPerSec = if ($scanElapsed.TotalSeconds -gt 0) { [math]::Round($totalItems / $scanElapsed.TotalSeconds, 1) } else { 0 }
+        Write-Host "  Scan complete: $totalItems work items in $scanElapsedLabel ($itemsPerSec items/sec)" -ForegroundColor Green
+        Write-Progress -Activity "Scanning Azure Regions" -Completed
+
         # Pre-declare lifecycle indexes so they are populated during regrouping (single pass)
         $needLifecycleIndexes = ($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count -gt 0
         $lcSkuIndex = @{}            # "SKUName|region" → raw SKU object (for .Family quota key)
         $lcQuotaIndex = @{}          # "region" → hashtable of quota name → quota object (first-sub wins for risk assessment)
-        $lcPerSubQuota = @{}         # "subId|region" → hashtable of quota name → quota object (per-sub for SubMap/RGMap)
+        $lcPerSubQuota = @{}         # "subId|region" → hashtable of quota name → quota object (per-sub for SubMap/RGMap and quota risk)
         $lcPerSubRestriction = @{}   # "subId|SKUName|region" → restriction status string (per-sub for SubMap/RGMap)
 
         # Regroup parallel results by subscription into $allSubscriptionData AND build lifecycle indexes
@@ -2258,22 +2302,56 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $hasCapacityIssues = @($targetAvail | Where-Object { $_.Status -notin 'OK','LIMITED' }).Count -gt 0
             }
 
-            # Quota analysis for target SKU: use pre-built indexes for O(1) lookup
+            # Quota analysis for target SKU.
+            # When per-sub VM counts are known (live ARG mode, or file mode with SubscriptionId column),
+            # evaluate per-sub: insufficient ONLY if at least one owning sub can't fit its share.
+            # Aggregating $entryQty against a single sub's quota is wrong when VMs span many subs.
             $targetQuotaAvail = $null
             $quotaInsufficient = $false
+            $quotaDeficitSubs = 0
+            $quotaTotalDeployingSubs = 0
             if (-not $NoQuota) {
-                $lookupRegions = if ($deployedRegion) { @($deployedRegion) } else { @($lcQuotaIndex.Keys) }
-                foreach ($qRegion in $lookupRegions) {
-                    if ($targetQuotaAvail) { break }
-                    $regionQuotas = $lcQuotaIndex[$qRegion]
-                    if (-not $regionQuotas) { continue }
-                    $rawSku = $lcSkuIndex["$($target.Name)|$qRegion"]
-                    if ($rawSku) {
-                        $requiredvCPUs = $entryQty * [int]$target.vCPU
-                        $qi = Get-QuotaAvailable -QuotaLookup $regionQuotas -SkuFamily $rawSku.Family -RequiredvCPUs $requiredvCPUs
-                        if ($null -ne $qi.Available) {
-                            $targetQuotaAvail = $qi
-                            if (-not $qi.OK) { $quotaInsufficient = $true }
+                $perSubMap = $null
+                if ($lcVMSubMap -and $deployedRegion) {
+                    $perSubMap = $lcVMSubMap["$($target.Name)|$deployedRegion"]
+                }
+                if ($perSubMap -and $perSubMap.Count -gt 0) {
+                    # Per-sub quota check — accurate for multi-sub fleets
+                    $aggLimit = 0; $aggCurrent = 0
+                    foreach ($pair in $perSubMap.GetEnumerator()) {
+                        $pSubId = [string]$pair.Key
+                        $pQty = [int]$pair.Value
+                        $quotaTotalDeployingSubs++
+                        $subQuotaLookup = $lcPerSubQuota["$pSubId|$deployedRegion"]
+                        if (-not $subQuotaLookup) { continue }
+                        $rawSku = $lcSkuIndex["$($target.Name)|$deployedRegion"]
+                        if (-not $rawSku) { continue }
+                        $needvCPUs = $pQty * [int]$target.vCPU
+                        $qi = Get-QuotaAvailable -QuotaLookup $subQuotaLookup -SkuFamily $rawSku.Family -RequiredvCPUs $needvCPUs
+                        if ($null -ne $qi.Limit)   { $aggLimit   += [int]$qi.Limit }
+                        if ($null -ne $qi.Current) { $aggCurrent += [int]$qi.Current }
+                        if ($null -ne $qi.Available -and -not $qi.OK) { $quotaDeficitSubs++ }
+                    }
+                    if ($aggLimit -gt 0 -or $aggCurrent -gt 0) {
+                        $targetQuotaAvail = [pscustomobject]@{ Available = $aggLimit - $aggCurrent; Limit = $aggLimit; Current = $aggCurrent; OK = ($quotaDeficitSubs -eq 0) }
+                    }
+                    if ($quotaDeficitSubs -gt 0) { $quotaInsufficient = $true }
+                }
+                else {
+                    # Fallback: legacy single-region check (file mode without SubscriptionId column)
+                    $lookupRegions = if ($deployedRegion) { @($deployedRegion) } else { @($lcQuotaIndex.Keys) }
+                    foreach ($qRegion in $lookupRegions) {
+                        if ($targetQuotaAvail) { break }
+                        $regionQuotas = $lcQuotaIndex[$qRegion]
+                        if (-not $regionQuotas) { continue }
+                        $rawSku = $lcSkuIndex["$($target.Name)|$qRegion"]
+                        if ($rawSku) {
+                            $requiredvCPUs = $entryQty * [int]$target.vCPU
+                            $qi = Get-QuotaAvailable -QuotaLookup $regionQuotas -SkuFamily $rawSku.Family -RequiredvCPUs $requiredvCPUs
+                            if ($null -ne $qi.Available) {
+                                $targetQuotaAvail = $qi
+                                if (-not $qi.OK) { $quotaInsufficient = $true }
+                            }
                         }
                     }
                 }
@@ -2372,7 +2450,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             }
 
             if ($hasCapacityIssues) { $riskReasons.Add("Capacity$(if ($deployedRegion) { " ($deployedRegion)" } else { '' })"); $riskLevel = 'High' }
-            if ($quotaInsufficient) { $riskReasons.Add("Quota: need $($entryQty)x$($target.vCPU)vCPU"); $riskLevel = 'High' }
+            if ($quotaInsufficient) {
+                $qReason = if ($quotaTotalDeployingSubs -gt 0) {
+                    "Quota: insufficient in $quotaDeficitSubs of $quotaTotalDeployingSubs deploying sub(s) (need $($target.vCPU)vCPU/VM)"
+                } else {
+                    "Quota: need $($entryQty)x$($target.vCPU)vCPU"
+                }
+                $riskReasons.Add($qReason); $riskLevel = 'High'
+            }
             if ($noAlternatives -and ($isOldGen -or $hasCapacityIssues -or $hasRetirement -or $notAvailForNew)) { $riskReasons.Add("No alternatives"); $riskLevel = 'High' }
 
             # Current-gen (v4+) SKUs with quota as the only risk → recommend quota increase, not SKU change
@@ -2665,7 +2750,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     }
 
                     # Compute CPU, memory, and disk deltas
-                    $isUnscannedUpgrade = ($rec.capacity -eq 'Not scanned')
                     # Resolve ACU for this alternative — upgrade-path recs carry it; weighted recs need SKU index lookup.
                     # ACU is a SKU capability and region-invariant, so fall back to ANY scanned region for the SKU
                     # if the deployed region didn't return it (common when the candidate isn't offered in the deployed region).
@@ -2680,32 +2764,29 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         }
                         return $hit
                     }
-                    $recACU = if ($rec.PSObject.Properties['ACU']) { [int]$rec.ACU } else {
+                    $recACU = 0
+                    if ($rec.PSObject.Properties['ACU']) { $recACU = [int]$rec.ACU }
+                    if ($recACU -le 0) {
                         $acuRaw = & $resolveAcuFromIndex $rec.sku
-                        if ($acuRaw) { [int](Get-CapValue $acuRaw 'ACUs') } else { 0 }
+                        if ($acuRaw) { $recACU = [int](Get-CapValue $acuRaw 'ACUs') }
                     }
-                    $targetAcuRaw = & $resolveAcuFromIndex $target.Name
-                    $targetACU = [int](Get-CapValue $targetAcuRaw 'ACUs')
+                    $targetACU = if ($target.PSObject.Properties['ACU']) { [int]$target.ACU } else { 0 }
+                    if ($targetACU -le 0) {
+                        $targetAcuRaw = & $resolveAcuFromIndex $target.Name
+                        if ($targetAcuRaw) { $targetACU = [int](Get-CapValue $targetAcuRaw 'ACUs') }
+                    }
 
-                    if ($isUnscannedUpgrade) {
-                        $cpuDiff = 0; $cpuDeltaStr = '-'
-                        $acuDeltaStr = '-'
-                        $memDiff = 0; $memDeltaStr = '-'
-                        $diskDeltaStr = '-'
-                        $iopsDiff = 0; $iopsDeltaStr = '-'
-                    }
-                    else {
-                        $cpuDiff = [int]$rec.vCPU - [int]$target.vCPU
-                        $cpuDeltaStr = if ($cpuDiff -eq 0) { '=' } elseif ($cpuDiff -gt 0) { "+$cpuDiff" } else { "$cpuDiff" }
-                        $acuDiff = $recACU - $targetACU
-                        $acuDeltaStr = if ($targetACU -eq 0 -or $recACU -eq 0) { '-' } elseif ($acuDiff -eq 0) { '=' } elseif ($acuDiff -gt 0) { "+$acuDiff" } else { "$acuDiff" }
-                        $memDiff = [double]$rec.memGiB - [double]$target.MemoryGB
-                        $memDeltaStr = if ($memDiff -eq 0) { '=' } elseif ($memDiff -gt 0) { "+$memDiff" } else { "$memDiff" }
-                        $diskDiff = [int]$rec.MaxDisks - [int]$target.MaxDataDiskCount
-                        $diskDeltaStr = if ($diskDiff -eq 0) { '=' } elseif ($diskDiff -gt 0) { "+$diskDiff" } else { "$diskDiff" }
-                        $iopsDiff = [int]$rec.IOPS - [int]$target.UncachedDiskIOPS
-                        $iopsDeltaStr = if ($iopsDiff -eq 0) { '=' } elseif ($iopsDiff -gt 0) { "+$iopsDiff" } else { "$iopsDiff" }
-                    }
+                    # Compute deltas from rec/target capability data — always available even when capacity is unknown
+                    $cpuDiff = [int]$rec.vCPU - [int]$target.vCPU
+                    $cpuDeltaStr = if ([int]$rec.vCPU -le 0 -or [int]$target.vCPU -le 0) { '-' } elseif ($cpuDiff -eq 0) { '=' } elseif ($cpuDiff -gt 0) { "+$cpuDiff" } else { "$cpuDiff" }
+                    $acuDiff = $recACU - $targetACU
+                    $acuDeltaStr = if ($targetACU -le 0 -or $recACU -le 0) { '-' } elseif ($acuDiff -eq 0) { '=' } elseif ($acuDiff -gt 0) { "+$acuDiff" } else { "$acuDiff" }
+                    $memDiff = [double]$rec.memGiB - [double]$target.MemoryGB
+                    $memDeltaStr = if ([double]$rec.memGiB -le 0 -or [double]$target.MemoryGB -le 0) { '-' } elseif ($memDiff -eq 0) { '=' } elseif ($memDiff -gt 0) { "+$memDiff" } else { "$memDiff" }
+                    $diskDiff = [int]$rec.MaxDisks - [int]$target.MaxDataDiskCount
+                    $diskDeltaStr = if ([int]$rec.MaxDisks -le 0 -or [int]$target.MaxDataDiskCount -le 0) { '-' } elseif ($diskDiff -eq 0) { '=' } elseif ($diskDiff -gt 0) { "+$diskDiff" } else { "$diskDiff" }
+                    $iopsDiff = [int]$rec.IOPS - [int]$target.UncachedDiskIOPS
+                    $iopsDeltaStr = if ([int]$rec.IOPS -le 0 -or [int]$target.UncachedDiskIOPS -le 0) { '-' } elseif ($iopsDiff -eq 0) { '=' } elseif ($iopsDiff -gt 0) { "+$iopsDiff" } else { "$iopsDiff" }
 
                     # Build Details string explaining why this recommendation was selected
                     $targetFamily = $target.Family
