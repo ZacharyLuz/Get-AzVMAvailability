@@ -39,6 +39,7 @@ function New-RecommendOutputContract {
             zonesOK    = $item.ZonesOK
             priceHr    = $item.PriceHr
             priceMo    = $item.PriceMo
+            priceIsNegotiated = [bool]$item.PriceIsNegotiated
             spotPriceHr = $item.SpotPriceHr
             spotPriceMo = $item.SpotPriceMo
         })

@@ -204,6 +204,16 @@ function Get-AzActualPricing {
         $firstVmPage = 0         # Track page distribution of VM meters
         $lastVmPage = 0
         $vmMetersPerPage = @{}   # page number → VM meter count on that page
+        # Skip-reason diagnostics — surface gaps in the negotiated price-sheet ingest
+        # so we can see WHY a region might end up with zero negotiated SKUs.
+        $skipReasons = [ordered]@{
+            NoMeterDetails    = 0
+            NotVirtualMachine = 0
+            WindowsSubcategory = 0
+            EmptyMeterLocation = 0
+            UnparsableMeterName = 0
+            ZeroOrNegativeUnitPrice = 0
+        }
         $savedProgressPref = $ProgressPreference
         $ProgressPreference = 'Continue'  # Restore progress bar (suppressed globally for Invoke-RestMethod noise)
         $scanStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -234,20 +244,20 @@ function Get-AzActualPricing {
                 $pageVmCount = 0
                 foreach ($item in $psResponse.properties.pricesheets) {
                     $md = $item.meterDetails
-                    if (-not $md) { continue }
+                    if (-not $md) { $skipReasons.NoMeterDetails++; continue }
 
-                    if ($md.meterCategory -ne 'Virtual Machines') { continue }
-                    if ($md.meterSubCategory -match 'Windows') { continue }
+                    if ($md.meterCategory -ne 'Virtual Machines') { $skipReasons.NotVirtualMachine++; continue }
+                    if ($md.meterSubCategory -match 'Windows') { $skipReasons.WindowsSubcategory++; continue }
 
                     # Normalize meterLocation to ARM-style key (lowercase, no spaces/hyphens)
                     $meterLoc = $md.meterLocation
                     $normalizedRegion = ($meterLoc -replace '[\s-]', '').ToLower()
-                    if (-not $normalizedRegion) { continue }
+                    if (-not $normalizedRegion) { $skipReasons.EmptyMeterLocation++; continue }
 
                     # Convert billing meter name to ARM SKU name
                     $cleanName = $md.meterName -replace '\s+(Low Priority|Spot)\s*$', ''
                     $cleanName = $cleanName.Trim() -replace '^Standard[\s_]+', ''
-                    if ($cleanName -notmatch '^[A-Z]') { continue }
+                    if ($cleanName -notmatch '^[A-Z]') { $skipReasons.UnparsableMeterName++; continue }
                     $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
 
                     # Determine the hourly divisor from unitOfMeasure
@@ -272,6 +282,7 @@ function Get-AzActualPricing {
 
                     if (-not $allRegionPrices[$normalizedRegion].ContainsKey($vmSize)) {
                         $rawRate = [double]$item.unitPrice
+                        if ($rawRate -le 0) { $skipReasons.ZeroOrNegativeUnitPrice++; continue }
                         $negotiatedRate = $rawRate / $hourlyDivisor
                         $retailRate = if ($md.pretaxStandardRate) { [double]$md.pretaxStandardRate / $hourlyDivisor } else { $null }
 
@@ -361,6 +372,12 @@ function Get-AzActualPricing {
                 $pagesWithVMs = $vmMetersPerPage.Count
                 $pagesWithoutVMs = $pageCount - $pagesWithVMs
                 Write-Verbose "  Pages with VM meters: $pagesWithVMs/$pageCount ($pagesWithoutVMs empty pages)"
+            }
+            # Surface skip-reason counters to help diagnose missing regions/SKUs.
+            $skipParts = @()
+            foreach ($k in $skipReasons.Keys) { if ($skipReasons[$k] -gt 0) { $skipParts += "$k=$($skipReasons[$k])" } }
+            if ($skipParts.Count -gt 0) {
+                Write-Host "  Tier 1 (Price Sheet): $totalItems total meters, $totalVmMeters VM SKUs kept; skipped: $($skipParts -join ', ')" -ForegroundColor DarkGray
             }
         }
         else {

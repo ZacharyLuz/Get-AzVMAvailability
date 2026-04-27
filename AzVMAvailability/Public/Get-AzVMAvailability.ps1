@@ -971,6 +971,7 @@ $script:RunContext = [pscustomobject]@{
     ImageReqs          = $null
     RegionPricing      = @{}
     UsingActualPricing = $false
+    RetailFallbackRegions = @()
     ScanOutput         = $null
     RecommendOutput    = $null
     ShowPlacement      = $false
@@ -1720,9 +1721,12 @@ if ($FetchPricing) {
         }
         if ($regionsWithoutNegotiated.Count -gt 0) {
             Write-Host "$($Icons.Check) Using negotiated pricing for $($regionsWithNegotiated.Count) of $($Regions.Count) region(s); retail fallback for: $($regionsWithoutNegotiated -join ', ')" -ForegroundColor Yellow
+            Write-Host "  Note: prices in retail-fallback regions are marked with a leading '*' in the report." -ForegroundColor DarkYellow
+            $script:RunContext.RetailFallbackRegions = @($regionsWithoutNegotiated)
         }
         else {
             Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected, RI/SP/Spot from retail)" -ForegroundColor Green
+            $script:RunContext.RetailFallbackRegions = @()
         }
     }
     else {
@@ -2318,10 +2322,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
             # Look up target SKU monthly price for cost-diff calculation
             $targetPriceMo = $null
+            $targetPriceIsNegotiated = $false
             if ($FetchPricing -and $deployedRegion -and $script:RunContext.RegionPricing[$deployedRegion]) {
                 $tgtPriceMap = Get-RegularPricingMap -PricingContainer $script:RunContext.RegionPricing[$deployedRegion]
                 $tgtPriceEntry = $tgtPriceMap[$target.Name]
-                if ($tgtPriceEntry) { $targetPriceMo = [double]$tgtPriceEntry.Monthly }
+                if ($tgtPriceEntry) {
+                    $targetPriceMo = [double]$tgtPriceEntry.Monthly
+                    $targetPriceIsNegotiated = [bool]$tgtPriceEntry.IsNegotiated
+                }
             }
 
             # Detect lifecycle risk: old generation, capacity issues, no alternatives
@@ -2619,10 +2627,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                 foreach ($p in $target.PSObject.Properties) { $targetProfileHt[$p.Name] = $p.Value }
                                 $upScore = Get-SkuSimilarityScore -Target $targetProfileHt -Candidate $upCandidateProfile -FamilyInfo $FamilyInfo
                                 $upPriceMo = $null
+                                $upPriceIsNegotiated = $false
                                 if ($FetchPricing -and $rawSkuRegion -and $script:RunContext.RegionPricing[$rawSkuRegion]) {
                                     $prMap = Get-RegularPricingMap -PricingContainer $script:RunContext.RegionPricing[$rawSkuRegion]
                                     $prEntry = $prMap[$mappedSku]
-                                    if ($prEntry) { $upPriceMo = $prEntry.Monthly }
+                                    if ($prEntry) {
+                                        $upPriceMo = $prEntry.Monthly
+                                        $upPriceIsNegotiated = [bool]$prEntry.IsNegotiated
+                                    }
                                 }
                                 $upgradeRecs.Add([pscustomobject]@{
                                     Rec = [pscustomobject]@{
@@ -2636,6 +2648,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                         IOPS     = $upIOPS
                                         MaxDisks = $upMaxDisks
                                         priceMo  = $upPriceMo
+                                        priceIsNegotiated = $upPriceIsNegotiated
                                     }
                                     MatchType = $pl.Label
                                 })
@@ -2765,14 +2778,19 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     $payg1YrStr = '-'
                     $payg3YrStr = '-'
                     if ($null -ne $targetPriceMo -and $null -ne $rec.priceMo) {
+                        # Mark with leading '*' when EITHER price is retail-fallback (not negotiated)
+                        $recIsNeg = $false
+                        if ($rec.PSObject.Properties['priceIsNegotiated']) { $recIsNeg = [bool]$rec.priceIsNegotiated }
+                        $priceMarker = if ($targetPriceIsNegotiated -and $recIsNeg) { '' } else { '*' }
                         $diff = [double]$rec.priceMo - $targetPriceMo
-                        $priceDiffStr = if ($diff -ge 0) { '+$' + $diff.ToString('0') } else { '-$' + ([Math]::Abs($diff)).ToString('0') }
+                        $priceDiffStr = if ($diff -ge 0) { $priceMarker + '+$' + $diff.ToString('0') } else { $priceMarker + '-$' + ([Math]::Abs($diff)).ToString('0') }
                         $totalDiff = $diff * $entryQty
-                        $totalDiffStr = if ($totalDiff -ge 0) { '+$' + $totalDiff.ToString('N0') } else { '-$' + ([Math]::Abs($totalDiff)).ToString('N0') }
+                        $totalDiffStr = if ($totalDiff -ge 0) { $priceMarker + '+$' + $totalDiff.ToString('N0') } else { $priceMarker + '-$' + ([Math]::Abs($totalDiff)).ToString('N0') }
+                        $recPriceMarker = if ($recIsNeg) { '' } else { '*' }
                         $payg1Yr = [double]$rec.priceMo * 12 * $entryQty
-                        $payg1YrStr = '$' + $payg1Yr.ToString('N0')
+                        $payg1YrStr = $recPriceMarker + '$' + $payg1Yr.ToString('N0')
                         $payg3Yr = [double]$rec.priceMo * 36 * $entryQty
-                        $payg3YrStr = '$' + $payg3Yr.ToString('N0')
+                        $payg3YrStr = $recPriceMarker + '$' + $payg3Yr.ToString('N0')
                     }
 
                     # Look up savings plan and reservation savings vs PAYG fleet total
@@ -3153,6 +3171,21 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             $dataRange.Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+
+            # Annotate pricing column headers with a legend when any region used retail fallback,
+            # so the leading '*' on prices is self-explanatory in the workbook.
+            $retailFallback = @($script:RunContext.RetailFallbackRegions)
+            if ($FetchPricing -and $retailFallback.Count -gt 0) {
+                $legendText = "Prices marked with leading '*' are RETAIL (list) prices from the public Azure Retail Prices API. Negotiated EA/MCA/CSP rates were not available for the following region(s) in this enrollment: $($retailFallback -join ', '). Unmarked prices use negotiated rates from the Consumption Price Sheet."
+                $priceDiffColIdx = 0
+                for ($c = 1; $c -le $lastCol; $c++) {
+                    if ($ws.Cells[1, $c].Value -eq 'Price Diff') { $priceDiffColIdx = $c; break }
+                }
+                if ($priceDiffColIdx -gt 0) {
+                    $hdrCell = $ws.Cells[1, $priceDiffColIdx]
+                    if (-not $hdrCell.Comment) { $hdrCell.AddComment($legendText, 'Get-AzVMAvailability') | Out-Null }
+                }
+            }
 
             # Center-align numeric and short columns
             $ws.Cells["C2:F$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center

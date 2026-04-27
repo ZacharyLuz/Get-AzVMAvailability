@@ -170,6 +170,7 @@ function Invoke-RecommendMode {
 
                 $priceHr = $null
                 $priceMo = $null
+                $priceIsNegotiated = $false
                 $spotPriceHr = $null
                 $spotPriceMo = $null
                 if ($FetchPricing -and $RunContext.RegionPricing[[string]$region]) {
@@ -180,6 +181,7 @@ function Invoke-RecommendMode {
                     if ($skuPricing) {
                         $priceHr = $skuPricing.Hourly
                         $priceMo = $skuPricing.Monthly
+                        $priceIsNegotiated = [bool]$skuPricing.IsNegotiated
                     }
                     if ($ShowSpot) {
                         $spotPricing = $spotPriceMap[$sku.Name]
@@ -211,6 +213,7 @@ function Invoke-RecommendMode {
                         ZonesOK  = $restrictions.ZonesOK.Count
                         PriceHr  = $priceHr
                         PriceMo  = $priceMo
+                        PriceIsNegotiated = $priceIsNegotiated
                         SpotPriceHr = $spotPriceHr
                         SpotPriceMo = $spotPriceMo
                     }) | Out-Null
@@ -287,6 +290,7 @@ function Invoke-RecommendMode {
                     ZonesOK   = $item.ZonesOK
                     PriceHr   = $item.PriceHr
                     PriceMo   = $item.PriceMo
+                    PriceIsNegotiated = $item.PriceIsNegotiated
                     SpotPriceHr = $item.SpotPriceHr
                     SpotPriceMo = $item.SpotPriceMo
                 }
@@ -317,6 +321,7 @@ function Invoke-RecommendMode {
                     ZonesOK   = $item.ZonesOK
                     PriceHr   = $item.PriceHr
                     PriceMo   = $item.PriceMo
+                    PriceIsNegotiated = $item.PriceIsNegotiated
                     SpotPriceHr = $item.SpotPriceHr
                     SpotPriceMo = $item.SpotPriceMo
                 }
