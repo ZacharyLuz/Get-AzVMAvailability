@@ -138,7 +138,11 @@ function Get-AzActualPricing {
 
                 $lookupKey = & $resolvePriceSheetKey $armLocation $allRegionPrices
                 $regionPrices = if ($lookupKey) { $allRegionPrices[$lookupKey] } else { @{} }
-                if ($regionPrices.Count -eq 0) {
+                if ($regionPrices.Count -gt 0) {
+                    $aliasSuffix = if ($lookupKey -ne $armLocation) { " (alias → '$lookupKey')" } else { '' }
+                    Write-Host "  Tier 1 (Price Sheet): $($regionPrices.Count) negotiated SKU prices for '$Region'$aliasSuffix (cached)" -ForegroundColor DarkGray
+                }
+                else {
                     $govKeys = @($allRegionPrices.Keys | Where-Object { $_ -match 'gov|dod|china|german|virginia|arizona|texas' } | Sort-Object)
                     $candList = if ($armToMeterLocation.ContainsKey($armLocation)) { @($armToMeterLocation[$armLocation]) -join "', '" } else { '' }
                     $aliasNote = if ($candList) { " (tried '$candList')" } else { '' }
