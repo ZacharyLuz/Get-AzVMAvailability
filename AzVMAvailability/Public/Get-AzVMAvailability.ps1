@@ -1860,7 +1860,7 @@ try {
 
         if ($canUseParallel) {
             try {
-                $allScanResults = $workItems | ForEach-Object -Parallel {
+                $parallelJob = $workItems | ForEach-Object -Parallel {
                     $item = $_
                     $subId = $item.SubscriptionId
                     $region = $item.Region
@@ -2000,13 +2000,37 @@ try {
                         $result = @{ SubscriptionId = [string]$subId; Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
                     }
 
-                    # Progress: track completed work items
+                    # Progress: track completed work items (counter polled by main thread)
                     $counter.TryAdd("$subId|$region", 0) | Out-Null
-                    $done = $counter.Count
-                    $pct = [math]::Min(100, [math]::Floor(($done / $total) * 100))
-                    Write-Progress -Activity "Scanning Azure Regions" -Status "$done / $total work items complete" -PercentComplete $pct
                     $result
-                } -ThrottleLimit ($ParallelThrottleLimit * 2)
+                } -ThrottleLimit ($ParallelThrottleLimit * 2) -AsJob
+
+                # Poll the counter from the main thread so the progress bar ticks
+                # every second with elapsed/ETA — Write-Progress from inside parallel
+                # runspaces does not reliably surface to the host.
+                $pollSw = [System.Diagnostics.Stopwatch]::StartNew()
+                while ($parallelJob.State -eq 'Running' -or $parallelJob.State -eq 'NotStarted') {
+                    $done = $scanCounter.Count
+                    $pct = if ($totalItems -gt 0) { [math]::Min(99, [math]::Floor(($done / $totalItems) * 100)) } else { 0 }
+                    $elapsed = $pollSw.Elapsed
+                    $elapsedStr = '{0:mm\:ss}' -f $elapsed
+                    if ($done -gt 0 -and $done -lt $totalItems) {
+                        $secsPerItem = $elapsed.TotalSeconds / $done
+                        $etaSecs = [math]::Ceiling($secsPerItem * ($totalItems - $done))
+                        $etaMin = [math]::Floor($etaSecs / 60)
+                        $etaSec = $etaSecs % 60
+                        $etaStr = if ($etaMin -gt 0) { "${etaMin}m ${etaSec}s remaining" } else { "${etaSec}s remaining" }
+                    }
+                    elseif ($done -ge $totalItems) {
+                        $etaStr = 'finalizing...'
+                    }
+                    else {
+                        $etaStr = 'estimating...'
+                    }
+                    Write-Progress -Activity "Scanning Azure Regions" -Status "$done / $totalItems work items - $elapsedStr elapsed - $etaStr" -PercentComplete $pct
+                    Start-Sleep -Milliseconds 1000
+                }
+                $allScanResults = Receive-Job -Job $parallelJob -Wait -AutoRemoveJob
             }
             catch {
                 Write-Warning "Parallel scan failed: $($_.Exception.Message)"
