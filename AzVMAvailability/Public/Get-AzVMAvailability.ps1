@@ -2376,11 +2376,21 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         if (-not $subQuotaLookup) { continue }
                         $rawSku = $lcSkuIndex["$($target.Name)|$deployedRegion"]
                         if (-not $rawSku) { continue }
-                        $needvCPUs = $pQty * [int]$target.vCPU
-                        $qi = Get-QuotaAvailable -QuotaLookup $subQuotaLookup -SkuFamily $rawSku.Family -RequiredvCPUs $needvCPUs
+                        # Pass RequiredvCPUs=0: we only care if the running fleet already exceeds
+                        # the family's limit (Current > Limit). The source SKU's inventory is
+                        # already counted in $qi.Current, so checking "qty*vCPU > Available"
+                        # double-counts and produces false-positive deficits on subs whose VMs
+                        # are operating fine. Migration headroom for upgrades is a planning
+                        # concern that depends on the target SKU's family/vCPU and is computed
+                        # later from the recommendation; surfacing it here would require knowing
+                        # the target before the recommendation is selected.
+                        $qi = Get-QuotaAvailable -QuotaLookup $subQuotaLookup -SkuFamily $rawSku.Family -RequiredvCPUs 0
                         if ($null -ne $qi.Limit)   { $aggLimit   += [int]$qi.Limit }
                         if ($null -ne $qi.Current) { $aggCurrent += [int]$qi.Current }
-                        if ($null -ne $qi.Available -and -not $qi.OK) {
+                        # Flag deficit only when the family is actually over quota right now
+                        # (Current > Limit). This matches what an operator means by "this sub
+                        # has insufficient quota": its existing fleet is past the cap.
+                        if ($null -ne $qi.Limit -and $null -ne $qi.Current -and [int]$qi.Current -gt [int]$qi.Limit) {
                             $quotaDeficitSubs++
                             $quotaDeficitSubIds.Add($pSubId) | Out-Null
                         }
@@ -2505,9 +2515,9 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             if ($hasCapacityIssues) { $riskReasons.Add("Capacity$(if ($deployedRegion) { " ($deployedRegion)" } else { '' })"); $riskLevel = 'High' }
             if ($quotaInsufficient) {
                 $qReason = if ($quotaTotalDeployingSubs -gt 0) {
-                    "Quota: insufficient in $quotaDeficitSubs of $quotaTotalDeployingSubs deploying sub(s) (need $($target.vCPU)vCPU/VM)"
+                    "Quota: family over limit in $quotaDeficitSubs of $quotaTotalDeployingSubs deploying sub(s)"
                 } else {
-                    "Quota: need $($entryQty)x$($target.vCPU)vCPU"
+                    "Quota: family over limit"
                 }
                 $riskReasons.Add($qReason); $riskLevel = 'High'
             }
@@ -2745,6 +2755,13 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     Generation       = "v$generation"
                     RiskLevel        = $riskLevel
                     RiskReasons      = ($riskReasons -join '; ')
+                    QuotaDeficitSubs = ($quotaDeficitSubIds -join ',')
+                    # _QuotaOnlyCurrentGen flag: row exists ONLY so SubMap / RGMap
+                    # can surface the quota-deficit signal against the affected
+                    # subscription(s). Excluded from Lifecycle Summary, High Risk,
+                    # and Medium Risk sheets because the SKU is current-gen and
+                    # the issue is per-subscription quota, not a lifecycle risk.
+                    _QuotaOnlyCurrentGen = [bool]$isQuotaOnlyCurrentGen
                     MatchType        = '-'
                     TopAlternative   = if ($riskLevel -eq 'Low') { 'N/A' } elseif ($isQuotaOnlyCurrentGen) { 'Request quota increase' } else { '-' }
                     AltScore         = ''
@@ -3020,8 +3037,8 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             Write-Host $line -ForegroundColor $riskColor
         }
 
-        $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' })
-        $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' })
+        $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) })
+        $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) })
         $highVMs = ($highRisk | Measure-Object -Property Qty -Sum).Sum
         $medVMs = ($medRisk | Measure-Object -Property Qty -Sum).Sum
         Write-Host ""
@@ -3081,7 +3098,9 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $rowSeq++
             }
 
-            $lcSortedResults = $lifecycleResults | Sort-Object @{e={switch($_._ParentRisk){'High'{0}'Medium'{1}'Low'{2}default{3}}}}, _ParentSKU, _GroupSeq, _RowSeq
+            $lcSortedResults = $lifecycleResults |
+                Where-Object { -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) } |
+                Sort-Object @{e={switch($_._ParentRisk){'High'{0}'Medium'{1}'Low'{2}default{3}}}}, _ParentSKU, _GroupSeq, _RowSeq
 
             # Detect sovereign/GOV tenant — SP columns are N/A, so omit them entirely
             $isSovereignTenant = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud')
@@ -3196,8 +3215,8 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
             # Summary footer rows
             $footerStart = $lastRow + 2
-            $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' })
-            $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' })
+            $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) })
+            $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) })
             $lowRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Low' })
             $highVMs = ($highRisk | Measure-Object -Property Qty -Sum).Sum
             $medVMs = ($medRisk | Measure-Object -Property Qty -Sum).Sum
@@ -3238,7 +3257,12 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             #endregion Lifecycle Summary Sheet
 
             #region Risk Breakdown Sheet
-            $highBase = @($lifecycleResults | Where-Object { $_._ParentRisk -eq 'High' })
+            # Quota-only current-gen rows are excluded from these sheets — they're not
+            # lifecycle risks (current-gen, not retiring); the quota-deficit signal
+            # is surfaced on the SubMap / RGMap sheets against the affected sub(s).
+            $highBase = @($lifecycleResults | Where-Object {
+                $_._ParentRisk -eq 'High' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen)
+            })
             $hrProps = @(
                 @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
                 @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
@@ -3269,7 +3293,9 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 }
             }
 
-            $medBase = @($lifecycleResults | Where-Object { $_._ParentRisk -eq 'Medium' })
+            $medBase = @($lifecycleResults | Where-Object {
+                $_._ParentRisk -eq 'Medium' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen)
+            })
             $mrProps = @(
                 @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
                 @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
