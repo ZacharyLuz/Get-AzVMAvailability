@@ -1627,7 +1627,41 @@ if ($FetchPricing) {
 
     if ($actualPricingSuccess -and $script:RunContext.RegionPricing.Count -gt 0) {
         $script:RunContext.UsingActualPricing = $true
-        Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected)" -ForegroundColor Green
+        # Merge negotiated PAYG into the retail structure so reservation/SP/spot data is preserved.
+        # Tier 1 (Price Sheet API) only returns PAYG meters; Reservation and Savings Plan rates are
+        # not exposed there. Tier 2 (Retail Prices API) carries Reservation1Yr/3Yr, SavingsPlan1Yr/3Yr,
+        # and Spot maps. Negotiated rates override retail Regular entries; everything else comes from retail.
+        foreach ($regionCode in $Regions) {
+            $retailResult = Get-AzVMPricing -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
+            if ($retailResult -is [array]) { $retailResult = $retailResult[0] }
+            $retailMap = Get-RegularPricingMap -PricingContainer $retailResult
+            $negotiatedMap = $script:RunContext.RegionPricing[$regionCode]
+            # Start with retail Regular map, overlay negotiated prices on top
+            $mergedRegular = @{}
+            if ($retailMap) {
+                foreach ($skuName in $retailMap.Keys) { $mergedRegular[$skuName] = $retailMap[$skuName] }
+            }
+            $negotiatedCount = 0
+            if ($negotiatedMap) {
+                foreach ($skuName in $negotiatedMap.Keys) {
+                    $mergedRegular[$skuName] = $negotiatedMap[$skuName]
+                    $negotiatedCount++
+                }
+            }
+            # Store as structured container so Spot/Reservation/SavingsPlan maps work downstream
+            $script:RunContext.RegionPricing[$regionCode] = [ordered]@{
+                Regular        = $mergedRegular
+                Spot           = if ($retailResult -and $retailResult.Spot)           { $retailResult.Spot }           else { @{} }
+                SavingsPlan1Yr = if ($retailResult -and $retailResult.SavingsPlan1Yr) { $retailResult.SavingsPlan1Yr } else { @{} }
+                SavingsPlan3Yr = if ($retailResult -and $retailResult.SavingsPlan3Yr) { $retailResult.SavingsPlan3Yr } else { @{} }
+                Reservation1Yr = if ($retailResult -and $retailResult.Reservation1Yr) { $retailResult.Reservation1Yr } else { @{} }
+                Reservation3Yr = if ($retailResult -and $retailResult.Reservation3Yr) { $retailResult.Reservation3Yr } else { @{} }
+            }
+            $ri1Count = $script:RunContext.RegionPricing[$regionCode].Reservation1Yr.Count
+            $ri3Count = $script:RunContext.RegionPricing[$regionCode].Reservation3Yr.Count
+            Write-Verbose "Pricing merge for '$regionCode': $negotiatedCount negotiated + $($mergedRegular.Count - $negotiatedCount) retail Regular, $ri1Count RI-1yr, $ri3Count RI-3yr"
+        }
+        Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected, RI/SP/Spot from retail)" -ForegroundColor Green
     }
     else {
         # Fall back to retail pricing
