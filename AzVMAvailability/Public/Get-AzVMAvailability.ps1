@@ -2885,6 +2885,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 })
             }
             else {
+                $isFirstRow = $true
                 foreach ($sel in $selectedRecs) {
                     $rec = $sel.Rec
 
@@ -3091,18 +3092,27 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     }
 
                     $lifecycleResults.Add([pscustomobject]@{
-                        # Grouping cells repeat on every alternative row (was: blank on continuations).
-                        # Empty cells visually read as missing data; repeating mirrors what the user
-                        # would see if they sorted/filtered the sheet.
-                        SKU              = $target.Name
-                        DeployedRegion   = if ($deployedRegion) { $deployedRegion } else { '-' }
-                        Qty              = $entryQty
-                        vCPU             = $target.vCPU
-                        MemoryGB         = $target.MemoryGB
-                        Generation       = "v$generation"
-                        RiskLevel        = $riskLevel
-                        RiskReasons      = ($riskReasons -join '; ')
-                        QuotaDeficitSubs = ($quotaDeficitSubIds -join ',')
+                        # Grouping cells (SKU/Region/Qty/vCPU/Mem/Gen/Risk/Reasons) are populated
+                        # only on the first alternative row of each (SKU, Region) group; continuation
+                        # rows leave them blank so a single deployed SKU isn't visually duplicated
+                        # across its 3-6 alternatives. SubMap / RGMap sheets use separate data sources
+                        # ($subMapRows / $rgMapRows) and therefore aren't affected.
+                        SKU              = if ($isFirstRow) { $target.Name } else { '' }
+                        DeployedRegion   = if ($isFirstRow) { if ($deployedRegion) { $deployedRegion } else { '-' } } else { '' }
+                        Qty              = if ($isFirstRow) { $entryQty } else { '' }
+                        vCPU             = if ($isFirstRow) { $target.vCPU } else { '' }
+                        MemoryGB         = if ($isFirstRow) { $target.MemoryGB } else { '' }
+                        Generation       = if ($isFirstRow) { "v$generation" } else { '' }
+                        RiskLevel        = if ($isFirstRow) { $riskLevel } else { '' }
+                        RiskReasons      = if ($isFirstRow) { ($riskReasons -join '; ') } else { '' }
+                        QuotaDeficitSubs = if ($isFirstRow) { ($quotaDeficitSubIds -join ',') } else { '' }
+                        # Hidden grouping fields — always populated so SubMap/RGMap projections
+                        # and per-row risk/quota lookups can resolve the parent SKU/Region/Qty
+                        # even on continuation rows.
+                        _ParentSKU       = $target.Name
+                        _ParentRegion    = if ($deployedRegion) { $deployedRegion } else { '-' }
+                        _ParentQty       = $entryQty
+                        _ParentRisk      = $riskLevel
                         MatchType        = $sel.MatchType
                         TopAlternative   = $rec.sku
                         AltScore         = if ($rec.score -is [ValueType] -and $rec.score -isnot [bool]) { "$([int]$rec.score)%" } else { '' }
@@ -3124,6 +3134,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         AlternativeCount = $allRecs.Count
                         Details          = $detailsStr
                     })
+                    $isFirstRow = $false
                 }
             }
         }
