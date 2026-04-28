@@ -2621,7 +2621,11 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 }
                 $riskReasons.Add($qReason); $riskLevel = 'High'
             }
-            if ($noAlternatives -and ($isOldGen -or $hasCapacityIssues -or $hasRetirement -or $notAvailForNew)) { $riskReasons.Add("No alternatives"); $riskLevel = 'High' }
+            # "No alternatives" risk reason is emitted AFTER upgrade-path injection below
+            # so that advisory upgrade-path recommendations (Microsoft-documented successors
+            # not present in scanned regions) can suppress this flag — the user does have
+            # a documented upgrade target, even if it's not deployable in their current scope.
+            $shouldFlagNoAlternatives = $noAlternatives -and ($isOldGen -or $hasCapacityIssues -or $hasRetirement -or $notAvailForNew)
 
             # Current-gen (v4+) SKUs with quota as the only risk → recommend quota increase, not SKU change
             $isQuotaOnlyCurrentGen = (-not $isOldGen) -and (-not $hasCapacityIssues) -and (-not $hasRetirement) -and (-not $notAvailForNew) -and $quotaInsufficient
@@ -2765,14 +2769,53 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                 $usedSkus.Add($mappedSku) | Out-Null
                             }
                             else {
-                                # SKU not in any scanned region — skip (no data to compare)
-                                continue
+                                # SKU not in any scanned region — emit as ADVISORY recommendation
+                                # so users still see Microsoft's documented successor SKU even when
+                                # their scanned regions don't offer it. Common case: SAP/HANA M-series
+                                # successors (M16-8ms_v2, M16s_v3) which only ship in a small subset
+                                # of regions. Without this, "No alternatives" gets flagged on every
+                                # high-memory SKU. Capacity='Advisory' makes this visible in the UI
+                                # without misleading users into thinking the SKU is deployable.
+                                $upgradeRecs.Add([pscustomobject]@{
+                                    Rec = [pscustomobject]@{
+                                        sku      = $mappedSku
+                                        vCPU     = '-'
+                                        ACU      = '-'
+                                        memGiB   = '-'
+                                        family   = Get-SkuFamily $mappedSku
+                                        score    = '-'
+                                        capacity = 'Advisory'
+                                        IOPS     = '-'
+                                        MaxDisks = '-'
+                                        priceMo  = $null
+                                        priceIsNegotiated = $false
+                                    }
+                                    MatchType = "$($pl.Label) (Advisory)"
+                                })
+                                $usedSkus.Add($mappedSku) | Out-Null
                             }
                         }
                     }
 
                     # Add upgrade recs to selectedRecs (weighted recs will be appended after)
                     foreach ($ur in $upgradeRecs) { $selectedRecs.Add($ur) }
+                }
+            }
+
+            # Emit "No alternatives" risk reason now that upgrade-path injection has run.
+            # If injection produced any recs (real or advisory), suppress the flag — the
+            # user has at least one documented upgrade target. If only advisory recs were
+            # produced, label them so it's clear they're not deployable in the scanned regions.
+            if ($shouldFlagNoAlternatives) {
+                $hasAnyUpgradeRec = $selectedRecs.Count -gt 0
+                $hasOnlyAdvisory = $hasAnyUpgradeRec -and -not ($selectedRecs | Where-Object { $_.MatchType -notlike '*Advisory*' })
+                if (-not $hasAnyUpgradeRec) {
+                    $riskReasons.Add("No alternatives")
+                    $riskLevel = 'High'
+                }
+                elseif ($hasOnlyAdvisory) {
+                    $riskReasons.Add("No alternatives in scanned regions (advisory only)")
+                    $riskLevel = 'High'
                 }
             }
 
@@ -3441,6 +3484,13 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 @{ Marker = '-N';  Meaning = "Recommended SKU costs LESS than current, or has fewer resources (e.g. -10 = saves `$10/mo per VM)." }
                 @{ Marker = '0';   Meaning = "No change between current and recommended (price, vCPU, memory, disks, or IOPS)." }
                 @{ Marker = '-';   Meaning = "Data not available (capability missing from SKU index, or price unavailable for region)." }
+                @{ Marker = '✓ Zones N'; Meaning = "Recommended SKU is fully available in those availability zone(s) of the deployed region." }
+                @{ Marker = '⚠ Zones N'; Meaning = "Recommended SKU has LIMITED availability in those zone(s) — capacity-constrained or quota-restricted. Deployment may succeed but consider widening the region or alternate zones." }
+                @{ Marker = '✗ Zones N'; Meaning = "Recommended SKU is RESTRICTED in those zone(s) — Microsoft has marked the SKU as unavailable for new deployments there. Choose a different zone or SKU." }
+                @{ Marker = 'Non-zonal'; Meaning = "Region or SKU does not advertise per-zone availability (regional deployment only)." }
+                @{ Marker = 'No alternatives'; Meaning = "No same-family or compatible-profile SKU was found in the scanned regions AND no Microsoft-documented upgrade path applies. Treat as HIGH risk — the workload may be locked to a retiring/constrained SKU. Widening -Regions scope often resolves this for SAP/HANA M-series and other niche families." }
+                @{ Marker = 'No alternatives in scanned regions (advisory only)'; Meaning = "Microsoft has a documented successor SKU for this family (shown in the Best-fit row with 'Advisory' capacity), but it is not deployable in any of the regions you scanned. Widen -Regions to include a region that offers the successor, or treat the advisory SKU as a planning target." }
+                @{ Marker = 'Advisory'; Meaning = "Recommendation is informational only — the SKU is Microsoft's documented successor (from data/UpgradePath.json) but was NOT found in any scanned region. Capability deltas, prices, and zones are unavailable. Use to identify migration targets; widen -Regions to validate deployability." }
             )
 
             foreach ($li in $legendItems) {
@@ -3455,6 +3505,10 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $ws.Cells["A$legendRow`:F$legendRow"].Style.Fill.BackgroundColor.SetColor($lightGray)
                 # Taller row for the RI explanation so the wrapped text is fully visible.
                 if ($li.Marker -eq '* (RI)') { $ws.Row($legendRow).Height = 75 }
+                # Taller rows for longer-text explanations
+                elseif ($li.Marker -in @('No alternatives','No alternatives in scanned regions (advisory only)','Advisory','⚠ Zones N','✗ Zones N')) {
+                    $ws.Row($legendRow).Height = 45
+                }
             }
             #endregion Lifecycle Summary Sheet
 
