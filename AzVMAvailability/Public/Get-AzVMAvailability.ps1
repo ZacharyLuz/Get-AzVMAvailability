@@ -3470,15 +3470,20 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $sRow++
             }
 
-            # Legend / footnote — explain markers used throughout the sheet
+            # Legend / footnote — explain markers used throughout the sheet.
+            # Layout: A:B = marker (merged), C:J = meaning (merged). Wider marker
+            # column accommodates long phrases like "No alternatives in scanned
+            # regions (advisory only)" without wrapping into the meaning column;
+            # wider meaning column reduces line wraps in the explanations.
             $legendRow = $sRow + 1
             $ws.Cells["A$legendRow"].Value = "LEGEND"
-            $ws.Cells["A$legendRow`:F$legendRow"].Merge = $true
+            $ws.Cells["A$legendRow`:J$legendRow"].Merge = $true
             $ws.Cells["A$legendRow"].Style.Font.Bold = $true
             $ws.Cells["A$legendRow"].Style.Font.Size = 11
-            $ws.Cells["A$legendRow`:F$legendRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-            $ws.Cells["A$legendRow`:F$legendRow"].Style.Fill.BackgroundColor.SetColor($headerBlue)
-            $ws.Cells["A$legendRow`:F$legendRow"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+            $ws.Cells["A$legendRow`:J$legendRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $ws.Cells["A$legendRow`:J$legendRow"].Style.Fill.BackgroundColor.SetColor($headerBlue)
+            $ws.Cells["A$legendRow`:J$legendRow"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+            $ws.Cells["A$legendRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
 
             $legendItems = @(
                 @{ Marker = '*';   Meaning = "RETAIL price (list, from Azure Retail Prices API). Negotiated EA/MCA/CSP rate was not available for that SKU/region. Your actual cost may be lower." }
@@ -3496,22 +3501,36 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 @{ Marker = 'Advisory'; Meaning = "Recommendation is informational only — the SKU is Microsoft's documented successor (from data/UpgradePath.json) but was NOT found in any scanned region. Capability deltas, prices, and zones are unavailable. Use to identify migration targets; widen -Regions to validate deployability." }
             )
 
+            $legendIdx = 0
             foreach ($li in $legendItems) {
                 $legendRow++
+                $legendIdx++
+                # Marker cell: A:B merged, centered, bold
+                $ws.Cells["A$legendRow`:B$legendRow"].Merge = $true
                 $ws.Cells["A$legendRow"].Value = $li.Marker
                 $ws.Cells["A$legendRow"].Style.Font.Bold = $true
                 $ws.Cells["A$legendRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
-                $ws.Cells["B$legendRow`:F$legendRow"].Merge = $true
-                $ws.Cells["B$legendRow"].Value = $li.Meaning
-                $ws.Cells["B$legendRow"].Style.WrapText = $true
-                $ws.Cells["A$legendRow`:F$legendRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                $ws.Cells["A$legendRow`:F$legendRow"].Style.Fill.BackgroundColor.SetColor($lightGray)
-                # Taller row for the RI explanation so the wrapped text is fully visible.
-                if ($li.Marker -eq '* (RI)') { $ws.Row($legendRow).Height = 75 }
-                # Taller rows for longer-text explanations
-                elseif ($li.Marker -in @('No alternatives','No alternatives in scanned regions (advisory only)','Advisory','⚠ Zones N','✗ Zones N')) {
-                    $ws.Row($legendRow).Height = 45
+                $ws.Cells["A$legendRow"].Style.VerticalAlignment = [OfficeOpenXml.Style.ExcelVerticalAlignment]::Center
+                $ws.Cells["A$legendRow"].Style.WrapText = $true
+                # Meaning cell: C:J merged, wrapped, top-aligned for cleaner read
+                $ws.Cells["C$legendRow`:J$legendRow"].Merge = $true
+                $ws.Cells["C$legendRow"].Value = $li.Meaning
+                $ws.Cells["C$legendRow"].Style.WrapText = $true
+                $ws.Cells["C$legendRow"].Style.VerticalAlignment = [OfficeOpenXml.Style.ExcelVerticalAlignment]::Center
+                # Zebra striping: alternate light gray / white for readability between rows
+                $stripeColor = if ($legendIdx % 2 -eq 1) { $lightGray } else { [System.Drawing.Color]::White }
+                $ws.Cells["A$legendRow`:J$legendRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                $ws.Cells["A$legendRow`:J$legendRow"].Style.Fill.BackgroundColor.SetColor($stripeColor)
+                # Thin border between rows for clearer separation
+                $ws.Cells["A$legendRow`:J$legendRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$legendRow`:J$legendRow"].Style.Border.Bottom.Color.SetColor([System.Drawing.Color]::FromArgb(217, 217, 217))
+                # Row heights — with the wider C:J meaning column, most explanations
+                # fit on 1-2 lines; only the longest two need extra height.
+                if ($li.Marker -eq '* (RI)') { $ws.Row($legendRow).Height = 60 }
+                elseif ($li.Marker -in @('No alternatives','No alternatives in scanned regions (advisory only)','Advisory')) {
+                    $ws.Row($legendRow).Height = 38
                 }
+                else { $ws.Row($legendRow).Height = 22 }
             }
             #endregion Lifecycle Summary Sheet
 
