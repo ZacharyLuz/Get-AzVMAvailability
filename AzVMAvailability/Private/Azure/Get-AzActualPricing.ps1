@@ -67,11 +67,18 @@ function Get-AzActualPricing {
     $tenantId = try { (Get-AzContext -ErrorAction SilentlyContinue).Tenant.Id } catch { $null }
     $cacheKey = if ($tenantId) { $tenantId } else { $SubscriptionId }
     $cacheDir = if ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
-    # Cache schema v2: filters out Spot/Low Priority meters (v1 mistakenly accepted them
-    # as Regular meters after suffix-stripping, leading to bogus low PAYG prices).
-    $cacheFile = Join-Path $cacheDir "AzVMLifecycle-PriceSheet-v2-$cacheKey.json"
-    # Best-effort cleanup of obsolete v1 cache files.
+    # Cache schema v3: structured container { Regular, SP1Yr, SP3Yr } per region.
+    # Negotiated Savings Plan rates are now harvested from each row's savingsPlan
+    # sub-object (effectivePrice + term=P1Y/P3Y per Consumption Price Sheet API spec).
+    # v2 stored only the flat Regular map; v1 mistakenly accepted Spot meters as PAYG.
+    $cacheFile = Join-Path $cacheDir "AzVMLifecycle-PriceSheet-v3-$cacheKey.json"
+    # Negative cache sidecar — records last Tier 1 failure (typically HTTP 429) so we
+    # don't keep banging the throttle wall for ~11 minutes per attempt across runs.
+    $negCacheFile = Join-Path $cacheDir "AzVMLifecycle-PriceSheet-v3-$cacheKey.failed.json"
+    # Best-effort cleanup of obsolete cache files.
     Get-ChildItem $cacheDir -Filter "AzVMLifecycle-PriceSheet-$cacheKey.json" -ErrorAction SilentlyContinue |
+        Remove-Item -ErrorAction SilentlyContinue
+    Get-ChildItem $cacheDir -Filter "AzVMLifecycle-PriceSheet-v2-$cacheKey.json" -ErrorAction SilentlyContinue |
         Remove-Item -ErrorAction SilentlyContinue
 
     # Helper: resolve an ARM region to the first matching cached meterLocation key.
@@ -91,7 +98,17 @@ function Get-AzActualPricing {
     # all subscriptions. Page through the Price Sheet once, group all Linux VM
     # meters by meterLocation, and serve every subsequent region from cache.
     if ($Caches.ActualPricing.ContainsKey('AllRegions')) {
-        $allRegionPrices = $Caches.ActualPricing['AllRegions']
+        $cached = $Caches.ActualPricing['AllRegions']
+        # Schema v3: structured container. Schema v2 (legacy in-memory): flat region map.
+        if ($cached -is [hashtable] -and $cached.ContainsKey('Regular')) {
+            $allRegionPrices = $cached.Regular
+            if (-not $Caches.NegotiatedSavingsPlan) {
+                $Caches.NegotiatedSavingsPlan = @{ '1Yr' = $cached.SP1Yr; '3Yr' = $cached.SP3Yr }
+            }
+        }
+        else {
+            $allRegionPrices = $cached
+        }
         $lookupKey = & $resolvePriceSheetKey $armLocation $allRegionPrices
         $regionPrices = if ($lookupKey) { $allRegionPrices[$lookupKey] } else { @{} }
         if ($regionPrices.Count -gt 0) {
@@ -116,7 +133,19 @@ function Get-AzActualPricing {
                 $ageDays = [math]::Floor($cacheAge.TotalDays)
                 $ageLabel = if ($ageDays -eq 0) { 'today' } elseif ($ageDays -eq 1) { '1 day old' } else { "$ageDays days old" }
                 Write-Host "  Loading cached discounted pricing data ($ageLabel)..." -ForegroundColor DarkGray
-                $allRegionPrices = Get-Content $cacheFile -Raw | ConvertFrom-Json -AsHashtable
+                $loaded = Get-Content $cacheFile -Raw | ConvertFrom-Json -AsHashtable
+                # v3: structured. Older v2 caches were already wiped above; defensive fallback in case of partial schema.
+                if ($loaded -is [hashtable] -and $loaded.ContainsKey('Regular')) {
+                    $allRegionPrices = $loaded.Regular
+                    $loadedSP1 = if ($loaded.ContainsKey('SP1Yr')) { $loaded.SP1Yr } else { @{} }
+                    $loadedSP3 = if ($loaded.ContainsKey('SP3Yr')) { $loaded.SP3Yr } else { @{} }
+                }
+                else {
+                    $allRegionPrices = $loaded
+                    $loadedSP1 = @{}
+                    $loadedSP3 = @{}
+                }
+                $Caches.NegotiatedSavingsPlan = @{ '1Yr' = $loadedSP1; '3Yr' = $loadedSP3 }
 
                 # Resolve sovereign region pricing — meterLocation abbreviations differ from ARM names.
                 # For each ARM region, walk the candidate list and create a direct entry under the
@@ -170,6 +199,29 @@ function Get-AzActualPricing {
     }
     $armUrl = $AzureEndpoints.ResourceManagerUrl
 
+    # Negative-cache check: if a recent Tier 1 attempt failed (e.g. HTTP 429), skip
+    # straight to Tier 2 until the cool-down expires. Avoids 30+ minute throttling
+    # storms across consecutive runs while the EA Price Sheet API is rate-limiting.
+    if (Test-Path $negCacheFile) {
+        try {
+            $neg = Get-Content $negCacheFile -Raw | ConvertFrom-Json
+            $negAt = [datetime]$neg.At
+            $cool = [int]($neg.CoolDownSeconds)
+            $remaining = ($negAt.AddSeconds($cool) - (Get-Date)).TotalSeconds
+            if ($remaining -gt 0) {
+                $remMin = [math]::Ceiling($remaining / 60)
+                Write-Host "  Tier 1 (Price Sheet): skipped — prior failure ($($neg.Status)) cooling down for ~$remMin min. Using retail." -ForegroundColor DarkYellow
+                return $null
+            }
+            else {
+                Remove-Item $negCacheFile -ErrorAction SilentlyContinue
+            }
+        }
+        catch {
+            Remove-Item $negCacheFile -ErrorAction SilentlyContinue
+        }
+    }
+
     $token = $null
     $headers = $null
     try {
@@ -198,6 +250,10 @@ function Get-AzActualPricing {
     # by their normalized meterLocation. No region filtering — we capture everything.
     $tier1Success = $false
     $allRegionPrices = @{}  # key = normalized location, value = hashtable of SKU → pricing
+    $allRegionSP1Yr  = @{}  # negotiated Savings Plan P1Y per region
+    $allRegionSP3Yr  = @{}  # negotiated Savings Plan P3Y per region
+    $totalSP1Meters  = 0
+    $totalSP3Meters  = 0
     $MaxPricesheetPages = 500
     $EstimatedPages = 500  # Based on observed EA price sheets (~484 pages typical)
     try {
@@ -297,6 +353,43 @@ function Get-AzActualPricing {
                         default        { 1 }
                     }
 
+                    # Savings Plan rows: per Consumption Price Sheet API spec, rows for SP-eligible
+                    # meters carry a savingsPlan sub-object with effectivePrice (negotiated) +
+                    # term (P1Y/P3Y). Route these to the per-term SP map and SKIP populating the
+                    # Regular PAYG entry (those come from rows without savingsPlan). Sovereign
+                    # regions don't expose SP product, so these rows simply won't appear there.
+                    if ($item.savingsPlan -and $item.savingsPlan.term -and $item.savingsPlan.effectivePrice) {
+                        $spRaw = [double]$item.savingsPlan.effectivePrice
+                        if ($spRaw -gt 0) {
+                            $spHourly  = $spRaw / $hourlyDivisor
+                            $spMonthly = [math]::Round($spHourly * $HoursPerMonth, 2)
+                            $spEntry = @{
+                                Hourly       = [math]::Round($spHourly, 4)
+                                Monthly      = $spMonthly
+                                Total        = if ($item.savingsPlan.term -eq 'P1Y') { [math]::Round($spMonthly * 12, 2) } else { [math]::Round($spMonthly * 36, 2) }
+                                Currency     = $item.currencyCode
+                                IsNegotiated = $true
+                            }
+                            switch ($item.savingsPlan.term) {
+                                'P1Y' {
+                                    if (-not $allRegionSP1Yr.ContainsKey($normalizedRegion)) { $allRegionSP1Yr[$normalizedRegion] = @{} }
+                                    if (-not $allRegionSP1Yr[$normalizedRegion].ContainsKey($vmSize)) {
+                                        $allRegionSP1Yr[$normalizedRegion][$vmSize] = $spEntry
+                                        $totalSP1Meters++
+                                    }
+                                }
+                                'P3Y' {
+                                    if (-not $allRegionSP3Yr.ContainsKey($normalizedRegion)) { $allRegionSP3Yr[$normalizedRegion] = @{} }
+                                    if (-not $allRegionSP3Yr[$normalizedRegion].ContainsKey($vmSize)) {
+                                        $allRegionSP3Yr[$normalizedRegion][$vmSize] = $spEntry
+                                        $totalSP3Meters++
+                                    }
+                                }
+                            }
+                        }
+                        continue  # SP rows do not populate the Regular PAYG map
+                    }
+
                     # Initialize region bucket if needed
                     if (-not $allRegionPrices.ContainsKey($normalizedRegion)) {
                         $allRegionPrices[$normalizedRegion] = @{}
@@ -360,10 +453,12 @@ function Get-AzActualPricing {
 
             # Cache the full scan — all subsequent calls for any region are served from here
             $Caches.ActualPricing['AllRegions'] = $allRegionPrices
+            $Caches.NegotiatedSavingsPlan = @{ '1Yr' = $allRegionSP1Yr; '3Yr' = $allRegionSP3Yr }
 
-            # Persist to disk so subsequent runs skip the API entirely
+            # Persist to disk so subsequent runs skip the API entirely (v3 structured shape).
             try {
-                $cacheJson = ConvertTo-Json -InputObject $allRegionPrices -Depth 4 -Compress
+                $cacheBundle = @{ Regular = $allRegionPrices; SP1Yr = $allRegionSP1Yr; SP3Yr = $allRegionSP3Yr }
+                $cacheJson = ConvertTo-Json -InputObject $cacheBundle -Depth 5 -Compress
                 $tmpFile = "$cacheFile.tmp"
                 [System.IO.File]::WriteAllText($tmpFile, $cacheJson, [System.Text.Encoding]::UTF8)
                 Move-Item -Path $tmpFile -Destination $cacheFile -Force
@@ -377,6 +472,9 @@ function Get-AzActualPricing {
 
             $locationSummary = ($allRegionPrices.GetEnumerator() | Sort-Object { $_.Value.Count } -Descending | ForEach-Object { "'$($_.Key)' ($($_.Value.Count))" }) -join ', '
             Write-Host "  Tier 1 (Price Sheet): $totalVmMeters negotiated SKU prices across $($allRegionPrices.Count) region(s) in $scanDurationStr" -ForegroundColor DarkGray
+            if ($totalSP1Meters -gt 0 -or $totalSP3Meters -gt 0) {
+                Write-Host "  Tier 1 (Price Sheet): negotiated Savings Plan rates — $totalSP1Meters x P1Y, $totalSP3Meters x P3Y" -ForegroundColor DarkGray
+            }
             Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), $totalVmMeters VM SKU prices."
             Write-Verbose "  Regions: $locationSummary"
             $unitSummary = ($unitMeasureCounts.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "'$($_.Key)' ($($_.Value))" }) -join ', '
@@ -419,6 +517,18 @@ function Get-AzActualPricing {
         if (-not $psStatus -and $psError.Exception.Message -match '(\d{3})') { $psStatus = [int]$Matches[1] }
         Write-Host "  Tier 1 (Price Sheet): failed$(if ($psStatus) { " (HTTP $psStatus)" }) — trying Tier 2..." -ForegroundColor DarkGray
         Write-Verbose "Tier 1 (Price Sheet) failed$(if ($psStatus) { " (HTTP $psStatus)" }): $($psError.Exception.Message). Falling through to Tier 2."
+        # Persist negative cache so subsequent runs short-circuit straight to Tier 2.
+        # 429 cools down for 30 min; other server-side errors get a shorter 5 min hold.
+        $coolDown = if ($psStatus -eq 429) { 1800 } elseif ($psStatus -ge 500) { 300 } else { 300 }
+        try {
+            $negPayload = @{ At = (Get-Date).ToString('o'); Status = $psStatus; CoolDownSeconds = $coolDown; Message = ($psError.Exception.Message -replace '\s+', ' ').Substring(0, [math]::Min(200, $psError.Exception.Message.Length)) }
+            $negJson = ConvertTo-Json -InputObject $negPayload -Compress
+            [System.IO.File]::WriteAllText($negCacheFile, $negJson, [System.Text.Encoding]::UTF8)
+            Write-Host "  Tier 1 cool-down: $([math]::Ceiling($coolDown / 60)) min (subsequent runs will skip Tier 1)." -ForegroundColor DarkGray
+        }
+        catch {
+            Write-Verbose "Could not write Tier 1 negative-cache file: $($_.Exception.Message)"
+        }
     }
 
     # ── Tier 2: Cost Management Query API ──

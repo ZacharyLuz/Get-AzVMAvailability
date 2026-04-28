@@ -1707,17 +1707,39 @@ if ($FetchPricing) {
                 }
             }
             # Store as structured container so Spot/Reservation/SavingsPlan maps work downstream
+            $retailSP1 = if ($retailResult -and $retailResult.SavingsPlan1Yr) { $retailResult.SavingsPlan1Yr } else { @{} }
+            $retailSP3 = if ($retailResult -and $retailResult.SavingsPlan3Yr) { $retailResult.SavingsPlan3Yr } else { @{} }
+            # Overlay negotiated Savings Plan rates (from Price Sheet API savingsPlan sub-object)
+            # onto retail SP maps. Sovereign regions don't expose SP, so this overlay is a no-op there.
+            $negSP = $script:RunContext.Caches.NegotiatedSavingsPlan
+            $negSP1Count = 0; $negSP3Count = 0
+            if ($negSP) {
+                $regionAliases = @($regionCode)
+                foreach ($cand in @('usgovarizona','usgovaz','usgovtexas','usgovtx','usgovvirginia','usgovva','usgov')) { if ($cand) { $regionAliases += $cand } }
+                foreach ($termKey in @('1Yr','3Yr')) {
+                    $srcMap = $negSP[$termKey]
+                    if (-not $srcMap) { continue }
+                    $regionMap = $null
+                    foreach ($a in $regionAliases) { if ($srcMap.ContainsKey($a) -and $srcMap[$a]) { $regionMap = $srcMap[$a]; break } }
+                    if (-not $regionMap) { continue }
+                    $target = if ($termKey -eq '1Yr') { $retailSP1 } else { $retailSP3 }
+                    foreach ($skuName in $regionMap.Keys) {
+                        $target[$skuName] = $regionMap[$skuName]
+                        if ($termKey -eq '1Yr') { $negSP1Count++ } else { $negSP3Count++ }
+                    }
+                }
+            }
             $script:RunContext.RegionPricing[$regionCode] = [ordered]@{
                 Regular        = $mergedRegular
                 Spot           = if ($retailResult -and $retailResult.Spot)           { $retailResult.Spot }           else { @{} }
-                SavingsPlan1Yr = if ($retailResult -and $retailResult.SavingsPlan1Yr) { $retailResult.SavingsPlan1Yr } else { @{} }
-                SavingsPlan3Yr = if ($retailResult -and $retailResult.SavingsPlan3Yr) { $retailResult.SavingsPlan3Yr } else { @{} }
+                SavingsPlan1Yr = $retailSP1
+                SavingsPlan3Yr = $retailSP3
                 Reservation1Yr = if ($retailResult -and $retailResult.Reservation1Yr) { $retailResult.Reservation1Yr } else { @{} }
                 Reservation3Yr = if ($retailResult -and $retailResult.Reservation3Yr) { $retailResult.Reservation3Yr } else { @{} }
             }
             $ri1Count = $script:RunContext.RegionPricing[$regionCode].Reservation1Yr.Count
             $ri3Count = $script:RunContext.RegionPricing[$regionCode].Reservation3Yr.Count
-            Write-Verbose "Pricing merge for '$regionCode': $negotiatedCount negotiated + $($mergedRegular.Count - $negotiatedCount) retail Regular, $ri1Count RI-1yr, $ri3Count RI-3yr"
+            Write-Verbose "Pricing merge for '$regionCode': $negotiatedCount negotiated + $($mergedRegular.Count - $negotiatedCount) retail Regular, $negSP1Count neg-SP1y, $negSP3Count neg-SP3y, $ri1Count RI-1yr, $ri3Count RI-3yr"
         }
         if ($regionsWithoutNegotiated.Count -gt 0) {
             Write-Host "$($Icons.Check) Using negotiated pricing for $($regionsWithNegotiated.Count) of $($Regions.Count) region(s); retail fallback for: $($regionsWithoutNegotiated -join ', ')" -ForegroundColor Yellow
@@ -2785,7 +2807,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 })
             }
             else {
-                $isFirstRow = $true
                 foreach ($sel in $selectedRecs) {
                     $rec = $sel.Rec
 
@@ -2818,10 +2839,23 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         $recPaygFleet1Yr = [double]$rec.priceMo * 12 * $entryQty
                         $recPaygFleet3Yr = [double]$rec.priceMo * 36 * $entryQty
                         if (-not $isSovereignRegion) {
+                            # Mark SP savings with leading '*' when the SP rate is retail (not negotiated).
+                            # Negotiated SP rates come from the Price Sheet savingsPlan sub-object;
+                            # retail SP rates come from the public Retail Prices API.
                             $sp1Entry = $sp1YrMap[$rec.sku]
-                            if ($sp1Entry) { $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty; $sp1Savings = $recPaygFleet1Yr - $sp1Fleet; $sp1YrSavingsStr = '$' + $sp1Savings.ToString('N0') }
+                            if ($sp1Entry) {
+                                $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty
+                                $sp1Savings = $recPaygFleet1Yr - $sp1Fleet
+                                $sp1Marker = if ($sp1Entry.IsNegotiated) { '' } else { '*' }
+                                $sp1YrSavingsStr = $sp1Marker + '$' + $sp1Savings.ToString('N0')
+                            }
                             $sp3Entry = $sp3YrMap[$rec.sku]
-                            if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
+                            if ($sp3Entry) {
+                                $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty
+                                $sp3Savings = $recPaygFleet3Yr - $sp3Fleet
+                                $sp3Marker = if ($sp3Entry.IsNegotiated) { '' } else { '*' }
+                                $sp3YrSavingsStr = $sp3Marker + '$' + $sp3Savings.ToString('N0')
+                            }
                         }
                         # Reservation rates are NOT exposed by the Consumption Price Sheet API
                         # (PriceSheetProperties schema has no reservation sub-object — only savingsPlan).
@@ -2834,10 +2868,11 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     }
 
                     # Compute CPU, memory, and disk deltas
-                    # Resolve ACU for this alternative — upgrade-path recs carry it; weighted recs need SKU index lookup.
-                    # ACU is a SKU capability and region-invariant, so fall back to ANY scanned region for the SKU
-                    # if the deployed region didn't return it (common when the candidate isn't offered in the deployed region).
-                    $resolveAcuFromIndex = {
+                    # Resolve capabilities (ACU/IOPS/MaxDisks/memGiB/vCPU) for this alternative.
+                    # Upgrade-path recs may not carry all fields populated; fall back to the SKU index
+                    # (region-invariant for capability data) so deltas don't show '-' when we actually
+                    # know the values from another scanned region.
+                    $resolveCapFromIndex = {
                         param($skuName)
                         if (-not $skuName) { return $null }
                         $hit = $lcSkuIndex["$skuName|$deployedRegion"]
@@ -2848,29 +2883,44 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         }
                         return $hit
                     }
+                    # ACU
                     $recACU = 0
                     if ($rec.PSObject.Properties['ACU']) { $recACU = [int]$rec.ACU }
                     if ($recACU -le 0) {
-                        $acuRaw = & $resolveAcuFromIndex $rec.sku
+                        $acuRaw = & $resolveCapFromIndex $rec.sku
                         if ($acuRaw) { $recACU = [int](Get-CapValue $acuRaw 'ACUs') }
                     }
                     $targetACU = if ($target.PSObject.Properties['ACU']) { [int]$target.ACU } else { 0 }
                     if ($targetACU -le 0) {
-                        $targetAcuRaw = & $resolveAcuFromIndex $target.Name
+                        $targetAcuRaw = & $resolveCapFromIndex $target.Name
                         if ($targetAcuRaw) { $targetACU = [int](Get-CapValue $targetAcuRaw 'ACUs') }
                     }
+                    # IOPS / MaxDisks / memGiB / vCPU \u2014 fall back to SKU index when rec has 0/missing.
+                    $recIOPS = [int]$rec.IOPS
+                    $recMaxDisks = [int]$rec.MaxDisks
+                    $recMemGiB = [double]$rec.memGiB
+                    $recVCPU = [int]$rec.vCPU
+                    if ($recIOPS -le 0 -or $recMaxDisks -le 0 -or $recMemGiB -le 0 -or $recVCPU -le 0) {
+                        $capRaw = & $resolveCapFromIndex $rec.sku
+                        if ($capRaw) {
+                            if ($recIOPS -le 0)     { $recIOPS     = [int](Get-CapValue $capRaw 'UncachedDiskIOPS') }
+                            if ($recMaxDisks -le 0) { $recMaxDisks = [int](Get-CapValue $capRaw 'MaxDataDiskCount') }
+                            if ($recMemGiB -le 0)   { $recMemGiB   = [double](Get-CapValue $capRaw 'MemoryGB') }
+                            if ($recVCPU -le 0)     { $recVCPU     = [int](Get-CapValue $capRaw 'vCPUs') }
+                        }
+                    }
 
-                    # Compute deltas from rec/target capability data — always available even when capacity is unknown
-                    $cpuDiff = [int]$rec.vCPU - [int]$target.vCPU
-                    $cpuDeltaStr = if ([int]$rec.vCPU -le 0 -or [int]$target.vCPU -le 0) { '-' } elseif ($cpuDiff -eq 0) { '=' } elseif ($cpuDiff -gt 0) { "+$cpuDiff" } else { "$cpuDiff" }
+                    # Compute deltas from rec/target capability data \u2014 always available even when capacity is unknown
+                    $cpuDiff = $recVCPU - [int]$target.vCPU
+                    $cpuDeltaStr = if ($recVCPU -le 0 -or [int]$target.vCPU -le 0) { '-' } elseif ($cpuDiff -eq 0) { '=' } elseif ($cpuDiff -gt 0) { "+$cpuDiff" } else { "$cpuDiff" }
                     $acuDiff = $recACU - $targetACU
                     $acuDeltaStr = if ($targetACU -le 0 -or $recACU -le 0) { '-' } elseif ($acuDiff -eq 0) { '=' } elseif ($acuDiff -gt 0) { "+$acuDiff" } else { "$acuDiff" }
-                    $memDiff = [double]$rec.memGiB - [double]$target.MemoryGB
-                    $memDeltaStr = if ([double]$rec.memGiB -le 0 -or [double]$target.MemoryGB -le 0) { '-' } elseif ($memDiff -eq 0) { '=' } elseif ($memDiff -gt 0) { "+$memDiff" } else { "$memDiff" }
-                    $diskDiff = [int]$rec.MaxDisks - [int]$target.MaxDataDiskCount
-                    $diskDeltaStr = if ([int]$rec.MaxDisks -le 0 -or [int]$target.MaxDataDiskCount -le 0) { '-' } elseif ($diskDiff -eq 0) { '=' } elseif ($diskDiff -gt 0) { "+$diskDiff" } else { "$diskDiff" }
-                    $iopsDiff = [int]$rec.IOPS - [int]$target.UncachedDiskIOPS
-                    $iopsDeltaStr = if ([int]$rec.IOPS -le 0 -or [int]$target.UncachedDiskIOPS -le 0) { '-' } elseif ($iopsDiff -eq 0) { '=' } elseif ($iopsDiff -gt 0) { "+$iopsDiff" } else { "$iopsDiff" }
+                    $memDiff = $recMemGiB - [double]$target.MemoryGB
+                    $memDeltaStr = if ($recMemGiB -le 0 -or [double]$target.MemoryGB -le 0) { '-' } elseif ($memDiff -eq 0) { '=' } elseif ($memDiff -gt 0) { "+$memDiff" } else { "$memDiff" }
+                    $diskDiff = $recMaxDisks - [int]$target.MaxDataDiskCount
+                    $diskDeltaStr = if ($recMaxDisks -le 0 -or [int]$target.MaxDataDiskCount -le 0) { '-' } elseif ($diskDiff -eq 0) { '=' } elseif ($diskDiff -gt 0) { "+$diskDiff" } else { "$diskDiff" }
+                    $iopsDiff = $recIOPS - [int]$target.UncachedDiskIOPS
+                    $iopsDeltaStr = if ($recIOPS -le 0 -or [int]$target.UncachedDiskIOPS -le 0) { '-' } elseif ($iopsDiff -eq 0) { '=' } elseif ($iopsDiff -gt 0) { "+$iopsDiff" } else { "$iopsDiff" }
 
                     # Build Details string explaining why this recommendation was selected
                     $targetFamily = $target.Family
@@ -2963,15 +3013,18 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     }
 
                     $lifecycleResults.Add([pscustomobject]@{
-                        SKU              = if ($isFirstRow) { $target.Name } else { '' }
-                        DeployedRegion   = if ($isFirstRow) { if ($deployedRegion) { $deployedRegion } else { '-' } } else { '' }
-                        Qty              = if ($isFirstRow) { $entryQty } else { '' }
-                        vCPU             = if ($isFirstRow) { $target.vCPU } else { '' }
-                        MemoryGB         = if ($isFirstRow) { $target.MemoryGB } else { '' }
-                        Generation       = if ($isFirstRow) { "v$generation" } else { '' }
-                        RiskLevel        = if ($isFirstRow) { $riskLevel } else { '' }
-                        RiskReasons      = if ($isFirstRow) { ($riskReasons -join '; ') } else { '' }
-                        QuotaDeficitSubs = if ($isFirstRow) { ($quotaDeficitSubIds -join ',') } else { '' }
+                        # Grouping cells repeat on every alternative row (was: blank on continuations).
+                        # Empty cells visually read as missing data; repeating mirrors what the user
+                        # would see if they sorted/filtered the sheet.
+                        SKU              = $target.Name
+                        DeployedRegion   = if ($deployedRegion) { $deployedRegion } else { '-' }
+                        Qty              = $entryQty
+                        vCPU             = $target.vCPU
+                        MemoryGB         = $target.MemoryGB
+                        Generation       = "v$generation"
+                        RiskLevel        = $riskLevel
+                        RiskReasons      = ($riskReasons -join '; ')
+                        QuotaDeficitSubs = ($quotaDeficitSubIds -join ',')
                         MatchType        = $sel.MatchType
                         TopAlternative   = $rec.sku
                         AltScore         = if ($rec.score -is [ValueType] -and $rec.score -isnot [bool]) { "$([int]$rec.score)%" } else { '' }
@@ -2990,11 +3043,9 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         SP3YrSavings     = $sp3YrSavingsStr
                         RI1YrSavings     = $ri1YrSavingsStr
                         RI3YrSavings     = $ri3YrSavingsStr
-                        AlternativeCount = if ($isFirstRow) { $allRecs.Count } else { '' }
+                        AlternativeCount = $allRecs.Count
                         Details          = $detailsStr
                     })
-
-                    $isFirstRow = $false
                 }
             }
         }
@@ -3010,14 +3061,16 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
         Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
         Write-Host ""
 
-        # Lifecycle console: quota columns moved to SubMap/RGMap tabs
+        # Lifecycle console: quota columns moved to SubMap/RGMap tabs.
+        # ACU and 1-Year columns intentionally omitted: many SKUs lack ACU data, and 3-Year
+        # cost/savings is the actionable horizon for lifecycle planning.
         if ($FetchPricing) {
-            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-5} {14,-7} {15,-8} {16,-10} {17,-12}"
-            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'ACU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Price Diff', 'Total') -ForegroundColor White
+            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-5} {14,-7} {15,-10} {16,-12}"
+            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Price Diff', 'Total') -ForegroundColor White
         }
         else {
-            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-5} {14,-7} {15,-8}"
-            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'ACU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-') -ForegroundColor White
+            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-5} {14,-7}"
+            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-') -ForegroundColor White
         }
         Write-Host (' ' + ('-' * ($script:OutputWidth - 2))) -ForegroundColor DarkGray
 
@@ -3035,7 +3088,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             else {
                 $riskColor = $lastSeenRiskColor
             }
-            [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.AcuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta)
+            [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta)
             if ($FetchPricing) { $fmtArgs += @($r.PriceDiff, $r.TotalPriceDiff) }
             $line = $sumFmt -f $fmtArgs
             Write-Host $line -ForegroundColor $riskColor
@@ -3109,23 +3162,23 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             # Detect sovereign/GOV tenant — SP columns are N/A, so omit them entirely
             $isSovereignTenant = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud')
 
-            # SP/RI columns included only with -RateOptimization flag (SP columns excluded for sovereign tenants)
+            # SP/RI columns included only with -RateOptimization flag (SP columns excluded for sovereign tenants).
+            # 1-Year columns intentionally omitted in favor of 3-Year (the actionable lifecycle horizon).
             $rateOptCols = if ($RateOptimization) {
                 $cols = @()
                 if (-not $isSovereignTenant) {
-                    $cols += @{N='SP 1-Year Savings';E={$_.SP1YrSavings}}
                     $cols += @{N='SP 3-Year Savings';E={$_.SP3YrSavings}}
                 }
-                $cols += @{N='RI 1-Year Savings';E={$_.RI1YrSavings}}
                 $cols += @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
                 $cols
             } else { @() }
 
-            # PAYG pricing columns included only with -ShowPricing
+            # PAYG pricing columns included only with -ShowPricing.
+            # 1-Year cost dropped — 3-Year is the lifecycle planning horizon.
             $pricingCols = if ($FetchPricing) {
                 @(
                     @{N='Price Diff';E={$_.PriceDiff}}, @{N='Total';E={$_.TotalPriceDiff}},
-                    @{N='1-Year Cost';E={$_.PAYG1Yr}}, @{N='3-Year Cost';E={$_.PAYG3Yr}}
+                    @{N='3-Year Cost';E={$_.PAYG3Yr}}
                 ) + $rateOptCols
             } else { @() }
 
@@ -3146,7 +3199,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E=$stripQuotaReasons},
                 @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}}
             ) + $altZonesCol + @(
-                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='ACU +/-';E={$_.AcuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
                 @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
             ) + $pricingCols + @(@{N='Details';E={$_.Details}})
             $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
@@ -3158,7 +3211,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             # -NoNumberConversion, ImportExcel auto-coerces strings like "-271" into Doubles,
             # which then right-align while sibling strings like "*+$407" stay text/left-aligned
             # — producing the visible column-alignment mismatch within a single column.
-            $priceColNames = @('Price Diff','Total','1-Year Cost','3-Year Cost','SP 1-Year Savings','SP 3-Year Savings','RI 1-Year Savings','RI 3-Year Savings')
+            $priceColNames = @('Price Diff','Total','3-Year Cost','SP 3-Year Savings','RI 3-Year Savings')
             $excel = $lcExportRows | Export-Excel -Path $lcXlsxFile -WorksheetName "Lifecycle Summary" -AutoSize -AutoFilter -FreezeTopRow -NoNumberConversion $priceColNames -PassThru
 
             $ws = $excel.Workbook.Worksheets["Lifecycle Summary"]
@@ -3209,8 +3262,8 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             #      RI savings are always sourced from the public Retail Prices API.
             if ($FetchPricing) {
                 $retailFallback = @($script:RunContext.RetailFallbackRegions)
-                $riLegendText = "RI 1-Year Savings and RI 3-Year Savings are always shown with a leading '*' because the Consumption Price Sheet API does not expose negotiated reservation rates. These values come from the public Azure Retail Prices API (list prices). Your actual reservation cost at purchase quote time may differ."
-                foreach ($riHeader in @('RI 1-Year Savings','RI 3-Year Savings')) {
+                $riLegendText = "RI 3-Year Savings is always shown with a leading '*' because the Consumption Price Sheet API does not expose negotiated reservation rates. These values come from the public Azure Retail Prices API (list prices). Your actual reservation cost at purchase quote time may differ."
+                foreach ($riHeader in @('RI 3-Year Savings')) {
                     $riColIdx = 0
                     for ($c = 1; $c -le $lastCol; $c++) {
                         if ($ws.Cells[1, $c].Value -eq $riHeader) { $riColIdx = $c; break }
@@ -3296,7 +3349,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 @{N='Risk Reasons';E=$stripQuotaReasons},
                 @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}}
             ) + $altZonesCol + @(
-                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='ACU +/-';E={$_.AcuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
                 @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
             ) + $pricingCols + @(@{N='Details';E={$_.Details}})
             $highRows = @($highBase | Select-Object -Property $hrProps)
@@ -3329,7 +3382,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 @{N='Risk Reasons';E=$stripQuotaReasons},
                 @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}}
             ) + $altZonesCol + @(
-                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='ACU +/-';E={$_.AcuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
                 @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
             ) + $pricingCols + @(@{N='Details';E={$_.Details}})
             $medRows = @($medBase | Select-Object -Property $mrProps)
