@@ -336,26 +336,28 @@ function Get-AzActualPricing {
                     if (-not $normalizedRegion) { $skipReasons.EmptyMeterLocation++; continue }
 
                     # Convert billing meter name to ARM SKU name(s).
-                    # Older paired sizes (e.g. 'D3/DS3 v2', 'D8/D8s v3', 'E2/E2s v3') ship as a
-                    # single combined meter that covers both the basic and the premium-storage 's'
-                    # variant at the same rate. Naive parsing produces 'Standard_D3/DS3_v2' which
-                    # matches no real ARM SKU and forces those workloads to retail fallback. Split
-                    # the slash and emit one entry per ARM SKU so both lookups hit.
+                    # Older paired sizes (e.g. 'D3 v2/DS3 v2', 'D8 v3/D8s v3', 'D1 v2/DS1 v2')
+                    # ship as a single combined meter where each side already carries its own
+                    # version suffix and the slash sits between two space-separated tokens.
+                    # The basic and premium-storage 's' variants share the exact same rate,
+                    # so we split on '/' and emit one ARM SKU per fragment. We also strip the
+                    # legacy " - Expired" suffix some meters carry so expired meters still
+                    # resolve to the live ARM SKU name (rates remain valid for billing).
                     # No longer strip Spot/Low Priority — those meters are filtered out above.
                     $cleanName = $meterNameRaw.Trim() -replace '^Standard[\s_]+', ''
                     if ($cleanName -notmatch '^[A-Z]') { $skipReasons.UnparsableMeterName++; continue }
+                    $cleanName = $cleanName -replace '\s*-\s*Expired\s*$', ''
                     $vmSizes = @()
-                    if ($cleanName -match '^(?<heads>[A-Za-z0-9-]+(?:/[A-Za-z0-9-]+)+)(?<tail>(?:\s+.+)?)$') {
-                        $tail  = $Matches['tail']
-                        $heads = $Matches['heads'] -split '/'
-                        foreach ($h in $heads) {
-                            $combined = ($h + $tail).Trim() -replace '\s+', '_'
-                            $vmSizes += "Standard_$combined"
+                    if ($cleanName -like '*/*') {
+                        foreach ($frag in ($cleanName -split '/')) {
+                            $f = $frag.Trim()
+                            if ($f) { $vmSizes += "Standard_$($f -replace '\s+', '_')" }
                         }
                     }
                     else {
                         $vmSizes = @("Standard_$($cleanName -replace '\s+', '_')")
                     }
+                    if (-not $vmSizes -or $vmSizes.Count -eq 0) { $skipReasons.UnparsableMeterName++; continue }
 
                     # Determine the hourly divisor from unitOfMeasure
                     # Common values: "1 Hour", "100 Hours", "1/Month", "1/Day"
