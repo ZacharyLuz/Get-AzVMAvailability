@@ -1785,6 +1785,37 @@ try {
             [System.Net.NetworkCredential]::new('', $tokenResult.Token).Password
         } else { $tokenResult.Token }
 
+        # Token bag: synchronized hashtable so parallel runspaces always read the latest
+        # bearer when the main thread refreshes it. Without this, large scans that exceed
+        # the ARM token lifetime (~60-90 min) flood with ExpiredAuthenticationToken (401).
+        $tokenExpiresOn = $null
+        if ($tokenResult.PSObject.Properties['ExpiresOn'] -and $tokenResult.ExpiresOn) {
+            $tokenExpiresOn = [datetime]$tokenResult.ExpiresOn
+        }
+        $tokenBag = [hashtable]::Synchronized(@{ Token = $bearerToken; ExpiresOn = $tokenExpiresOn })
+
+        # Refresh helper — called by the main polling loop when the token nears expiry,
+        # and by runspaces only as a last resort (Az SDK calls aren't safe across runspaces,
+        # so workers prefer to re-read $tokenBag.Token rather than refresh themselves).
+        $refreshTokenBag = {
+            param($bag, $resourceUrl)
+            try {
+                $tr = Get-AzAccessToken -ResourceUrl $resourceUrl -ErrorAction Stop
+                $newTok = if ($tr.Token -is [System.Security.SecureString]) {
+                    [System.Net.NetworkCredential]::new('', $tr.Token).Password
+                } else { $tr.Token }
+                $bag.Token = $newTok
+                if ($tr.PSObject.Properties['ExpiresOn'] -and $tr.ExpiresOn) {
+                    $bag.ExpiresOn = [datetime]$tr.ExpiresOn
+                }
+                return $true
+            }
+            catch {
+                Write-Verbose "Token refresh failed: $($_.Exception.Message)"
+                return $false
+            }
+        }
+
         # Resolve subscription names in one ARG batch query (avoids per-sub Get-AzSubscription calls)
         $subNameLookup = @{}
         if ($ScanSubIds.Count -gt 0) {
@@ -1802,8 +1833,11 @@ try {
             }
         }
 
-        # Shared retry error pattern for all scan paths
-        $retryErrorPattern = '429|Too Many Requests|500|Internal Server Error|InternalServerError|503|ServiceUnavailable|Service Unavailable'
+        # Shared retry error pattern for all scan paths.
+        # Includes 401/ExpiredAuthenticationToken so retryCall can re-read the token bag
+        # and try again instead of permanently failing the work item.
+        $retryErrorPattern = '429|Too Many Requests|500|Internal Server Error|InternalServerError|503|ServiceUnavailable|Service Unavailable|401|Unauthorized|ExpiredAuthenticationToken|InvalidAuthenticationToken'
+        $authErrorPattern = '401|Unauthorized|ExpiredAuthenticationToken|InvalidAuthenticationToken'
 
         # Build work items: every (subscription × region) pair scanned in parallel
         $workItems = [System.Collections.Generic.List[hashtable]]::new()
@@ -1820,10 +1854,11 @@ try {
         $scanStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
         # Sequential scan scriptblock — used as fallback for PS5 and for retrying failed items.
-        # Accepts $itemSubId and $region as parameters; token and armUrl from enclosing scope.
+        # Accepts $itemSubId and $region as parameters; tokenBag and armUrl from enclosing scope.
         $scanRegionScript = {
-            param($itemSubId, $region, $skuFilterCopy, $maxRetries, $armUrl, $bearerToken, $retryPattern, $skipQuota)
+            param($itemSubId, $region, $skuFilterCopy, $maxRetries, $armUrl, $tokenBag, $retryPattern, $authPattern, $skipQuota)
             $boundRetryPattern = $retryPattern
+            $boundAuthPattern  = $authPattern
 
             $retryCall = {
                 param([scriptblock]$Action, [int]$Retries)
@@ -1835,7 +1870,14 @@ try {
                     catch {
                         $attempt++
                         $msg = $_.Exception.Message
+                        $isAuth = $msg -match $boundAuthPattern
                         $isThrottle = $msg -match $boundRetryPattern
+                        if ($isAuth -and $attempt -le ($Retries + 1)) {
+                            # Token likely expired — main thread refreshes the bag on a timer,
+                            # so a brief wait + re-read usually clears 401s.
+                            Start-Sleep -Milliseconds 500
+                            continue
+                        }
                         if ($isThrottle -and $attempt -le $Retries) {
                             $baseDelay = [math]::Pow(2, $attempt)
                             $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
@@ -1848,7 +1890,8 @@ try {
             }
 
             try {
-                $headers = @{ 'Authorization' = "Bearer $bearerToken"; 'Content-Type' = 'application/json' }
+                # Build headers per call from the live bag so token refreshes are picked up.
+                $buildHeaders = { @{ 'Authorization' = "Bearer $($tokenBag.Token)"; 'Content-Type' = 'application/json' } }
 
                 $skuUri = "$armUrl/subscriptions/$itemSubId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
                 $quotaUri = "$armUrl/subscriptions/$itemSubId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
@@ -1857,13 +1900,13 @@ try {
                 $nextLink = $skuUri
                 while ($nextLink) {
                     $capturedLink = $nextLink
-                    $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedLink -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
+                    $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedLink -Headers (& $buildHeaders) -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
                     foreach ($item in $resp.value) { $skuResult.Add($item) }
                     $nextLink = $resp.nextLink
                 }
 
                 $capturedQuotaUri = $quotaUri
-                $quotaResp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedQuotaUri -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
+                $quotaResp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedQuotaUri -Headers (& $buildHeaders) -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
                 $quotaResult = $quotaResp.value
 
                 $allSkus = @($skuResult | Where-Object { $_.resourceType -eq 'virtualMachines' })
@@ -1906,8 +1949,9 @@ try {
                     $skuFilterCopy = $using:SkuFilter
                     $maxRetries = $using:MaxRetries
                     $armUrl = $using:armUrl
-                    $bearerToken = $using:bearerToken
+                    $tokenBag = $using:tokenBag
                     $retryPattern = $using:retryErrorPattern
+                    $authPattern = $using:authErrorPattern
                     $skipQuota = $using:NoQuota.IsPresent
                     $counter = $using:scanCounter
                     $total = $using:totalItems
@@ -1923,7 +1967,12 @@ try {
                             catch {
                                 $attempt++
                                 $msg = $_.Exception.Message
+                                $isAuth = $msg -match $authPattern
                                 $isThrottle = $msg -match $retryPattern
+                                if ($isAuth -and $attempt -le ($Retries + 1)) {
+                                    Start-Sleep -Milliseconds 500
+                                    continue
+                                }
                                 if ($isThrottle -and $attempt -le $Retries) {
                                     $baseDelay = [math]::Pow(2, $attempt)
                                     $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
@@ -1936,14 +1985,15 @@ try {
                     }
 
                     try {
-                        $headers = @{ 'Authorization' = "Bearer $bearerToken"; 'Content-Type' = 'application/json' }
+                        # Headers built per call to honor token-bag refreshes mid-scan.
+                        $buildHeaders = { @{ 'Authorization' = "Bearer $($tokenBag.Token)"; 'Content-Type' = 'application/json' } }
 
                         $skuUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
                         $quotaUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
 
                         # Concurrent SKU + quota fetch via HttpClient
                         $client = [System.Net.Http.HttpClient]::new()
-                        $client.DefaultRequestHeaders.TryAddWithoutValidation('Authorization', "Bearer $bearerToken") | Out-Null
+                        $client.DefaultRequestHeaders.TryAddWithoutValidation('Authorization', "Bearer $($tokenBag.Token)") | Out-Null
                         $skuTask   = $client.GetStringAsync($skuUri)
                         $quotaTask = $client.GetStringAsync($quotaUri)
                         [System.Threading.Tasks.Task]::WaitAll(@($skuTask, $quotaTask))
@@ -1962,7 +2012,7 @@ try {
                         $nextLink = $skuJson.nextLink
                         while ($nextLink) {
                             $capturedUri = $nextLink
-                            $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedUri -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
+                            $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedUri -Headers (& $buildHeaders) -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
                             foreach ($skuItem in $resp.value) { $skuItems.Add($skuItem) }
                             $nextLink = $resp.nextLink
                         }
@@ -2052,6 +2102,13 @@ try {
                 $ProgressPreference = 'Continue'
                 $pollSw = [System.Diagnostics.Stopwatch]::StartNew()
                 while ($parallelJob.State -eq 'Running' -or $parallelJob.State -eq 'NotStarted') {
+                    # Refresh token in the bag when we're within 10 minutes of expiry. Workers
+                    # rebuild headers per call, so they pick up the new token automatically.
+                    if ($tokenBag.ExpiresOn -and ((($tokenBag.ExpiresOn).ToUniversalTime() - [datetime]::UtcNow).TotalMinutes -lt 10)) {
+                        if (& $refreshTokenBag $tokenBag $armUrl) {
+                            Write-Verbose "Bearer token refreshed; new expiry $($tokenBag.ExpiresOn)"
+                        }
+                    }
                     $done = $scanCounter.Count
                     $pct = if ($totalItems -gt 0) { [math]::Min(99, [math]::Floor(($done / $totalItems) * 100)) } else { 0 }
                     $elapsed = $pollSw.Elapsed
@@ -2084,7 +2141,11 @@ try {
 
         if (-not $canUseParallel) {
             $allScanResults = foreach ($wi in $workItems) {
-                & $scanRegionScript -itemSubId $wi.SubscriptionId -region $wi.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern -skipQuota $NoQuota.IsPresent
+                # Refresh proactively in sequential mode too — a slow run can cross the expiry boundary.
+                if ($tokenBag.ExpiresOn -and ((($tokenBag.ExpiresOn).ToUniversalTime() - [datetime]::UtcNow).TotalMinutes -lt 10)) {
+                    & $refreshTokenBag $tokenBag $armUrl | Out-Null
+                }
+                & $scanRegionScript -itemSubId $wi.SubscriptionId -region $wi.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -tokenBag $tokenBag -retryPattern $retryErrorPattern -authPattern $authErrorPattern -skipQuota $NoQuota.IsPresent
             }
         }
 
@@ -2099,7 +2160,14 @@ try {
             }
             foreach ($failedItem in $failedItems) {
                 Write-Verbose "Retry: $($failedItem.SubscriptionId) / $($failedItem.Region) (original error: $($failedItem.Error))"
-                $retryResult = & $scanRegionScript -itemSubId $failedItem.SubscriptionId -region $failedItem.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern -skipQuota $NoQuota.IsPresent
+                # If the original failure was auth-related, refresh the bag before retrying.
+                if ($failedItem.Error -and $failedItem.Error -match $authErrorPattern) {
+                    & $refreshTokenBag $tokenBag $armUrl | Out-Null
+                }
+                elseif ($tokenBag.ExpiresOn -and ((($tokenBag.ExpiresOn).ToUniversalTime() - [datetime]::UtcNow).TotalMinutes -lt 10)) {
+                    & $refreshTokenBag $tokenBag $armUrl | Out-Null
+                }
+                $retryResult = & $scanRegionScript -itemSubId $failedItem.SubscriptionId -region $failedItem.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -tokenBag $tokenBag -retryPattern $retryErrorPattern -authPattern $authErrorPattern -skipQuota $NoQuota.IsPresent
                 if ($retryResult.Error) {
                     Write-Warning "Work item '$($failedItem.SubscriptionId):$($failedItem.Region)' failed after retry: $($retryResult.Error) — data excluded from analysis"
                 }
