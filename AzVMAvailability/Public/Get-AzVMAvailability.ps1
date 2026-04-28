@@ -3154,7 +3154,12 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             $altColLetter = 'J'
             $riskReasonsColNum = 8
 
-            $excel = $lcExportRows | Export-Excel -Path $lcXlsxFile -WorksheetName "Lifecycle Summary" -AutoSize -AutoFilter -FreezeTopRow -PassThru
+            # Price columns must stay as text (with their '*' / '$' / '-' formatting). Without
+            # -NoNumberConversion, ImportExcel auto-coerces strings like "-271" into Doubles,
+            # which then right-align while sibling strings like "*+$407" stay text/left-aligned
+            # — producing the visible column-alignment mismatch within a single column.
+            $priceColNames = @('Price Diff','Total','1-Year Cost','3-Year Cost','SP 1-Year Savings','SP 3-Year Savings','RI 1-Year Savings','RI 3-Year Savings')
+            $excel = $lcExportRows | Export-Excel -Path $lcXlsxFile -WorksheetName "Lifecycle Summary" -AutoSize -AutoFilter -FreezeTopRow -NoNumberConversion $priceColNames -PassThru
 
             $ws = $excel.Workbook.Worksheets["Lifecycle Summary"]
             $lastRow = $ws.Dimension.End.Row
@@ -3297,7 +3302,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             $highRows = @($highBase | Select-Object -Property $hrProps)
 
             if ($highRows.Count -gt 0) {
-                $excel = $highRows | Export-Excel -ExcelPackage $excel -WorksheetName "High Risk" -AutoSize -AutoFilter -FreezeTopRow -PassThru
+                $excel = $highRows | Export-Excel -ExcelPackage $excel -WorksheetName "High Risk" -AutoSize -AutoFilter -FreezeTopRow -NoNumberConversion $priceColNames -PassThru
                 $wsH = $excel.Workbook.Worksheets["High Risk"]
                 $hLastRow = $wsH.Dimension.End.Row
                 $hLastCol = $wsH.Dimension.End.Column
@@ -3330,7 +3335,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             $medRows = @($medBase | Select-Object -Property $mrProps)
 
             if ($medRows.Count -gt 0) {
-                $excel = $medRows | Export-Excel -ExcelPackage $excel -WorksheetName "Medium Risk" -AutoSize -AutoFilter -FreezeTopRow -PassThru
+                $excel = $medRows | Export-Excel -ExcelPackage $excel -WorksheetName "Medium Risk" -AutoSize -AutoFilter -FreezeTopRow -NoNumberConversion $priceColNames -PassThru
                 $wsM = $excel.Workbook.Worksheets["Medium Risk"]
                 $mLastRow = $wsM.Dimension.End.Row
                 $mLastCol = $wsM.Dimension.End.Column
