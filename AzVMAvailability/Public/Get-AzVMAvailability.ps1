@@ -2250,7 +2250,10 @@ try {
 
         Write-Progress -Activity "Scanning Azure Regions" -Completed
 
-        $scanElapsed = (Get-Date) - $scanStartTime
+        # Re-emit the scan-complete line for the second flow (uses wall-clock since scan start).
+        # Don't overwrite $scanElapsed if the stopwatch already captured it \u2014 we want the
+        # stopped value preserved for the SCAN COMPLETE banner at the very end of the run.
+        if (-not $scanElapsed) { $scanElapsed = (Get-Date) - $scanStartTime }
         Write-Host "Scan complete: $($ScanSubIds.Count) subscription(s) x $($Regions.Count) region(s) in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
     }
     catch {
@@ -2889,14 +2892,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         if ($rec.PSObject.Properties['priceIsNegotiated']) { $recIsNeg = [bool]$rec.priceIsNegotiated }
                         $priceMarker = if ($targetPriceIsNegotiated -and $recIsNeg) { '' } else { '*' }
                         $diff = [double]$rec.priceMo - $targetPriceMo
-                        $priceDiffStr = if ($diff -ge 0) { $priceMarker + '+$' + $diff.ToString('0') } else { $priceMarker + '-$' + ([Math]::Abs($diff)).ToString('0') }
+                        $priceDiffStr = if ($diff -ge 0) { $priceMarker + '+' + $diff.ToString('0') } else { $priceMarker + '-' + ([Math]::Abs($diff)).ToString('0') }
                         $totalDiff = $diff * $entryQty
-                        $totalDiffStr = if ($totalDiff -ge 0) { $priceMarker + '+$' + $totalDiff.ToString('N0') } else { $priceMarker + '-$' + ([Math]::Abs($totalDiff)).ToString('N0') }
+                        $totalDiffStr = if ($totalDiff -ge 0) { $priceMarker + '+' + $totalDiff.ToString('N0') } else { $priceMarker + '-' + ([Math]::Abs($totalDiff)).ToString('N0') }
                         $recPriceMarker = if ($recIsNeg) { '' } else { '*' }
                         $payg1Yr = [double]$rec.priceMo * 12 * $entryQty
-                        $payg1YrStr = $recPriceMarker + '$' + $payg1Yr.ToString('N0')
+                        $payg1YrStr = $recPriceMarker + $payg1Yr.ToString('N0')
                         $payg3Yr = [double]$rec.priceMo * 36 * $entryQty
-                        $payg3YrStr = $recPriceMarker + '$' + $payg3Yr.ToString('N0')
+                        $payg3YrStr = $recPriceMarker + $payg3Yr.ToString('N0')
                     }
 
                     # Look up savings plan and reservation savings vs PAYG fleet total
@@ -2915,14 +2918,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                 $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty
                                 $sp1Savings = $recPaygFleet1Yr - $sp1Fleet
                                 $sp1Marker = if ($sp1Entry.IsNegotiated) { '' } else { '*' }
-                                $sp1YrSavingsStr = $sp1Marker + '$' + $sp1Savings.ToString('N0')
+                                $sp1YrSavingsStr = $sp1Marker + $sp1Savings.ToString('N0')
                             }
                             $sp3Entry = $sp3YrMap[$rec.sku]
                             if ($sp3Entry) {
                                 $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty
                                 $sp3Savings = $recPaygFleet3Yr - $sp3Fleet
                                 $sp3Marker = if ($sp3Entry.IsNegotiated) { '' } else { '*' }
-                                $sp3YrSavingsStr = $sp3Marker + '$' + $sp3Savings.ToString('N0')
+                                $sp3YrSavingsStr = $sp3Marker + $sp3Savings.ToString('N0')
                             }
                         }
                         # Reservation rates are NOT exposed by the Consumption Price Sheet API
@@ -2930,9 +2933,9 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         # RI savings here always come from the public Retail Prices API, so flag them
                         # with a permanent leading '*' to match the retail-fallback marker convention.
                         $ri1Entry = $ri1YrMap[$rec.sku]
-                        if ($ri1Entry) { $ri1Fleet = [double]$ri1Entry.Total * $entryQty; $ri1Savings = $recPaygFleet1Yr - $ri1Fleet; $ri1YrSavingsStr = '*$' + $ri1Savings.ToString('N0') }
+                        if ($ri1Entry) { $ri1Fleet = [double]$ri1Entry.Total * $entryQty; $ri1Savings = $recPaygFleet1Yr - $ri1Fleet; $ri1YrSavingsStr = '*' + $ri1Savings.ToString('N0') }
                         $ri3Entry = $ri3YrMap[$rec.sku]
-                        if ($ri3Entry) { $ri3Fleet = [double]$ri3Entry.Total * $entryQty; $ri3Savings = $recPaygFleet3Yr - $ri3Fleet; $ri3YrSavingsStr = '*$' + $ri3Savings.ToString('N0') }
+                        if ($ri3Entry) { $ri3Fleet = [double]$ri3Entry.Total * $entryQty; $ri3Savings = $recPaygFleet3Yr - $ri3Fleet; $ri3YrSavingsStr = '*' + $ri3Savings.ToString('N0') }
                     }
 
                     # Compute CPU, memory, and disk deltas
@@ -3768,8 +3771,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     $skuName = $skuInfo.Sku.Name
                     $pricing = $regularPriceMap[$skuName]
                     if ($pricing) {
-                        $priceHrStr = '$' + $pricing.Hourly.ToString('0.00')
-                        $priceMoStr = '$' + $pricing.Monthly.ToString('0')
+                        $priceHrStr = $pricing.Hourly.ToString('0.00')
+                        $priceMoStr = $pricing.Monthly.ToString('0')
                         break
                     }
                 }
@@ -3808,8 +3811,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 if ($FetchPricing -and $regularPriceMap) {
                     $skuPricing = $regularPriceMap[$sku.Name]
                     if ($skuPricing) {
-                        $skuPriceHr = '$' + $skuPricing.Hourly.ToString('0.00')
-                        $skuPriceMo = '$' + $skuPricing.Monthly.ToString('0')
+                        $skuPriceHr = $skuPricing.Hourly.ToString('0.00')
+                        $skuPriceMo = $skuPricing.Monthly.ToString('0')
                     }
                 }
 
@@ -4460,12 +4463,12 @@ Write-Progress -Activity "Processing Region Data" -Completed
 #endregion Detailed Breakdown
 #region Completion
 
-$totalElapsed = (Get-Date) - $scanStartTime
+$totalElapsed = if ($scanElapsed) { $scanElapsed } else { (Get-Date) - $scanStartTime }
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "SCAN COMPLETE" -ForegroundColor Green
-Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | Total time: $([math]::Round($totalElapsed.TotalSeconds, 1)) seconds" -ForegroundColor DarkGray
+Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | Scan time: $([math]::Round($totalElapsed.TotalSeconds, 1)) seconds" -ForegroundColor DarkGray
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 
 #endregion Completion
