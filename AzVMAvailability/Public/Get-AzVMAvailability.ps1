@@ -1790,7 +1790,11 @@ try {
         # the ARM token lifetime (~60-90 min) flood with ExpiredAuthenticationToken (401).
         $tokenExpiresOn = $null
         if ($tokenResult.PSObject.Properties['ExpiresOn'] -and $tokenResult.ExpiresOn) {
-            $tokenExpiresOn = [datetime]$tokenResult.ExpiresOn
+            # Newer Az returns DateTimeOffset; older returns DateTime. Normalize to UTC DateTime.
+            $rawExp = $tokenResult.ExpiresOn
+            $tokenExpiresOn = if ($rawExp -is [System.DateTimeOffset]) { $rawExp.UtcDateTime }
+                              elseif ($rawExp -is [datetime])         { $rawExp.ToUniversalTime() }
+                              else { [datetime]::Parse([string]$rawExp).ToUniversalTime() }
         }
         $tokenBag = [hashtable]::Synchronized(@{ Token = $bearerToken; ExpiresOn = $tokenExpiresOn })
 
@@ -1806,7 +1810,10 @@ try {
                 } else { $tr.Token }
                 $bag.Token = $newTok
                 if ($tr.PSObject.Properties['ExpiresOn'] -and $tr.ExpiresOn) {
-                    $bag.ExpiresOn = [datetime]$tr.ExpiresOn
+                    $rawExp = $tr.ExpiresOn
+                    $bag.ExpiresOn = if ($rawExp -is [System.DateTimeOffset]) { $rawExp.UtcDateTime }
+                                     elseif ($rawExp -is [datetime])         { $rawExp.ToUniversalTime() }
+                                     else { [datetime]::Parse([string]$rawExp).ToUniversalTime() }
                 }
                 return $true
             }
@@ -2104,7 +2111,7 @@ try {
                 while ($parallelJob.State -eq 'Running' -or $parallelJob.State -eq 'NotStarted') {
                     # Refresh token in the bag when we're within 10 minutes of expiry. Workers
                     # rebuild headers per call, so they pick up the new token automatically.
-                    if ($tokenBag.ExpiresOn -and ((($tokenBag.ExpiresOn).ToUniversalTime() - [datetime]::UtcNow).TotalMinutes -lt 10)) {
+                    if ($tokenBag.ExpiresOn -and (($tokenBag.ExpiresOn - [datetime]::UtcNow).TotalMinutes -lt 10)) {
                         if (& $refreshTokenBag $tokenBag $armUrl) {
                             Write-Verbose "Bearer token refreshed; new expiry $($tokenBag.ExpiresOn)"
                         }
@@ -2142,7 +2149,7 @@ try {
         if (-not $canUseParallel) {
             $allScanResults = foreach ($wi in $workItems) {
                 # Refresh proactively in sequential mode too — a slow run can cross the expiry boundary.
-                if ($tokenBag.ExpiresOn -and ((($tokenBag.ExpiresOn).ToUniversalTime() - [datetime]::UtcNow).TotalMinutes -lt 10)) {
+                if ($tokenBag.ExpiresOn -and (($tokenBag.ExpiresOn - [datetime]::UtcNow).TotalMinutes -lt 10)) {
                     & $refreshTokenBag $tokenBag $armUrl | Out-Null
                 }
                 & $scanRegionScript -itemSubId $wi.SubscriptionId -region $wi.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -tokenBag $tokenBag -retryPattern $retryErrorPattern -authPattern $authErrorPattern -skipQuota $NoQuota.IsPresent
@@ -2164,7 +2171,7 @@ try {
                 if ($failedItem.Error -and $failedItem.Error -match $authErrorPattern) {
                     & $refreshTokenBag $tokenBag $armUrl | Out-Null
                 }
-                elseif ($tokenBag.ExpiresOn -and ((($tokenBag.ExpiresOn).ToUniversalTime() - [datetime]::UtcNow).TotalMinutes -lt 10)) {
+                elseif ($tokenBag.ExpiresOn -and (($tokenBag.ExpiresOn - [datetime]::UtcNow).TotalMinutes -lt 10)) {
                     & $refreshTokenBag $tokenBag $armUrl | Out-Null
                 }
                 $retryResult = & $scanRegionScript -itemSubId $failedItem.SubscriptionId -region $failedItem.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -tokenBag $tokenBag -retryPattern $retryErrorPattern -authPattern $authErrorPattern -skipQuota $NoQuota.IsPresent
