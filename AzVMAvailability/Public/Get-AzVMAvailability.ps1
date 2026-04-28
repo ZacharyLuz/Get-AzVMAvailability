@@ -2823,10 +2823,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                             $sp3Entry = $sp3YrMap[$rec.sku]
                             if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
                         }
+                        # Reservation rates are NOT exposed by the Consumption Price Sheet API
+                        # (PriceSheetProperties schema has no reservation sub-object — only savingsPlan).
+                        # RI savings here always come from the public Retail Prices API, so flag them
+                        # with a permanent leading '*' to match the retail-fallback marker convention.
                         $ri1Entry = $ri1YrMap[$rec.sku]
-                        if ($ri1Entry) { $ri1Fleet = [double]$ri1Entry.Total * $entryQty; $ri1Savings = $recPaygFleet1Yr - $ri1Fleet; $ri1YrSavingsStr = '$' + $ri1Savings.ToString('N0') }
+                        if ($ri1Entry) { $ri1Fleet = [double]$ri1Entry.Total * $entryQty; $ri1Savings = $recPaygFleet1Yr - $ri1Fleet; $ri1YrSavingsStr = '*$' + $ri1Savings.ToString('N0') }
                         $ri3Entry = $ri3YrMap[$rec.sku]
-                        if ($ri3Entry) { $ri3Fleet = [double]$ri3Entry.Total * $entryQty; $ri3Savings = $recPaygFleet3Yr - $ri3Fleet; $ri3YrSavingsStr = '$' + $ri3Savings.ToString('N0') }
+                        if ($ri3Entry) { $ri3Fleet = [double]$ri3Entry.Total * $entryQty; $ri3Savings = $recPaygFleet3Yr - $ri3Fleet; $ri3YrSavingsStr = '*$' + $ri3Savings.ToString('N0') }
                     }
 
                     # Compute CPU, memory, and disk deltas
@@ -3191,18 +3195,36 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
 
-            # Annotate pricing column headers with a legend when any region used retail fallback,
-            # so the leading '*' on prices is self-explanatory in the workbook.
-            $retailFallback = @($script:RunContext.RetailFallbackRegions)
-            if ($FetchPricing -and $retailFallback.Count -gt 0) {
-                $legendText = "Prices marked with leading '*' are RETAIL (list) prices from the public Azure Retail Prices API. Negotiated EA/MCA/CSP rates were not available for the following region(s) in this enrollment: $($retailFallback -join ', '). Unmarked prices use negotiated rates from the Consumption Price Sheet."
-                $priceDiffColIdx = 0
-                for ($c = 1; $c -le $lastCol; $c++) {
-                    if ($ws.Cells[1, $c].Value -eq 'Price Diff') { $priceDiffColIdx = $c; break }
+            # Annotate pricing column headers with a legend explaining the leading '*' marker.
+            # Two cases produce a '*':
+            #   1. PAYG / Price Diff / Total cells in regions that fell back to retail pricing
+            #      (Consumption Price Sheet didn't cover the region for this enrollment).
+            #   2. RI 1-Year / 3-Year Savings columns ALWAYS — Reservation rates are not exposed
+            #      by the Consumption Price Sheet API (schema has no reservation sub-object), so
+            #      RI savings are always sourced from the public Retail Prices API.
+            if ($FetchPricing) {
+                $retailFallback = @($script:RunContext.RetailFallbackRegions)
+                $riLegendText = "RI 1-Year Savings and RI 3-Year Savings are always shown with a leading '*' because the Consumption Price Sheet API does not expose negotiated reservation rates. These values come from the public Azure Retail Prices API (list prices). Your actual reservation cost at purchase quote time may differ."
+                foreach ($riHeader in @('RI 1-Year Savings','RI 3-Year Savings')) {
+                    $riColIdx = 0
+                    for ($c = 1; $c -le $lastCol; $c++) {
+                        if ($ws.Cells[1, $c].Value -eq $riHeader) { $riColIdx = $c; break }
+                    }
+                    if ($riColIdx -gt 0) {
+                        $hdrCell = $ws.Cells[1, $riColIdx]
+                        if (-not $hdrCell.Comment) { $hdrCell.AddComment($riLegendText, 'Get-AzVMAvailability') | Out-Null }
+                    }
                 }
-                if ($priceDiffColIdx -gt 0) {
-                    $hdrCell = $ws.Cells[1, $priceDiffColIdx]
-                    if (-not $hdrCell.Comment) { $hdrCell.AddComment($legendText, 'Get-AzVMAvailability') | Out-Null }
+                if ($retailFallback.Count -gt 0) {
+                    $legendText = "Prices marked with leading '*' are RETAIL (list) prices from the public Azure Retail Prices API. Negotiated EA/MCA/CSP rates were not available for the following region(s) in this enrollment: $($retailFallback -join ', '). Unmarked prices use negotiated rates from the Consumption Price Sheet."
+                    $priceDiffColIdx = 0
+                    for ($c = 1; $c -le $lastCol; $c++) {
+                        if ($ws.Cells[1, $c].Value -eq 'Price Diff') { $priceDiffColIdx = $c; break }
+                    }
+                    if ($priceDiffColIdx -gt 0) {
+                        $hdrCell = $ws.Cells[1, $priceDiffColIdx]
+                        if (-not $hdrCell.Comment) { $hdrCell.AddComment($legendText, 'Get-AzVMAvailability') | Out-Null }
+                    }
                 }
             }
 
