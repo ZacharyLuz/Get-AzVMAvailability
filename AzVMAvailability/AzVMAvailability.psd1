@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AzVMAvailability.psm1'
-    ModuleVersion     = '2.2.0'
+    ModuleVersion     = '2.2.1'
     GUID              = '7f42e8d6-e85d-4e31-a541-d9af648a5269'
     Author            = 'Zachary Luz'
     CompanyName       = 'Community'
@@ -23,7 +23,7 @@
             Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
             LicenseUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability'
-            ReleaseNotes = 'v2.2.0: Sovereign pricing correctness (Spot meter exclusion, paired meter split, Gov meterLocation aliases, Expired suffix strip, retail-fallback marker), Reservation/SP savings as retail-vs-retail percent, advisory upgrade-path recs, AZ zone columns auto-enabled in lifecycle, Lifecycle Summary legend block, dedupe candidate pool (~100x), parallel cross-sub scan, mid-scan token refresh, live progress/ETA. See CHANGELOG.md.'
+            ReleaseNotes = 'v2.2.1: Pricing correctness follow-up to v2.2.0 — Tier 2 Cost Management query now scoped by ResourceLocation (was attributing other regions'' usage rates to the queried region) and excludes Spot/Low-Priority rows from the negotiated PAYG map; negotiated Savings Plan maps are aliased from meterLocation to ARM region keys (commercial regions previously fell back to retail SP rates); Update-RetirementData.ps1 no longer stamps "Last verified" when new series are pending manual addition. See CHANGELOG.md.'
         }
     }
 }

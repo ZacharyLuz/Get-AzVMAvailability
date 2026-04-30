@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] — 2026-04-30
+**Theme: Pricing Correctness Follow-up to v2.2.0**
+
+### Fixed (pricing path correctness — addresses pre-merge review of PR #147)
+- **Tier 2 (Cost Management) was not actually region-scoped.** The fallback query filtered only `MeterCategory = 'Virtual Machines'` and grouped by `MeterSubcategory` + `Meter`, then wrote every returned usage-derived rate under the requested `$armLocation`. In a subscription with multi-region VM usage, another region's effective rate could be cached as the queried region's negotiated PAYG. The query now also groups by `ResourceLocation`, and rows whose normalized location does not equal `$armLocation` are rejected before being written to the cache. A small `Tier 2 skip reasons` verbose line surfaces the new counters.
+- **Tier 2 silently laundered Spot / Low Priority rows into the negotiated PAYG map.** The previous code stripped a trailing ` Spot` / ` Low Priority` from the meter name with a regex, so a spot rate (~⅛ of PAYG) could be cached as a negotiated PAYG rate. Spot/Low-Priority rows are now skipped outright in Tier 2, matching the Tier 1 behaviour fixed in v2.2.0.
+- **Negotiated Savings Plan maps fell back to retail in commercial regions.** The Price Sheet API publishes SP rows under `meterLocation` keys (`useast2`, `euwest`, `apsoutheast`), but the ARM→cache alias pass that the Regular PAYG map enjoys was never run on the SP1Yr / SP3Yr maps. Commercial regions like `eastus2` therefore missed every negotiated SP probe and silently inherited retail SP rates. A shared `applyArmAliases` helper now applies the same alias resolution to the Regular map and both Savings Plan term maps, in both the live-scan path and the disk-cache load path. Existing v4 disk caches are fixed up on load — no cache version bump or one-time refetch required.
+
+### Changed (tooling)
+- **`tools/Update-RetirementData.ps1`** no longer stamps `Last verified: <today>` when newly detected series still need manual regex patterns added. With pending entries, the script now emits a warning, leaves the timestamp untouched, and exits non-zero so CI/operators can act on the gap before the static table is marked fresh.
+
 ### Fixed (PR #147 review)
 - **`-LifecycleRecommendations <path>` legacy positional form preserved.** When `-LifecycleRecommendations` was reshaped from `[string]` to `[switch]` (with the path moving to `-LifecycleFile`), existing callers using the old positional form `-LifecycleRecommendations .\my-vms.csv` would error out. `-LifecycleFile` is now `Position = 0`, so the legacy invocation rebinds the path to `-LifecycleFile` and continues to work.
 - **`Get-SkuRetirementInfo.ps1`: Av1 (`Retired`) entry moved into the retired block** so the table sections match their statuses (was sitting under "Scheduled for retirement").

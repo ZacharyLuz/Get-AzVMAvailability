@@ -448,7 +448,17 @@ if ($newEntries.Count -gt 0) {
     Write-Host "  $targetFile" -ForegroundColor DarkGray
 }
 
-# Update the "Last verified" comment
+# Update the "Last verified" comment — but only when the static table is fully
+# in sync. If new entries were detected, the table is incomplete and stamping it
+# as "verified today" would mislead downstream consumers about its freshness.
+# Require the operator to add the new entries first, then re-run.
+if ($newEntries.Count -gt 0) {
+    Write-Warning "Skipping 'Last verified' timestamp update — $($newEntries.Count) new series still need to be added manually."
+    Write-Host "After adding the missing patterns above, re-run this script to refresh the timestamp." -ForegroundColor Yellow
+    Write-Host "`nDone (with pending manual updates). Review changes with: git diff $targetFile" -ForegroundColor Cyan
+    exit 1
+}
+
 $today = (Get-Date).ToString('yyyy-MM-dd')
 $currentContent = Get-Content $targetFile -Raw
 if ($currentContent -match 'Last verified: \d{4}-\d{2}-\d{2}') {

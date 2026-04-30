@@ -226,6 +226,29 @@ function Get-AzActualPricing {
         return $null
     }
 
+    # Helper: walk a region map and copy each meterLocation-keyed bucket to its
+    # ARM-region key (e.g. 'useast2' -> 'eastus2'). Used for the Regular PAYG map
+    # and both Savings Plan term maps so downstream consumers can look them up by
+    # ARM region without needing the alias table. Mutates the input map in place
+    # and returns a list of "arm -> alias (count)" strings for diagnostics.
+    $applyArmAliases = {
+        param($map)
+        $applied = [System.Collections.Generic.List[string]]::new()
+        if (-not $map) { return $applied }
+        foreach ($arnKey in $armToMeterLocation.Keys) {
+            if ($map.ContainsKey($arnKey) -and $map[$arnKey] -and $map[$arnKey].Count -gt 0) { continue }
+            foreach ($cand in @($armToMeterLocation[$arnKey])) {
+                if ($cand -eq $arnKey) { continue }
+                if ($map.ContainsKey($cand) -and $map[$cand] -and $map[$cand].Count -gt 0) {
+                    $map[$arnKey] = $map[$cand]
+                    $applied.Add("$arnKey -> $cand ($($map[$cand].Count))") | Out-Null
+                    break
+                }
+            }
+        }
+        return $applied
+    }
+
     # EA/MCA negotiated rates are set at the enrollment level — identical across
     # all subscriptions. Page through the Price Sheet once, group all Linux VM
     # meters by meterLocation, and serve every subsequent region from cache.
@@ -285,21 +308,14 @@ function Get-AzActualPricing {
                 }
                 $Caches.NegotiatedSavingsPlan = @{ '1Yr' = $loadedSP1; '3Yr' = $loadedSP3 }
 
-                # Resolve sovereign region pricing — meterLocation abbreviations differ from ARM names.
-                # For each ARM region, walk the candidate list and create a direct entry under the
-                # ARM name pointing at the first non-empty cache bucket found.
-                $aliasSummary = [System.Collections.Generic.List[string]]::new()
-                foreach ($arnKey in $armToMeterLocation.Keys) {
-                    if ($allRegionPrices.ContainsKey($arnKey) -and $allRegionPrices[$arnKey].Count -gt 0) { continue }
-                    foreach ($cand in @($armToMeterLocation[$arnKey])) {
-                        if ($cand -eq $arnKey) { continue }
-                        if ($allRegionPrices.ContainsKey($cand) -and $allRegionPrices[$cand] -and $allRegionPrices[$cand].Count -gt 0) {
-                            $allRegionPrices[$arnKey] = $allRegionPrices[$cand]
-                            $aliasSummary.Add("$arnKey → $cand ($($allRegionPrices[$cand].Count))") | Out-Null
-                            break
-                        }
-                    }
-                }
+                # Resolve sovereign + commercial region pricing — meterLocation abbreviations
+                # differ from ARM names. Apply the same alias pass to the Regular PAYG map
+                # and both Savings Plan term maps so older v4 caches (written before the
+                # SP-alias fix in v2.2.1) get fixed up on load instead of returning retail
+                # SP rates for commercial regions.
+                $aliasSummary = & $applyArmAliases $allRegionPrices
+                $null         = & $applyArmAliases $loadedSP1
+                $null         = & $applyArmAliases $loadedSP3
                 if ($aliasSummary.Count -gt 0) {
                     Write-Host "  Tier 1 (Price Sheet): sovereign aliases resolved — $($aliasSummary -join '; ')" -ForegroundColor DarkGray
                 }
@@ -624,20 +640,15 @@ function Get-AzActualPricing {
             $ProgressPreference = $savedProgressPref
             $scanDuration = $scanStopwatch.Elapsed
             $scanDurationStr = '{0:mm\:ss}' -f $scanDuration
-            # Resolve sovereign region pricing — meterLocation abbreviations differ from ARM names.
-            # Walk each ARM region's candidate list and use the first non-empty bucket.
-            $aliasSummary = [System.Collections.Generic.List[string]]::new()
-            foreach ($arnKey in $armToMeterLocation.Keys) {
-                if ($allRegionPrices.ContainsKey($arnKey) -and $allRegionPrices[$arnKey].Count -gt 0) { continue }
-                foreach ($cand in @($armToMeterLocation[$arnKey])) {
-                    if ($cand -eq $arnKey) { continue }
-                    if ($allRegionPrices.ContainsKey($cand) -and $allRegionPrices[$cand] -and $allRegionPrices[$cand].Count -gt 0) {
-                        $allRegionPrices[$arnKey] = $allRegionPrices[$cand]
-                        $aliasSummary.Add("$arnKey → $cand ($($allRegionPrices[$cand].Count))") | Out-Null
-                        break
-                    }
-                }
-            }
+            # Resolve sovereign + commercial region pricing — meterLocation abbreviations
+            # differ from ARM names (e.g. 'useast2' vs 'eastus2'). Apply the same alias
+            # pass to the Regular PAYG map and both Savings Plan term maps so downstream
+            # consumers can look them up by ARM region without re-implementing the alias
+            # table. Without this pass on SP maps, commercial-region overlays in
+            # Get-AzVMAvailability silently fall back to retail SP rates.
+            $aliasSummary = & $applyArmAliases $allRegionPrices
+            $null         = & $applyArmAliases $allRegionSP1Yr
+            $null         = & $applyArmAliases $allRegionSP3Yr
             if ($aliasSummary.Count -gt 0) {
                 Write-Host "  Tier 1 (Price Sheet): sovereign aliases resolved — $($aliasSummary -join '; ')" -ForegroundColor DarkGray
             }
@@ -744,6 +755,9 @@ function Get-AzActualPricing {
     # doesn't support unfiltered queries efficiently.
     if (-not $tier1Success) {
         try {
+            # Group by ResourceLocation so we can verify each row belongs to $armLocation
+            # before adopting its rate. Cost Management does not honour ResourceLocation
+            # in $filter for ActualCost queries, so we filter client-side after grouping.
             $queryBody = @{
                 type      = 'ActualCost'
                 timeframe = 'MonthToDate'
@@ -757,6 +771,7 @@ function Get-AzActualPricing {
                         dimensions = @{ name = 'MeterCategory'; operator = 'In'; values = @('Virtual Machines') }
                     }
                     grouping = @(
+                        @{ type = 'Dimension'; name = 'ResourceLocation' }
                         @{ type = 'Dimension'; name = 'MeterSubcategory' }
                         @{ type = 'Dimension'; name = 'Meter' }
                     )
@@ -776,11 +791,19 @@ function Get-AzActualPricing {
 
             $costIdx   = $colMap['PreTaxCost']
             $qtyIdx    = $colMap['UsageQuantity']
+            $locIdx    = if ($colMap.ContainsKey('ResourceLocation')) { $colMap['ResourceLocation'] } else { $null }
             $subCatIdx = $colMap['MeterSubcategory']
             $meterIdx  = $colMap['Meter']
             $currIdx   = if ($colMap.ContainsKey('Currency')) { $colMap['Currency'] } else { $null }
 
             $rowCount = if ($cmResponse.properties.rows) { $cmResponse.properties.rows.Count } else { 0 }
+            $tier2Skipped = [ordered]@{
+                LocationMismatch  = 0
+                SpotOrLowPriority = 0
+                WindowsSubcategory = 0
+                ZeroOrNegative    = 0
+                UnparsableMeter   = 0
+            }
 
             foreach ($row in $cmResponse.properties.rows) {
                 $cost        = [double]$row[$costIdx]
@@ -789,19 +812,40 @@ function Get-AzActualPricing {
                 $meterName   = $row[$meterIdx]
                 $currency    = if ($null -ne $currIdx) { $row[$currIdx] } else { 'USD' }
 
-                if ($subCategory -match 'Windows') { continue }
-                if ($quantity -le 0 -or $cost -le 0) { continue }
+                # Region scoping: skip rows whose ResourceLocation does not normalize to
+                # the queried region. Without this guard, multi-region usage in the same
+                # subscription would have other regions' rates written under $armLocation.
+                if ($null -ne $locIdx) {
+                    $rowLoc = [string]$row[$locIdx]
+                    $rowLocNorm = ($rowLoc.ToLower() -replace '[\s-]', '')
+                    if (-not $rowLocNorm -or $rowLocNorm -ne $armLocation) {
+                        $tier2Skipped.LocationMismatch++
+                        continue
+                    }
+                }
+
+                if ($subCategory -match 'Windows') { $tier2Skipped.WindowsSubcategory++; continue }
+
+                # Spot / Low Priority meters bill at ~1/8 of PAYG. Keeping them in the
+                # negotiated PAYG map (which the v2.2.0 release surface used to do via a
+                # regex strip) corrupts the cached rate. Drop them here; spot pricing is
+                # served separately via the retail Spot map.
+                if ($meterName -match '\b(Spot|Low Priority)\b' -or
+                    $subCategory -match '\b(Spot|Low Priority)\b') {
+                    $tier2Skipped.SpotOrLowPriority++
+                    continue
+                }
+
+                if ($quantity -le 0 -or $cost -le 0) { $tier2Skipped.ZeroOrNegative++; continue }
 
                 $hourlyRate = $cost / $quantity
 
-                $cleanName = $meterName -replace '\s+(Low Priority|Spot)\s*$', ''
-                $cleanName = $cleanName.Trim() -replace '^Standard[\s_]+', ''
+                $cleanName = $meterName.Trim() -replace '^Standard[\s_]+', ''
                 if ($cleanName -match '^[A-Z]') {
                     $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
                 }
-                else { continue }
+                else { $tier2Skipped.UnparsableMeter++; continue }
 
-                # Tier 2 doesn't provide location per row — store under the requested region
                 if (-not $allRegionPrices.ContainsKey($armLocation)) {
                     $allRegionPrices[$armLocation] = @{}
                 }
@@ -818,6 +862,11 @@ function Get-AzActualPricing {
 
             $tier2Count = if ($allRegionPrices[$armLocation]) { $allRegionPrices[$armLocation].Count } else { 0 }
             Write-Host "  Tier 2 (Cost Query): $tier2Count SKU prices from $rowCount usage rows for '$Region'" -ForegroundColor DarkGray
+            $skipParts = @()
+            foreach ($k in $tier2Skipped.Keys) { if ($tier2Skipped[$k] -gt 0) { $skipParts += "$k=$($tier2Skipped[$k])" } }
+            if ($skipParts.Count -gt 0) {
+                Write-Verbose "Tier 2 skip reasons: $($skipParts -join ', ')"
+            }
             Write-Verbose "Tier 2 (Cost Query): $rowCount usage rows, $tier2Count VM SKU prices for region '$armLocation'."
         }
         catch {
