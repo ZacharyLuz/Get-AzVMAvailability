@@ -376,7 +376,7 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Run lifecycle recommendations with auto-enabled pricing, Excel export, savings plan/reservation details, and quota. Without -LifecycleFile, pulls live VM inventory from Azure via Resource Graph. With -LifecycleFile, loads SKUs from a CSV/JSON/XLSX file.")]
     [switch]$LifecycleRecommendations,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Use with -LifecycleRecommendations. CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects. Qty column is optional. XLSX: supports native Azure portal VM exports (maps SIZE/LOCATION columns automatically).")]
+    [Parameter(Mandatory = $false, Position = 0, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Use with -LifecycleRecommendations (also bindable as first positional argument: -LifecycleRecommendations .\my-vms.csv). CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects. Qty column is optional. XLSX: supports native Azure portal VM exports (maps SIZE/LOCATION columns automatically).")]
     [string]$LifecycleFile,
 
     [Parameter(Mandatory = $false, HelpMessage = "Pull live VM inventory from Azure via Resource Graph for lifecycle analysis. Scopes to -SubscriptionId if specified; use -ManagementGroup or -ResourceGroup for further filtering.")]

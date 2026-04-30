@@ -109,11 +109,9 @@ $body = @{
 
 $modelsResponse = $null
 try {
-    $rawResponse = & gh api 'https://models.github.ai/inference/chat/completions' `
-        --method POST `
-        --input - 2>&1 <<< $body
-
-    # gh api <<< doesn't work on all shells, use temp file approach
+    # PowerShell-native stdin piping: write body to a temp file then pipe its
+    # contents to `gh api --input -`. The bash heredoc form (<<< $body) is not
+    # valid in pwsh and was dropped.
     $tempBody = [System.IO.Path]::GetTempFileName()
     [System.IO.File]::WriteAllText($tempBody, $body, [System.Text.Encoding]::UTF8)
 
@@ -200,7 +198,8 @@ Write-Host "  $($currentEntries.Count) entries in current table" -ForegroundColo
 $advisorData = @{}
 if ($IncludeAdvisor) {
     $hasARG = $false
-    try { if (Get-Command -Name 'Search-AzGraph' -ErrorAction SilentlyContinue) { $hasARG = $true } } catch { }
+    try { if (Get-Command -Name 'Search-AzGraph' -ErrorAction SilentlyContinue) { $hasARG = $true } }
+    catch { Write-Verbose "Search-AzGraph availability check failed: $($_.Exception.Message)" }
 
     if (-not $hasARG) {
         Write-Host "`n  Skipping Advisor: Az.ResourceGraph module not available" -ForegroundColor DarkGray
@@ -239,7 +238,7 @@ advisorresources
                     try {
                         $rd = ([datetime]$rd).ToString('yyyy-MM-dd')
                     } catch {
-                        # Leave as-is if unparseable
+                        Write-Verbose ("Could not parse Advisor retireDate '{0}' for {1}: {2}; leaving as-is" -f $rd, $sn, $_.Exception.Message)
                     }
                 }
                 $advisorData[$sn] = @{
@@ -430,7 +429,9 @@ foreach ($change in $changedEntries) {
         }
     }
     if ($updated) {
-        $lines | Set-Content $targetFile -Encoding UTF8
+        # Repo .editorconfig requires UTF-8 with BOM for *.ps1; pwsh 7's `-Encoding UTF8`
+        # writes UTF-8 without BOM, so use the explicit UTF8BOM identifier.
+        $lines | Set-Content $targetFile -Encoding UTF8BOM
     }
     else {
         Write-Warning "Could not find line for $($change.Series) with $oldPattern — manual update needed"
@@ -452,7 +453,8 @@ $today = (Get-Date).ToString('yyyy-MM-dd')
 $currentContent = Get-Content $targetFile -Raw
 if ($currentContent -match 'Last verified: \d{4}-\d{2}-\d{2}') {
     $currentContent = $currentContent -replace 'Last verified: \d{4}-\d{2}-\d{2}', "Last verified: $today"
-    [System.IO.File]::WriteAllText($targetFile, $currentContent, [System.Text.Encoding]::UTF8)
+    # Repo .editorconfig requires UTF-8 with BOM for *.ps1 files; use UTF8Encoding($true) explicitly.
+    [System.IO.File]::WriteAllText($targetFile, $currentContent, [System.Text.UTF8Encoding]::new($true))
 }
 
 Write-Host "`nDone. Review changes with: git diff $targetFile" -ForegroundColor Cyan

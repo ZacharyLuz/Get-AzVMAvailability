@@ -111,7 +111,13 @@ Describe 'Retirement table structure' {
         $script:LastVerifiedDate | Should -Not -BeNullOrEmpty
     }
 
-    It '"Last verified" date is no more than 90 days old' {
+    It '"Last verified" date is parsable and not in the future' {
+        $script:LastVerifiedDate | Should -Not -BeNullOrEmpty
+        $script:LastVerifiedDate | Should -BeOfType ([datetime])
+        $script:LastVerifiedDate | Should -BeLessOrEqual ([datetime]::UtcNow.Date.AddDays(1))
+    }
+
+    It '"Last verified" date is no more than 90 days old (opt-in via $env:GAZVM_CHECK_RETIREMENT_FRESHNESS=1)' -Skip:(-not $env:GAZVM_CHECK_RETIREMENT_FRESHNESS) {
         $daysSince = ([datetime]::UtcNow.Date - $script:LastVerifiedDate).Days
         $daysSince | Should -BeLessOrEqual 90 -Because "table was last verified $($script:LastVerifiedDate.ToString('yyyy-MM-dd')) ($daysSince days ago)"
     }

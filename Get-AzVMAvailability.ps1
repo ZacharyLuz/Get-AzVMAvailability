@@ -154,7 +154,7 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Enable lifecycle recommendations mode with auto-defaults (pricing, Excel, savings/reservation, quota). Without -LifecycleFile, performs a live ARG scan.")]
     [switch]$LifecycleRecommendations,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Requires -LifecycleRecommendations.")]
+    [Parameter(Mandatory = $false, Position = 0, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Requires -LifecycleRecommendations. Also bindable as the first positional argument: -LifecycleRecommendations .\my-vms.csv.")]
     [string]$LifecycleFile,
 
     [Parameter(Mandatory = $false, HelpMessage = "Pull live VM inventory from Azure via Resource Graph for lifecycle analysis.")]
@@ -176,7 +176,7 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Add a 'Resource Group Map' sheet to the lifecycle XLSX.")]
     [switch]$RGMap,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Add a 'Zones (Available)' column to the Subscription Map / Resource Group Map sheets showing per-region availability-zone support for each SKU. Requires -SubMap or -RGMap.")]
+    [Parameter(Mandatory = $false, HelpMessage = "Add availability-zone columns to lifecycle XLSX output. On Subscription Map / Resource Group Map sheets adds 'Zones (Deployed)' showing which zones the VMs are currently deployed to. On Lifecycle Summary / High Risk / Medium Risk sheets adds 'Zones (Supported)' showing which zones the recommended SKU supports in the deployed region. Requires -SubMap or -RGMap (or any lifecycle mode for the Summary column).")]
     [switch]$AZ,
 
     [Parameter(Mandatory = $false, HelpMessage = "Enable transcript logging. A timestamped log file is created in the export directory.")]

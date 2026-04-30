@@ -29,7 +29,7 @@ function Get-AdvisorRetirementData {
             $useARG = $true
         }
     }
-    catch { }
+    catch { Write-Verbose "Search-AzGraph availability check failed: $($_.Exception.Message)" }
 
     if ($useARG) {
         try {

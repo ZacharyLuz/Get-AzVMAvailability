@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (PR #147 review)
+- **`-LifecycleRecommendations <path>` legacy positional form preserved.** When `-LifecycleRecommendations` was reshaped from `[string]` to `[switch]` (with the path moving to `-LifecycleFile`), existing callers using the old positional form `-LifecycleRecommendations .\my-vms.csv` would error out. `-LifecycleFile` is now `Position = 0`, so the legacy invocation rebinds the path to `-LifecycleFile` and continues to work.
+- **`Get-SkuRetirementInfo.ps1`: Av1 (`Retired`) entry moved into the retired block** so the table sections match their statuses (was sitting under "Scheduled for retirement").
+- **`-AZ` HelpMessage** in the wrapper now matches the actual lifecycle output (`Zones (Deployed)` + `Zones (Supported)`); previously claimed a single `Zones (Available)` column.
+- **`tools/Update-RetirementData.ps1`**: removed invalid bash heredoc `<<< $body` (was unreachable in pwsh); switched `Get-SkuRetirementInfo.ps1` rewrites to UTF-8 **with BOM** to match `.editorconfig`; replaced empty `catch { }` blocks with `Write-Verbose` so PSScriptAnalyzer no longer flags them.
+- **`Get-AdvisorRetirementData.ps1`**: empty `Get-Command` probe `catch { }` replaced with `Write-Verbose`.
+- **`tests/RetirementData.Tests.ps1`**: 90-day staleness check is now opt-in via `$env:GAZVM_CHECK_RETIREMENT_FRESHNESS=1` so CI doesn't fail on time alone; structural assertion (parsable, not in future) replaces it as the always-on test.
+
 ## [2.2.0] — 2026-04-29
 **Theme: Sovereign + Commercial Pricing Correctness, Reservation/Savings-Plan Quality, Lifecycle UX, Scan Progress UX**
 

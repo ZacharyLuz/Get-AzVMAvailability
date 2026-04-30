@@ -7,7 +7,7 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.1.1-brightgreen)
+![Version](https://img.shields.io/badge/Version-2.2.0-brightgreen)
 
 ## Overview
 
@@ -15,7 +15,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 
 ## What's New
 
-### Unreleased — Availability Zones in lifecycle reports
+### v2.2.0 — Availability Zones in lifecycle reports
 - **`-AZ` switch (auto-enabled by `-LifecycleRecommendations`)** — adds **`Zones (Deployed)`** on SubMap / Resource Group Map (which zones your VMs run in today) and **`Zones (Supported)`** on Lifecycle Summary / High Risk / Medium Risk (which zones the recommended replacement supports — OK, Limited, Restricted). No extra flag needed in lifecycle mode.
 - **GOV / sovereign cloud fixes** — Savings Plan columns now omitted automatically for sovereign tenants; Reserved Instance / Savings Plan / Spot retail rates are preserved when negotiated price sheet succeeds (previously RI/SP/Spot columns came back empty). Per-sub `Quota: need ...` text stripped from the Lifecycle Summary `Risk Reasons` (still surfaced on SubMap / RGMap). Cross-region ACU fallback for upgrade-path candidates.
 
@@ -39,7 +39,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 
 - **Multi-Region Parallel Scanning** - Scan 10+ regions in ~15 seconds using concurrent HttpClient-based REST calls
 - **SKU Filtering** - Filter to specific SKUs with wildcard support (e.g., `Standard_D*_v5`)
-- **Lifecycle Recommendations** - Run fully autonomous with `-LifecycleRecommendations` — no prompts, auto-enables pricing, Excel export, savings plan/reservation details, and quota. Without `-LifecycleFile`, pulls live VM inventory from Azure via Resource Graph. With `-LifecycleFile`, loads VMs from a CSV/JSON/XLSX file
+- **Lifecycle Recommendations** - Run fully autonomous with `-LifecycleRecommendations` — no prompts, auto-enables pricing, Excel export, savings plan/reservation details, and quota. Without `-LifecycleFile`, pulls live VM inventory from Azure via Resource Graph. With `-LifecycleFile`, loads VMs from a CSV/JSON/XLSX file. Legacy positional form `-LifecycleRecommendations .\my-vms.csv` is also supported
 - **Live Lifecycle Scan** - `-LifecycleScan` pulls VM inventory directly from Azure via Resource Graph with management group, resource group, and tag filters
 - **Deployment Mapping** - `-SubMap` / `-RGMap` sheets group affected VMs by subscription or resource group with risk enrichment
 - **Pricing Information** - Show hourly/monthly pricing (retail or negotiated EA/MCA rates) with optional Savings Plan and Reserved Instance comparisons
