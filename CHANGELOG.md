@@ -7,19 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.2.1] — 2026-04-29
-**Theme: Negotiated pricing for commercial regions, scan UX polish**
+## [2.2.0] — 2026-04-29
+**Theme: Sovereign + Commercial Pricing Correctness, Reservation/Savings-Plan Quality, Lifecycle UX, Scan Progress UX**
 
-### Fixed
+### Fixed (commercial-region pricing & scan UX)
 - **Commercial regions silently used retail prices despite a populated negotiated cache.** The Consumption Price Sheet API publishes `meterLocation` values in `<geoShort><locality>` form (`uswest`, `useast2`, `euwest`, `apsoutheast`, `jaeast`, `dewestcentral`), but the resolver compared them against ARM `<locality><geo>` names (`westus`, `eastus2`, `westeurope`, `southeastasia`, `japaneast`, `germanywestcentral`). Only sovereign aliases were in the lookup table, so every commercial scan logged `no negotiated rates for '<region>' — falling back to retail` even when 70k+ SKUs across 87 regions were sitting in the cache. Resolver now (a) consults a 70+ entry explicit ARM→cache alias table covering every public commercial region observed in EA price sheets, including the non-obvious `japaneast → jaeast` (“ja”, not “jp”), and (b) falls back to a generic geo-token permutation derived from `australia↔au`, `germany↔de`, `europe↔eu`, `asia↔ap`, `india↔in`, `korea↔kr`, `brazil↔br`, `canada↔ca`, `mexico↔mx`, `france↔fr`, `sweden↔se`, `norway↔no`, `switzerland↔ch`, `italy↔it`, `spain↔es`, `poland↔pl`, `israel↔il`, `denmark↔dk`, `austria↔at`, `belgium↔be`, `newzealand↔nz`, `malaysia↔my`, `indonesia↔id`, `taiwan↔tw`, `uae↔ae`, `qatar↔qa`, `southafrica→za` so future regions auto-resolve before the table is updated. The cache-miss diagnostic also stops claiming “No sovereign keys present in cache” for non-sovereign regions where that hint is irrelevant.
 - **Misleading `Ns remaining` ETA stuck near 100%.** The parallel sub×region scanner divides remaining work by average throughput, but the last few items are usually slow regions / throttled subscriptions whose runtime exceeds the average by 5–20×. The bar would freeze at e.g. `1263 / 1266 · 11s remaining` while the final stragglers ran for several minutes. When `remaining ≤ max(3, 0.5%)`, the status now shows `finalizing N straggler(s)...` instead of an inaccurate countdown.
 - **Progress bar lingered during regrouping.** After the parallel poll loop exited, the bar's last frame stayed visible in some terminals while the per-subscription `[N/total]` announce lines scrolled. The bar is now force-completed immediately after the poll loop, and `$ProgressPreference` is pinned to `SilentlyContinue` for the regrouping phase so any stray inner write can't redraw it.
-
-### Added (tools)
-- **`tools/Inspect-PriceSheetCache.ps1`** (companion repo) — read-only diagnostic that loads the on-disk Price Sheet cache and reports total regions/SKUs, lists every cache key, runs an ARM-name probe (direct lookup the way the resolver did pre-fix), runs an alias probe against suspected meterLocation conventions, and dumps a sample SKU entry. Output is teed to a timestamped `results.<yyyyMMdd-HHmmss>.log` with embedded ANSI color escapes so it renders identically when re-played in any modern terminal. Used to prove the `<geoShort><locality>` mismatch above without making any Azure API calls.
-
-## [2.2.0] — 2026-04-28
-**Theme: Sovereign Pricing, Reservation/Savings-Plan Quality, Lifecycle UX**
 
 ### Added
 - **`-AZ` switch — Availability Zones in lifecycle reports** — Adds two new zone columns; auto-enabled by `-LifecycleRecommendations` so the default lifecycle XLSX now includes zones with no extra flags.
@@ -59,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added (tools)
 - **`tools/Probe-PriceSheetRI.ps1`** — Discovery probe that walks a subscription's Consumption Price Sheet API and buckets meters across 6 tiers (PAYG, Reservation 1Yr/3Yr, Savings Plan 1Yr/3Yr, Spot) to determine whether negotiated RI / SP rates are available for the parser to harvest. Supports both commercial and sovereign tenants.
 - **`tools/Dump-PriceSheetRaw.ps1`** — Captures every Price Sheet row verbatim (no source-side filtering) into per-page JSON files + zip for offline parser/schema design and support evidence.
+- **`tools/Inspect-PriceSheetCache.ps1`** (companion repo) — read-only diagnostic that loads the on-disk Price Sheet cache, lists every cache key, runs an ARM-name probe and an alias probe against suspected meterLocation conventions, and dumps a sample SKU entry. Output is teed to a timestamped `results.<yyyyMMdd-HHmmss>.log` with embedded ANSI color escapes. No Azure API calls. Used to prove the `<geoShort><locality>` mismatch in the commercial-pricing fix above.
 
 ### Documentation
 - Legend `* (RI)` and `* (SP)` entries plus the `RI 3-Year Savings` header tooltip now document the `(pct%)` format and the retail-vs-retail basis with a worked stacking example: `70% RI cell + 20% EA discount ≈ 50% realized incremental discount on top of the customer's bill`.

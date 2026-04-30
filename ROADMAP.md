@@ -1,10 +1,8 @@
 # Roadmap
 
-## Current Release: v2.2.1
+## Current Release: v2.2.0
 
-> **v2.2.1 (patch):** Negotiated Price Sheet resolver now matches commercial regions (`westus`→`uswest`, `japaneast`→`jaeast`, etc.) via a full ARM→cache alias table plus geo-token permutation fallback; previously every commercial region silently fell back to retail despite a populated cache. Scan progress bar shows `finalizing N straggler(s)` instead of a misleading countdown when work is nearly done, and clears immediately at scan completion. New `tools/Inspect-PriceSheetCache.ps1` diagnostic.
->
-> **v2.2.0:** Sovereign pricing correctness, Reservation/Savings-Plan savings as retail-vs-retail percent, advisory upgrade-path recs, AZ zone columns by default, Lifecycle Summary legend, dedupe candidate pool (~100x speedup), parallel cross-sub scan, mid-scan token refresh, live progress/ETA. See [CHANGELOG.md](CHANGELOG.md) for details.
+> **v2.2.0:** Sovereign + commercial pricing correctness (Price Sheet resolver now matches commercial regions via 70+ ARM→cache aliases plus a geo-token permutation fallback), Reservation/Savings-Plan savings as retail-vs-retail percent, advisory upgrade-path recs, AZ zone columns by default, Lifecycle Summary legend, dedupe candidate pool (~100× speedup on lifecycle phase), parallel cross-sub scan, mid-scan token refresh, straggler-aware progress/ETA, new `tools/Inspect-PriceSheetCache.ps1` diagnostic. See [CHANGELOG.md](CHANGELOG.md) for details.
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 

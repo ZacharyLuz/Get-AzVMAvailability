@@ -3,7 +3,7 @@
 **Status:** Working document. Tracks behavioral and performance differences introduced in the lifecycle recommendation pipeline that may eventually warrant adoption in core scan/output paths.
 
 **Branch:** `GOV_Price_fix`
-**Last updated:** 2026-04-29 (v2.2.1)
+**Last updated:** 2026-04-29 (v2.2.0)
 
 ---
 
@@ -105,19 +105,19 @@ This single change unlocks Fix #4 and makes the function cleaner/testable. After
 ### B. Pricing fetch ordering
 Lifecycle pre-loads pricing once via `Get-AzActualPricing` (price sheet, single API call across all regions, 30-day disk cache). Core's per-region `Get-AzVMPricing` is a fallback retail path. No change needed — already optimal.
 
-**v2.2.1 update — also affects Core (`-ShowPricing`):** `Get-AzActualPricing.ps1` had a resolver bug that caused **all commercial regions** to silently fall back to retail even when a populated negotiated cache existed. The Consumption Price Sheet API publishes `meterLocation` in `<geoShort><locality>` form (`uswest`, `useast2`, `euwest`, `apsoutheast`, `jaeast`, `dewestcentral`), but the resolver looked up by ARM `<locality><geo>` names (`westus`, `eastus2`, `westeurope`, `southeastasia`, `japaneast`, `germanywestcentral`). Only `uksouth/ukwest` and the US Gov aliases matched. Fix expanded `$armToMeterLocation` to ~70 explicit aliases covering every public commercial region observed in EA price sheets (note `japaneast → jaeast` uses `ja`, not `jp`) and added a generic geo-token permutation fallback (`$deriveAliasCandidates`) so future regions resolve without code changes. Diagnostic message also stops claiming "No sovereign keys present in cache" for non-sovereign lookups.
+**v2.2.0 update — also affects Core (`-ShowPricing`):** `Get-AzActualPricing.ps1` had a resolver bug that caused **all commercial regions** to silently fall back to retail even when a populated negotiated cache existed. The Consumption Price Sheet API publishes `meterLocation` in `<geoShort><locality>` form (`uswest`, `useast2`, `euwest`, `apsoutheast`, `jaeast`, `dewestcentral`), but the resolver looked up by ARM `<locality><geo>` names (`westus`, `eastus2`, `westeurope`, `southeastasia`, `japaneast`, `germanywestcentral`). Only `uksouth/ukwest` and the US Gov aliases matched. Fix expanded `$armToMeterLocation` to ~70 explicit aliases covering every public commercial region observed in EA price sheets (note `japaneast → jaeast` uses `ja`, not `jp`) and added a generic geo-token permutation fallback (`$deriveAliasCandidates`) so future regions resolve without code changes. Diagnostic message also stops claiming "No sovereign keys present in cache" for non-sovereign lookups.
 
 **Core relevance:** anyone running `-ShowPricing` (or accepting the interactive pricing prompt) in commercial regions now gets actual negotiated rates instead of retail. No Core code changes required; the function is shared. If Core gains additional pricing call sites, they inherit the fix automatically because resolution lives inside `Get-AzActualPricing`.
 
-### B2. Scan progress bar UX (v2.2.1, Core + Lifecycle)
-The parallel sub×region scanner in `Get-AzVMAvailability.ps1` (poll loop ~lines 2120–2180) is the universal scan engine — both Core and Lifecycle use it. Two issues fixed in v2.2.1:
+### B2. Scan progress bar UX (v2.2.0, Core + Lifecycle)
+The parallel sub×region scanner in `Get-AzVMAvailability.ps1` (poll loop ~lines 2120–2180) is the universal scan engine — both Core and Lifecycle use it. Two issues fixed in v2.2.0:
 
 1. **Straggler-aware ETA.** Average-throughput projection (`elapsed.TotalSeconds / done * remaining`) under-estimates badly when the last 1–3 work items are throttled subs / slow regions running 5–20× longer than average. Bar would freeze at e.g. `1263 / 1266 · 11s remaining` for several minutes. When `remaining ≤ max(3, totalItems * 0.005)`, the status now switches to `finalizing N straggler(s)...` instead of an inaccurate countdown.
 2. **Force-clear after poll loop.** Some terminals leave the last `Write-Progress` frame visible during the regrouping/announce phase. Added an explicit `Write-Progress -Activity "Scanning Azure Regions" -Completed` immediately after the poll exits, plus a `$ProgressPreference = 'SilentlyContinue'` save/restore around the regrouping section so per-subscription `[N/total]` lines are the only visible activity from there on.
 
 **Core relevance:** purely a UX change in shared scan code, no semantic impact on output. Worth being aware of if Core ever adds a competing progress writer near the same code path — the regrouping section currently expects `$ProgressPreference` to be silenced and restores it from `$savedRegroupProgressPref`.
 
-### B3. Companion diagnostic tool (v2.2.1)
+### B3. Companion diagnostic tool (v2.2.0)
 `tools/Inspect-PriceSheetCache.ps1` (in the `BoeColab/Get-AzVMLifecycle` companion repo) is a read-only inspector for the on-disk Price Sheet cache (`%TEMP%\AzVMLifecycle-PriceSheet-v4-<tenantId>.json`). It enumerates total regions / SKUs, lists every cache key, runs an ARM-name probe (the way the resolver did *before* the fix) and an alias probe (suspected meterLocation conventions), and dumps a sample SKU. Output is teed to a timestamped `results.<yyyyMMdd-HHmmss>.log` with embedded ANSI color escapes. No Azure API calls. Useful for Core if a similar resolver-mismatch class of bug ever recurs.
 
 ### C. UpgradePath.json cascading lookup
@@ -145,8 +145,8 @@ At 196 subs × 3 regions × 526 SKUs × ~2 KB per SKU object, `$allSubscriptionD
 | Fix #4 — Parallel lifecycle loop | ⏸ Blocked | Lifecycle only | ~8× on top of #1 | **Yes** (return contract) |
 | Status rank helper | ⏸ Deferred | Shared | Code clarity | Light |
 | Compact scan storage | ⏸ Future | Core scan | ~99% memory reduction at scale | **Yes** |
-| v2.2.1 — Price Sheet alias resolver | ✅ (`5b5ff4d`) | **Shared** (Core `-ShowPricing` + Lifecycle) | Commercial regions return negotiated rates instead of silent retail | No |
-| v2.2.1 — Straggler-aware scan ETA + force-clear bar | ✅ (`7ea4e3e`) | **Shared** scan engine | UX only, no output change | No |
+| v2.2.0 — Price Sheet alias resolver | ✅ (`5b5ff4d`) | **Shared** (Core `-ShowPricing` + Lifecycle) | Commercial regions return negotiated rates instead of silent retail | No |
+| v2.2.0 — Straggler-aware scan ETA + force-clear bar | ✅ (`7ea4e3e`) | **Shared** scan engine | UX only, no output change | No |
 
 ---
 
@@ -154,4 +154,4 @@ At 196 subs × 3 regions × 526 SKUs × ~2 KB per SKU object, `$allSubscriptionD
 
 - **2026-04-27** — Fix #1 implemented, Fix #4 deferred per direction "do not mess with core".
 - **2026-04-27** — Doc created to track recommendations for future core adoption.
-- **2026-04-29 (v2.2.1)** — Price Sheet resolver alias fix and scan progress UX shipped in shared code paths. Both Core (`-ShowPricing`) and Lifecycle inherit. No Core API surface changes.
+- **2026-04-29 (v2.2.0)** — Price Sheet resolver alias fix and scan progress UX shipped in shared code paths. Both Core (`-ShowPricing`) and Lifecycle inherit. No Core API surface changes.
