@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Release publish gate** — `release-publish.yml` now blocks PSGallery publishing on PSScriptAnalyzer errors, not warnings, matching the main lint gate behavior that already reports warnings through SARIF/code scanning.
+
 ## [2.2.1] — 2026-04-30
 **Theme: Pricing Correctness Follow-up to v2.2.0**
 
