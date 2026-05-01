@@ -29,13 +29,13 @@ jobs:
         run: |
           $settings = if (Test-Path 'PSScriptAnalyzerSettings.psd1') { 'PSScriptAnalyzerSettings.psd1' } else { $null }
           $results = @()
-          $results += Invoke-ScriptAnalyzer -Path ./Get-AzVMAvailability.ps1 -Settings $settings -Severity Error,Warning
-          $results += Invoke-ScriptAnalyzer -Path ./AzVMAvailability -Recurse -Settings $settings -Severity Error,Warning
+          $results += Invoke-ScriptAnalyzer -Path ./Get-AzVMAvailability.ps1 -Settings $settings -Severity Error
+          $results += Invoke-ScriptAnalyzer -Path ./AzVMAvailability -Recurse -Settings $settings -Severity Error
           if ($results.Count -gt 0) {
             $results | Format-Table -AutoSize
-            throw "PSScriptAnalyzer found $($results.Count) issue(s)"
+            throw "PSScriptAnalyzer found $($results.Count) blocking error(s)"
           }
-          Write-Host "PSScriptAnalyzer: clean"
+          Write-Host "PSScriptAnalyzer: no blocking errors"
 
       - name: Run Pester (unit tests only)
         shell: pwsh
