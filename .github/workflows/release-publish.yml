@@ -47,6 +47,11 @@ jobs:
           $results += Invoke-ScriptAnalyzer -Path ./Get-AzVMAvailability.ps1 -Settings $settings -Severity Error
           $results += Invoke-ScriptAnalyzer -Path ./AzVMAvailability -Recurse -Settings $settings -Severity Error
           $blockingResults = @($results | Where-Object Severity -eq 'Error')
+          $nonBlockingResults = @($results | Where-Object Severity -ne 'Error')
+          if ($nonBlockingResults.Count -gt 0) {
+            Write-Host "PSScriptAnalyzer returned $($nonBlockingResults.Count) non-blocking diagnostic(s):"
+            $nonBlockingResults | Format-Table -AutoSize
+          }
           if ($blockingResults.Count -gt 0) {
             $blockingResults | Format-Table -AutoSize
             throw "PSScriptAnalyzer found $($blockingResults.Count) blocking error(s)"

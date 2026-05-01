@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Release publish gate** — `release-publish.yml` now filters PSScriptAnalyzer diagnostics to blocking errors before failing PSGallery publishing, matching the main lint gate behavior that already reports warnings through SARIF/code scanning.
+- **Release publish gate** — `release-publish.yml` now logs non-blocking PSScriptAnalyzer diagnostics but filters failures to blocking errors before stopping PSGallery publishing, matching the main lint gate behavior that already reports warnings through SARIF/code scanning.
 - **Manual release publish retry** — `release-publish.yml` can now be run manually for an existing tag, so a release can be published to PSGallery without moving the tag when an older tag contains stale workflow logic. Manual publishes now also validate that the GitHub Release exists before PSGallery publishing and serialize runs per release tag.
 
 ## [2.2.1] — 2026-04-30
