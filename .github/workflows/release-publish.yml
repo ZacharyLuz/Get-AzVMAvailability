@@ -3,9 +3,18 @@ name: Release & Publish
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Existing release tag to publish, for example v2.2.1"
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.event.release.tag_name }}
 
 jobs:
   gate:
@@ -13,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install PowerShell modules
         shell: pwsh
@@ -53,11 +64,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Verify manifest version matches release tag
         shell: pwsh
         run: |
-          $tag = "${{ github.event.release.tag_name }}"
+          $tag = $env:RELEASE_TAG
           $tagVersion = $tag -replace '^v', ''
           $manifest = Import-PowerShellDataFile ./AzVMAvailability/AzVMAvailability.psd1
           $manifestVersion = $manifest.ModuleVersion
@@ -69,7 +82,7 @@ jobs:
       - name: Check if version already published (idempotency guard)
         shell: pwsh
         run: |
-          $tag = "${{ github.event.release.tag_name }}"
+          $tag = $env:RELEASE_TAG
           $version = $tag -replace '^v', ''
           $existing = Find-Module -Name AzVMAvailability -RequiredVersion $version -Repository PSGallery -ErrorAction SilentlyContinue
           if ($existing) {
@@ -110,12 +123,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" ./AzVMAvailability.zip --clobber
+          gh release upload "$RELEASE_TAG" ./AzVMAvailability.zip --clobber
 
       - name: Verify publication
         shell: pwsh
         run: |
-          $tag = "${{ github.event.release.tag_name }}"
+          $tag = $env:RELEASE_TAG
           $version = $tag -replace '^v', ''
           # Allow PSGallery indexing delay
           Start-Sleep -Seconds 30
