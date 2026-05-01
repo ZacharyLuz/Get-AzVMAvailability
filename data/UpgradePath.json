@@ -1,18 +1,18 @@
 {
   "_metadata": {
     "description": "Azure VM SKU family upgrade paths based on Microsoft official migration guidance",
-    "version": "1.0.0",
-    "lastUpdated": "2026-03-31",
-    "source": "https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement-overview",
+    "version": "1.1.0",
+    "lastUpdated": "2026-04-23",
+    "source": "https://learn.microsoft.com/azure/virtual-machines/retirement-notices",
     "usage": "Keyed by SKU family+version (e.g., 'Dv2'). Each entry provides 3 upgrade recommendations: dropIn (lowest risk), futureProof (latest gen), costOptimized (AMD/alternative). The 'sizeMap' translates vCPU counts to specific SKU names for each path."
   },
   "upgradePaths": {
     "Av1": {
       "family": "A",
       "version": 1,
-      "status": "Retiring",
-      "retireDate": "2028-11-15",
-      "summary": "Original A-series (A0-A11, Basic_A) capacity-limited since 2024. Final retirement 2028-11-15. Workloads should move to B-series (burstable) or D-series (general purpose).",
+      "status": "Retired",
+      "retireDate": "2024-08-31",
+      "summary": "Original A-series (A0-A11, Basic_A) retired. No direct successor; workloads should move to B-series (burstable) or D-series (general purpose).",
       "dropIn": {
         "family": "B",
         "series": "Bsv2",
@@ -55,7 +55,7 @@
       "version": 1,
       "status": "Retiring",
       "retireDate": "2028-05-01",
-      "summary": "Original D-series (D1-D14, DS1-DS14) capacity-limited since 2024. Final retirement 2028-05-01. Microsoft recommends Dsv5 as drop-in, Dsv6 for future-proofing.",
+      "summary": "Original D-series (D1-D14, DS1-DS14) retiring May 2028. Microsoft recommends Dsv5 as drop-in, Dsv6 for future-proofing.",
       "dropIn": {
         "family": "D",
         "series": "Dsv5",
@@ -144,8 +144,9 @@
     "Dv3": {
       "family": "D",
       "version": 3,
-      "status": "OldGen",
-      "summary": "Dv3/Dsv3 old generation. No retirement announced. Move to Dsv5 (safe) or Dsv6 (modern) for better performance.",
+      "status": "Retiring",
+      "retireDate": "2027-09-30",
+      "summary": "Dv3/Dsv3 series retiring September 2027. Move to Dsv5 (safe) or Dsv6 (modern).",
       "dropIn": {
         "family": "D",
         "series": "Dsv5",
@@ -195,8 +196,9 @@
     "Ev3": {
       "family": "E",
       "version": 3,
-      "status": "OldGen",
-      "summary": "Ev3/Esv3 old generation. No retirement announced. Memory-optimized workloads should move to Esv5 or Esv6 for better performance.",
+      "status": "Retiring",
+      "retireDate": "2027-09-30",
+      "summary": "Ev3/Esv3 series retiring September 2027. Memory-optimized workloads should move to Esv5 or Esv6.",
       "dropIn": {
         "family": "E",
         "series": "Esv5",
@@ -250,7 +252,7 @@
       "version": 1,
       "status": "Retiring",
       "retireDate": "2028-11-15",
-      "summary": "F/Fs-series (compute-optimized v1 with Premium SSD) retiring November 2028. Move to Fsv2 (established) or Fasv6 (latest).",
+      "summary": "Fs-series (compute-optimized v1 with Premium SSD) retiring November 2028. Move to Fsv2 (already current) or Fasv6.",
       "dropIn": {
         "family": "F",
         "series": "Fsv2",
@@ -287,7 +289,7 @@
       "version": 1,
       "status": "Retiring",
       "retireDate": "2028-11-15",
-      "summary": "G/GS-series (memory+storage optimized) capacity-limited since 2025. Final retirement 2028-11-15. Workloads should move to E-series (memory) or M-series (large memory/SAP).",
+      "summary": "G/GS-series (memory+storage optimized) retiring November 2028. Workloads should move to E-series (memory) or M-series (large memory/SAP).",
       "dropIn": {
         "family": "E",
         "series": "Esv5",
@@ -438,7 +440,7 @@
       "version": 1,
       "status": "Retiring",
       "retireDate": "2028-05-01",
-      "summary": "Ls-series (storage-optimized v1) capacity-limited since 2024. Final retirement 2028-05-01. Move to Lsv3 or Lasv3.",
+      "summary": "Ls-series (storage-optimized v1) retiring May 2028. Move to Lsv3 or Lasv3.",
       "dropIn": {
         "family": "L",
         "series": "Lsv3",
@@ -698,9 +700,9 @@
     "NDv2": {
       "family": "ND",
       "version": 2,
-      "status": "Retiring",
+      "status": "Retired",
       "retireDate": "2025-09-30",
-      "summary": "NDv2 (V100 with NVLink) retiring September 2025. Move to NDAMv4_A100 or NDv5 (H100).",
+      "summary": "NDv2 (V100 with NVLink) retired September 2025. Move to NDAMv4_A100 or NDv5 (H100).",
       "dropIn": {
         "family": "ND",
         "series": "NDAMv4_A100",
@@ -734,7 +736,7 @@
       "version": 1,
       "status": "Retired",
       "retireDate": "2023-09-06",
-      "summary": "NVv1 (Tesla M60 GPU) retired. GPU visualization workloads should move to NVadsA10v5 or NVv4.",
+      "summary": "NVv1 (Tesla M60 GPU) retired. GPU visualization workloads should move to NVadsA10v5 or NVadsV710v5.",
       "dropIn": {
         "family": "NV",
         "series": "NVadsA10v5",
@@ -748,26 +750,25 @@
       },
       "futureProof": {
         "family": "NV",
-        "series": "NVadsA10v5",
-        "reason": "NVadsA10v5 is the current latest visualization-class GPU series",
-        "requirements": ["NVIDIA A10 GRID drivers", "Gen2 OS image"],
+        "series": "NVadsV710v5",
+        "reason": "Latest NVIDIA V710 GPU for visualization, newest driver support, best long-term VDI platform",
+        "requirements": ["NVIDIA GPU drivers", "Gen2 OS image"],
         "sizeMap": {
-          "6": "Standard_NV6ads_A10_v5",
-          "12": "Standard_NV12ads_A10_v5",
-          "24": "Standard_NV36ads_A10_v5",
-          "36": "Standard_NV72ads_A10_v5"
+          "6": "Standard_NV6ads_V710_v5",
+          "12": "Standard_NV12ads_V710_v5",
+          "24": "Standard_NV24ads_V710_v5"
         }
       },
       "costOptimized": {
         "family": "NV",
-        "series": "NVv4",
-        "reason": "AMD Radeon MI25 — lowest cost GPU visualization for VDI and remote desktop",
-        "requirements": ["AMD GPU drivers"],
+        "series": "NVadsA10v5",
+        "reason": "NVIDIA A10 GPU visualization — good balance of cost and capabilities for VDI and remote desktop",
+        "requirements": ["NVIDIA A10 GRID drivers", "Gen2 OS image"],
         "sizeMap": {
-          "4": "Standard_NV4as_v4",
-          "8": "Standard_NV8as_v4",
-          "16": "Standard_NV16as_v4",
-          "32": "Standard_NV32as_v4"
+          "4": "Standard_NV6ads_A10_v5",
+          "8": "Standard_NV12ads_A10_v5",
+          "16": "Standard_NV18ads_A10_v5",
+          "32": "Standard_NV36ads_A10_v5"
         }
       }
     },
@@ -790,25 +791,57 @@
       },
       "futureProof": {
         "family": "NV",
-        "series": "NVadsA10v5",
-        "reason": "NVadsA10v5 is the current latest NV-class series",
-        "requirements": ["NVIDIA A10 GRID drivers", "Gen2 OS image"],
+        "series": "NVadsV710v5",
+        "reason": "Latest NVIDIA V710 GPU for visualization, best long-term VDI platform",
+        "requirements": ["NVIDIA GPU drivers", "Gen2 OS image"],
         "sizeMap": {
-          "12": "Standard_NV6ads_A10_v5",
-          "24": "Standard_NV12ads_A10_v5",
-          "48": "Standard_NV36ads_A10_v5"
+          "12": "Standard_NV6ads_V710_v5",
+          "24": "Standard_NV12ads_V710_v5",
+          "48": "Standard_NV36ads_V710_v5"
         }
       },
       "costOptimized": {
         "family": "NV",
-        "series": "NVv4",
-        "reason": "AMD Radeon MI25 for budget-friendly VDI and visualization",
-        "requirements": ["AMD GPU drivers"],
+        "series": "NVadsA10v5",
+        "reason": "NVIDIA A10 GPU visualization — good balance of cost and capabilities for VDI",
+        "requirements": ["NVIDIA A10 GRID drivers", "Gen2 OS image"],
         "sizeMap": {
-          "4": "Standard_NV4as_v4",
-          "8": "Standard_NV8as_v4",
-          "16": "Standard_NV16as_v4",
-          "32": "Standard_NV32as_v4"
+          "4": "Standard_NV6ads_A10_v5",
+          "8": "Standard_NV12ads_A10_v5",
+          "16": "Standard_NV18ads_A10_v5",
+          "32": "Standard_NV36ads_A10_v5"
+        }
+      }
+    },
+
+    "NVv4": {
+      "family": "NV",
+      "version": 4,
+      "status": "Retiring",
+      "retireDate": "2026-09-30",
+      "summary": "NVv4 (AMD Radeon MI25) retiring September 2026. Move to NVadsA10v5 or NVadsV710v5.",
+      "dropIn": {
+        "family": "NV",
+        "series": "NVadsA10v5",
+        "reason": "NVIDIA A10 GPU for visualization with fractional GPU support, direct replacement for AMD Radeon VDI workloads",
+        "requirements": ["NVIDIA A10 GRID drivers", "Gen2 OS image"],
+        "sizeMap": {
+          "4": "Standard_NV6ads_A10_v5",
+          "8": "Standard_NV12ads_A10_v5",
+          "16": "Standard_NV18ads_A10_v5",
+          "32": "Standard_NV36ads_A10_v5"
+        }
+      },
+      "futureProof": {
+        "family": "NV",
+        "series": "NVadsV710v5",
+        "reason": "Latest NVIDIA V710 GPU for visualization, newest driver support, best long-term VDI platform",
+        "requirements": ["NVIDIA GPU drivers", "Gen2 OS image"],
+        "sizeMap": {
+          "4": "Standard_NV4ads_V710_v5",
+          "8": "Standard_NV8ads_V710_v5",
+          "16": "Standard_NV12ads_V710_v5",
+          "32": "Standard_NV24ads_V710_v5"
         }
       }
     },
@@ -816,8 +849,9 @@
     "Av2": {
       "family": "A",
       "version": 2,
-      "status": "OldGen",
-      "summary": "A-series v2 is an older general-purpose family with no newer A-series successor. Workloads should migrate to D-series (general purpose) or B-series (burstable/dev-test).",
+      "status": "Retiring",
+      "retireDate": "2028-11-15",
+      "summary": "Av2/Amv2-series retiring November 2028. Workloads should migrate to D-series (general purpose) or B-series (burstable/dev-test).",
       "dropIn": {
         "family": "D",
         "series": "Dsv5",
@@ -859,8 +893,9 @@
     "Bv1": {
       "family": "B",
       "version": 1,
-      "status": "OldGen",
-      "summary": "Original B-series burstable VMs. Bsv2 offers better baseline performance, more size options, and AMD alternatives.",
+      "status": "Retiring",
+      "retireDate": "2028-11-15",
+      "summary": "B-series v1 burstable VMs retiring November 2028. Bsv2 offers better baseline performance, more size options, and AMD alternatives.",
       "dropIn": {
         "family": "B",
         "series": "Bsv2",
@@ -911,8 +946,9 @@
     "Fv2": {
       "family": "F",
       "version": 2,
-      "status": "OldGen",
-      "summary": "Fsv2 is the current compute-optimized workhorse family. While not yet retiring, Fsv6 offers higher single-thread performance and NVMe for future-proofing.",
+      "status": "Retiring",
+      "retireDate": "2028-11-15",
+      "summary": "Fsv2 compute-optimized series retiring November 2028. Fasv6 offers higher single-thread performance and NVMe for future-proofing.",
       "dropIn": {
         "family": "F",
         "series": "Fasv6",
@@ -933,8 +969,9 @@
     "Lv2": {
       "family": "L",
       "version": 2,
-      "status": "OldGen",
-      "summary": "Lsv2 is the storage-optimized v2 family with NVMe local disks. Lsv3/Lasv3 offer more size options; Lsv4 is the latest generation.",
+      "status": "Retiring",
+      "retireDate": "2028-11-15",
+      "summary": "Lsv2 storage-optimized series retiring November 2028. Lsv3/Lasv3 offer more size options; Lsv4 is the latest generation.",
       "dropIn": {
         "family": "L",
         "series": "Lsv3",
@@ -1069,7 +1106,7 @@
       "family": "NV",
       "version": 2,
       "status": "OldGen",
-      "summary": "NVv2 GPU visualization VMs with NVIDIA Tesla M60. NVv4 (AMD Radeon) and NVv5 (NVIDIA A10/V710) are newer options.",
+      "summary": "NVv2 GPU visualization VMs with NVIDIA Tesla M60. NVadsA10v5 and NVadsV710v5 are newer options.",
       "dropIn": {
         "family": "NV",
         "series": "NVadsA10v5",

@@ -18,7 +18,7 @@ function Get-AzureEndpoints {
         $endpoints.PricingApiUrl  # Returns https://prices.azure.com for Commercial
     .EXAMPLE
         $endpoints = Get-AzureEndpoints -EnvironmentName 'AzureUSGovernment'
-        $endpoints.PricingApiUrl  # Returns https://prices.azure.us
+        $endpoints.PricingApiUrl  # Returns https://prices.azure.com (global endpoint for all clouds)
     #>
     param(
         [Parameter(Mandatory = $false)]
@@ -80,25 +80,10 @@ function Get-AzureEndpoints {
     # Ensure no trailing slash
     $armUrl = $armUrl.TrimEnd('/')
 
-    # Derive pricing API URL from the portal URL
-    # Commercial: portal.azure.com -> prices.azure.com
-    # Government: portal.azure.us -> prices.azure.us
-    # China: portal.azure.cn -> prices.azure.cn
-    $portalUrl = $AzEnvironment.ManagementPortalUrl
-    if ($portalUrl) {
-        # Replace only the 'portal' subdomain with 'prices' (more precise than global replace)
-        $pricingUrl = $portalUrl -replace '^(https?://)?portal\.', '${1}prices.'
-        $pricingUrl = $pricingUrl.TrimEnd('/')
-        $pricingApiUrl = "$pricingUrl/api/retail/prices"
-    }
-    else {
-        # Fallback based on known environment names
-        $pricingApiUrl = switch ($AzEnvironment.Name) {
-            'AzureUSGovernment' { 'https://prices.azure.us/api/retail/prices' }
-            'AzureChinaCloud' { 'https://prices.azure.cn/api/retail/prices' }
-            default { 'https://prices.azure.com/api/retail/prices' }
-        }
-    }
+    # Azure Retail Prices API is a single global endpoint (prices.azure.com) for all clouds.
+    # It serves Commercial, Government, and China pricing data via armRegionName filter.
+    # There are no sovereign-specific pricing API endpoints (prices.azure.us does not exist).
+    $pricingApiUrl = 'https://prices.azure.com/api/retail/prices'
 
     $endpoints = @{
         EnvironmentName    = $AzEnvironment.Name

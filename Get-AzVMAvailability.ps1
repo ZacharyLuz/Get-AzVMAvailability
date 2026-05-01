@@ -16,7 +16,7 @@
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
     Created:        2026-01-21
-    Version:        2.1.1
+    Version:        2.2.1
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -151,8 +151,11 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Include Savings Plan and Reserved Instance pricing columns in lifecycle reports. Requires -ShowPricing. Without this flag, only PAYG pricing is shown.")]
     [switch]$RateOptimization,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis.")]
-    [string]$LifecycleRecommendations,
+    [Parameter(Mandatory = $false, HelpMessage = "Enable lifecycle recommendations mode with auto-defaults (pricing, Excel, savings/reservation, quota). Without -LifecycleFile, performs a live ARG scan.")]
+    [switch]$LifecycleRecommendations,
+
+    [Parameter(Mandatory = $false, Position = 0, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Requires -LifecycleRecommendations. Also bindable as the first positional argument: -LifecycleRecommendations .\my-vms.csv.")]
+    [string]$LifecycleFile,
 
     [Parameter(Mandatory = $false, HelpMessage = "Pull live VM inventory from Azure via Resource Graph for lifecycle analysis.")]
     [switch]$LifecycleScan,
@@ -171,11 +174,17 @@ param(
     [switch]$SubMap,
 
     [Parameter(Mandatory = $false, HelpMessage = "Add a 'Resource Group Map' sheet to the lifecycle XLSX.")]
-    [switch]$RGMap
+    [switch]$RGMap,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Add availability-zone columns to lifecycle XLSX output. On Subscription Map / Resource Group Map sheets adds 'Zones (Deployed)' showing which zones the VMs are currently deployed to. On Lifecycle Summary / High Risk / Medium Risk sheets adds 'Zones (Supported)' showing which zones the recommended SKU supports in the deployed region. Requires -SubMap or -RGMap (or any lifecycle mode for the Summary column).")]
+    [switch]$AZ,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Enable transcript logging. A timestamped log file is created in the export directory.")]
+    [switch]$LogFile
 )
 
 # Version for Validate-Script.ps1 parity check (must match .psd1 ModuleVersion)
-$ScriptVersion = "2.1.1"
+$ScriptVersion = "2.2.1"
 Write-Verbose "Get-AzVMAvailability wrapper v$ScriptVersion"
 
 # Import the AzVMAvailability module from the same directory as this script

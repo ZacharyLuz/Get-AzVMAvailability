@@ -41,7 +41,10 @@ function Invoke-RecommendMode {
     )
 
     $targetSku = $null
-    $targetRegionStatus = @()
+    # Deduplicate region status across subscriptions — keep the best (most permissive) status per region.
+    # Per-subscription detail is captured in SubMap/RGMap tabs; the summary shows the region-level picture.
+    $statusRank = @{ 'OK' = 0; 'PARTIAL' = 1; 'CAPACITY-CONSTRAINED' = 2; 'LIMITED' = 3; 'RESTRICTED' = 4; 'BLOCKED' = 5 }
+    $regionBest = @{}   # region → best [pscustomobject] seen so far
 
     foreach ($subData in $SubscriptionData) {
         foreach ($data in $subData.RegionData) {
@@ -50,16 +53,22 @@ function Invoke-RecommendMode {
             foreach ($sku in $data.Skus) {
                 if ($sku.Name -eq $TargetSkuName) {
                     $restrictions = Get-RestrictionDetails $sku
-                    $targetRegionStatus += [pscustomobject]@{
+                    $entry = [pscustomobject]@{
                         Region  = [string]$region
                         Status  = $restrictions.Status
                         ZonesOK = $restrictions.ZonesOK.Count
+                    }
+                    $prev = $regionBest[$region]
+                    if (-not $prev -or $statusRank[$restrictions.Status] -lt $statusRank[$prev.Status]) {
+                        $regionBest[$region] = $entry
                     }
                     if (-not $targetSku) { $targetSku = $sku }
                 }
             }
         }
     }
+
+    $targetRegionStatus = @($regionBest.Values)
 
     if (-not $targetSku) {
         Write-Host "`nSKU '$TargetSkuName' was not found in any scanned region." -ForegroundColor Red
@@ -91,6 +100,7 @@ function Invoke-RecommendMode {
         UncachedDiskIOPS         = $targetCaps.UncachedDiskIOPS
         UncachedDiskBytesPerSecond = $targetCaps.UncachedDiskBytesPerSecond
         EncryptionAtHostSupported = $targetCaps.EncryptionAtHostSupported
+        GPUCount                 = $targetCaps.GPUCount
     }
 
     # Score all candidate SKUs across all regions
@@ -140,6 +150,7 @@ function Invoke-RecommendMode {
                         UncachedDiskIOPS         = $caps.UncachedDiskIOPS
                         UncachedDiskBytesPerSecond = $caps.UncachedDiskBytesPerSecond
                         EncryptionAtHostSupported = $caps.EncryptionAtHostSupported
+                        GPUCount                 = $caps.GPUCount
                     }
                     if ($SkuProfileCache) {
                         $SkuProfileCache[$sku.Name] = @{ Profile = $candidateProfile; Caps = $caps; Processor = $candidateProcessor; DiskCode = $candidateDiskCode }
@@ -159,6 +170,7 @@ function Invoke-RecommendMode {
 
                 $priceHr = $null
                 $priceMo = $null
+                $priceIsNegotiated = $false
                 $spotPriceHr = $null
                 $spotPriceMo = $null
                 if ($FetchPricing -and $RunContext.RegionPricing[[string]$region]) {
@@ -169,6 +181,7 @@ function Invoke-RecommendMode {
                     if ($skuPricing) {
                         $priceHr = $skuPricing.Hourly
                         $priceMo = $skuPricing.Monthly
+                        $priceIsNegotiated = [bool]$skuPricing.IsNegotiated
                     }
                     if ($ShowSpot) {
                         $spotPricing = $spotPriceMap[$sku.Name]
@@ -200,6 +213,7 @@ function Invoke-RecommendMode {
                         ZonesOK  = $restrictions.ZonesOK.Count
                         PriceHr  = $priceHr
                         PriceMo  = $priceMo
+                        PriceIsNegotiated = $priceIsNegotiated
                         SpotPriceHr = $spotPriceHr
                         SpotPriceMo = $spotPriceMo
                     }) | Out-Null
@@ -276,6 +290,7 @@ function Invoke-RecommendMode {
                     ZonesOK   = $item.ZonesOK
                     PriceHr   = $item.PriceHr
                     PriceMo   = $item.PriceMo
+                    PriceIsNegotiated = $item.PriceIsNegotiated
                     SpotPriceHr = $item.SpotPriceHr
                     SpotPriceMo = $item.SpotPriceMo
                 }
@@ -306,6 +321,7 @@ function Invoke-RecommendMode {
                     ZonesOK   = $item.ZonesOK
                     PriceHr   = $item.PriceHr
                     PriceMo   = $item.PriceMo
+                    PriceIsNegotiated = $item.PriceIsNegotiated
                     SpotPriceHr = $item.SpotPriceHr
                     SpotPriceMo = $item.SpotPriceMo
                 }

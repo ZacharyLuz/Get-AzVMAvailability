@@ -239,11 +239,16 @@ function Get-AzVMAvailability {
     .\Get-AzVMAvailability.ps1 -InventoryFile .\inventory-template.csv -Region "eastus" -NoPrompt
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
-    Lifecycle analysis: loads a list of current VM SKUs, runs compatibility-validated
-    recommendations for each, and produces a consolidated risk summary identifying
-    old-generation SKUs, capacity-constrained SKUs, and recommended replacements.
-    The CSV supports optional columns: Region (deployed location) and Qty (VM count).
+    .\Get-AzVMAvailability.ps1 -LifecycleRecommendations
+    Lifecycle analysis: pulls live VM inventory from Azure Resource Graph and runs
+    compatibility-validated recommendations with pricing, savings plan/reservation
+    details, quota, and auto-exports to Excel in the current directory.
+
+.EXAMPLE
+    .\Get-AzVMAvailability.ps1 -LifecycleRecommendations -LifecycleFile .\my-vms.csv -Region "eastus"
+    Lifecycle analysis from file: loads a list of current VM SKUs from a CSV/JSON/XLSX,
+    runs recommendations for each, and produces a consolidated risk summary.
+    The file supports optional columns: Region (deployed location) and Qty (VM count).
     When Qty is provided, quota is checked against the required vCPUs (Qty x vCPU)
     for both the current SKU and the recommended replacement.
 
@@ -368,8 +373,11 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Include Savings Plan and Reserved Instance pricing columns in lifecycle reports. Requires -ShowPricing. Without this flag, only PAYG pricing is shown.")]
     [switch]$RateOptimization,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Runs compatibility-validated recommendations for each SKU and flags lifecycle risks. CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects. Qty column is optional. XLSX: supports native Azure portal VM exports (maps SIZE/LOCATION columns automatically).")]
-    [string]$LifecycleRecommendations,
+    [Parameter(Mandatory = $false, HelpMessage = "Run lifecycle recommendations with auto-enabled pricing, Excel export, savings plan/reservation details, and quota. Without -LifecycleFile, pulls live VM inventory from Azure via Resource Graph. With -LifecycleFile, loads SKUs from a CSV/JSON/XLSX file.")]
+    [switch]$LifecycleRecommendations,
+
+    [Parameter(Mandatory = $false, Position = 0, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Use with -LifecycleRecommendations (also bindable as first positional argument: -LifecycleRecommendations .\my-vms.csv). CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects. Qty column is optional. XLSX: supports native Azure portal VM exports (maps SIZE/LOCATION columns automatically).")]
+    [string]$LifecycleFile,
 
     [Parameter(Mandatory = $false, HelpMessage = "Pull live VM inventory from Azure via Resource Graph for lifecycle analysis. Scopes to -SubscriptionId if specified; use -ManagementGroup or -ResourceGroup for further filtering.")]
     [switch]$LifecycleScan,
@@ -388,11 +396,20 @@ param(
     [switch]$SubMap,
 
     [Parameter(Mandatory = $false, HelpMessage = "Add a 'Resource Group Map' sheet to the lifecycle XLSX showing VM counts grouped by resource group, subscription, region, and SKU. Requires -LifecycleScan.")]
-    [switch]$RGMap
+    [switch]$RGMap,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Add availability-zone columns to lifecycle XLSX output. On Subscription Map / Resource Group Map sheets adds 'Zones (Deployed)' showing which zones the VMs are currently deployed to. On Lifecycle Summary / High Risk / Medium Risk sheets adds 'Zones (Supported)' (between Alt Score and CPU +/-) showing which zones the recommended SKU supports in the deployed region. Requires -SubMap or -RGMap (or any lifecycle mode for the Summary column).")]
+    [switch]$AZ,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Enable transcript logging. A timestamped log file is created in the export directory.")]
+    [switch]$LogFile
 )
 
     # Set console suppression for this invocation (module-scope flag)
     $script:SuppressConsole = $JsonOutput.IsPresent
+
+    # Transcript logging is deferred until after export path is resolved
+    $script:TranscriptStarted = $false
 
     $ProgressPreference = 'SilentlyContinue'
 
@@ -504,17 +521,18 @@ if ($Inventory -and $Inventory.Count -gt 0) {
     Write-Verbose "Inventory mode: derived SkuFilter from $($Inventory.Count) Inventory SKUs"
 }
 
-# LifecycleRecommendations: load CSV/JSON/XLSX into $lifecycleEntries list (SKU + optional Region)
-if ($LifecycleRecommendations) {
+# LifecycleRecommendations: load from file (-LifecycleFile) or fall through to live ARG scan
+if ($LifecycleRecommendations -and $LifecycleFile) {
     if ($LifecycleScan) { throw "Cannot specify both -LifecycleRecommendations and -LifecycleScan. Use one or the other." }
     if ($Recommend) { throw "Cannot specify both -Recommend and -LifecycleRecommendations. Use one or the other." }
     if ($Inventory -or $InventoryFile) { throw "Cannot specify both -LifecycleRecommendations and -Inventory/-InventoryFile. They are separate modes." }
-    if (-not (Test-Path -LiteralPath $LifecycleRecommendations -PathType Leaf)) { throw "Lifecycle file not found or is not a file: $LifecycleRecommendations" }
-    $ext = [System.IO.Path]::GetExtension($LifecycleRecommendations).ToLower()
-    if ($ext -notin '.csv', '.json', '.xlsx') { throw "Unsupported file type '$ext'. LifecycleRecommendations must be .csv, .json, or .xlsx" }
+    if (-not (Test-Path -LiteralPath $LifecycleFile -PathType Leaf)) { throw "Lifecycle file not found or is not a file: $LifecycleFile" }
+    $ext = [System.IO.Path]::GetExtension($LifecycleFile).ToLower()
+    if ($ext -notin '.csv', '.json', '.xlsx') { throw "Unsupported file type '$ext'. -LifecycleFile must be .csv, .json, or .xlsx" }
     if ($ext -eq '.xlsx' -and -not (Get-Module -ListAvailable ImportExcel)) { throw "ImportExcel module required for .xlsx files. Install with: Install-Module ImportExcel -Scope CurrentUser" }
     $lifecycleEntries = [System.Collections.Generic.List[PSCustomObject]]::new()
     $compositeKeys = @{}
+    $lcVMSubMap = @{}    # "SKUName|region" → @{ subId = qty } — used for accurate per-sub quota risk evaluation (file mode populates only when subscriptionId is in the file)
     # When -SubMap or -RGMap is set, capture per-row subscription/RG data for the deployment map
     $captureDeploymentMap = ($SubMap -or $RGMap)
     if ($captureDeploymentMap) { $fileVMRows = [System.Collections.Generic.List[PSCustomObject]]::new() }
@@ -552,6 +570,11 @@ if ($LifecycleRecommendations) {
                 }
                 $subNameProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SubscriptionName|Subscription_Name|SUBSCRIPTION)$' } | Select-Object -First 1).Value
                 $rgProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(ResourceGroup|Resource_Group|RESOURCE GROUP)$' } | Select-Object -First 1).Value
+                $zoneProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Zone|Zones|AvailabilityZone|AvailabilityZones|AZ)$' } | Select-Object -First 1).Value
+                # Normalize zone(s) into an array of digit strings (file may have '1', '1,2', '1;2', etc.)
+                $zoneArr = if ($zoneProp) {
+                    @(([string]$zoneProp -split '[,;\s]+') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -match '^[0-9]$' })
+                } else { @() }
                 $fileVMRows.Add([pscustomobject]@{
                     subscriptionId   = if ($subIdProp) { $subIdProp.Trim() } else { '' }
                     subscriptionName = if ($subNameProp) { $subNameProp.Trim() } else { '' }
@@ -559,23 +582,43 @@ if ($LifecycleRecommendations) {
                     location         = $regionClean
                     vmSize           = $clean
                     qty              = $qty
+                    zones            = $zoneArr
                 })
+            }
+            # Track per-sub VM count for accurate quota risk (used regardless of -SubMap/-RGMap)
+            $vmSubId = if ($subIdProp) { $subIdProp.Trim() } else { '' }
+            if (-not $vmSubId) {
+                # Pull the same way captureDeploymentMap branch did, even when those flags are off
+                $subIdAlt = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SubscriptionId|Subscription_Id|SUBSCRIPTION ID)$' } | Select-Object -First 1).Value
+                if (-not $subIdAlt) {
+                    $linkAlt = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(RESOURCE LINK|ResourceLink|Resource_Link)$' } | Select-Object -First 1).Value
+                    if ($linkAlt -and $linkAlt -match '/subscriptions/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') { $subIdAlt = $matches[1] }
+                }
+                if ($subIdAlt) { $vmSubId = $subIdAlt.Trim() }
+            }
+            if ($vmSubId) {
+                if (-not $lcVMSubMap.ContainsKey($compositeKey)) { $lcVMSubMap[$compositeKey] = @{} }
+                if ($lcVMSubMap[$compositeKey].ContainsKey($vmSubId)) {
+                    $lcVMSubMap[$compositeKey][$vmSubId] += $qty
+                } else {
+                    $lcVMSubMap[$compositeKey][$vmSubId] = $qty
+                }
             }
         }
     }
     if ($ext -eq '.json') {
-        $jsonData = @(Get-Content -LiteralPath $LifecycleRecommendations -Raw | ConvertFrom-Json)
+        $jsonData = @(Get-Content -LiteralPath $LifecycleFile -Raw | ConvertFrom-Json)
         foreach ($item in $jsonData) { & $parseRow $item }
     }
     elseif ($ext -eq '.xlsx') {
-        $xlsxData = Import-Excel -Path $LifecycleRecommendations
+        $xlsxData = Import-Excel -Path $LifecycleFile
         foreach ($row in $xlsxData) { & $parseRow $row }
     }
     else {
-        $csvData = Import-Csv -LiteralPath $LifecycleRecommendations
+        $csvData = Import-Csv -LiteralPath $LifecycleFile
         foreach ($row in $csvData) { & $parseRow $row }
     }
-    if ($lifecycleEntries.Count -eq 0) { throw "No valid SKU rows found in $LifecycleRecommendations. Expected column: SKU, Size, or VmSize (falls back to Name)" }
+    if ($lifecycleEntries.Count -eq 0) { throw "No valid SKU rows found in $LifecycleFile. Expected column: SKU, Size, or VmSize (falls back to Name)" }
     $SkuFilter = @($lifecycleEntries | ForEach-Object { $_.SKU })
 
     # Auto-merge per-SKU regions into the -Region parameter so all needed regions get scanned
@@ -592,7 +635,7 @@ if ($LifecycleRecommendations) {
     }
 
     $totalVMs = ($lifecycleEntries | Measure-Object -Property Qty -Sum).Sum
-    if (-not $JsonOutput) { Write-Host "Lifecycle analysis: loaded $($lifecycleEntries.Count) SKU entries ($totalVMs VMs) from $LifecycleRecommendations" -ForegroundColor Cyan }
+    if (-not $JsonOutput) { Write-Host "Lifecycle analysis: loaded $($lifecycleEntries.Count) SKU entries ($totalVMs VMs) from $LifecycleFile" -ForegroundColor Cyan }
 
     #region Build Deployment Map from File Data (-SubMap / -RGMap)
     if ($captureDeploymentMap -and $fileVMRows.Count -gt 0) {
@@ -609,12 +652,14 @@ if ($LifecycleRecommendations) {
             $grouped = $fileVMRows | Group-Object -Property subscriptionId, subscriptionName, location, vmSize
             foreach ($g in $grouped) {
                 $sample = $g.Group[0]
+                $deployedZones = @($g.Group | ForEach-Object { if ($_.zones) { $_.zones } } | Where-Object { $_ } | Select-Object -Unique | Sort-Object)
                 $subMapRows.Add([pscustomobject]@{
                     SubscriptionId   = $sample.subscriptionId
                     SubscriptionName = if ($sample.subscriptionName) { $sample.subscriptionName } else { $sample.subscriptionId }
                     Region           = $sample.location
                     SKU              = $sample.vmSize
                     Qty              = ($g.Group | Measure-Object -Property qty -Sum).Sum
+                    Zones            = $deployedZones
                 })
             }
             $subMapRows = [System.Collections.Generic.List[PSCustomObject]]@($subMapRows | Sort-Object SubscriptionName, Region, SKU)
@@ -625,6 +670,7 @@ if ($LifecycleRecommendations) {
             $grouped = $fileVMRows | Group-Object -Property subscriptionId, subscriptionName, resourceGroup, location, vmSize
             foreach ($g in $grouped) {
                 $sample = $g.Group[0]
+                $deployedZones = @($g.Group | ForEach-Object { if ($_.zones) { $_.zones } } | Where-Object { $_ } | Select-Object -Unique | Sort-Object)
                 $rgMapRows.Add([pscustomobject]@{
                     SubscriptionId   = $sample.subscriptionId
                     SubscriptionName = if ($sample.subscriptionName) { $sample.subscriptionName } else { $sample.subscriptionId }
@@ -632,6 +678,7 @@ if ($LifecycleRecommendations) {
                     Region           = $sample.location
                     SKU              = $sample.vmSize
                     Qty              = ($g.Group | Measure-Object -Property qty -Sum).Sum
+                    Zones            = $deployedZones
                 })
             }
             $rgMapRows = [System.Collections.Generic.List[PSCustomObject]]@($rgMapRows | Sort-Object SubscriptionName, ResourceGroup, Region, SKU)
@@ -639,6 +686,21 @@ if ($LifecycleRecommendations) {
         }
     }
     #endregion Build Deployment Map from File Data
+}
+
+# -LifecycleRecommendations without -LifecycleFile: use live ARG scan
+if ($LifecycleRecommendations -and -not $LifecycleFile -and -not $lifecycleEntries) {
+    $LifecycleScan = [switch]::new($true)
+}
+
+# Auto-enable SubMap and RGMap for lifecycle ARG scans — quota is per-subscription
+# so the deployment map tabs provide the proper per-sub quota context.
+if ($LifecycleScan -and -not $SubMap) { $SubMap = [switch]::new($true) }
+if ($LifecycleScan -and -not $RGMap) { $RGMap = [switch]::new($true) }
+
+# Guard: -LifecycleFile requires -LifecycleRecommendations
+if ($LifecycleFile -and -not $LifecycleRecommendations) {
+    throw "-LifecycleFile requires -LifecycleRecommendations. Use: -LifecycleRecommendations -LifecycleFile '$LifecycleFile'"
 }
 
 # Validate -SubMap / -RGMap require a lifecycle mode
@@ -678,7 +740,7 @@ if ($LifecycleScan) {
         }
     }
     $argQuery += "`n| extend vmSize = tostring(properties.hardwareProfile.vmSize)"
-    $argQuery += "`n| project vmSize, location, subscriptionId, resourceGroup"
+    $argQuery += "`n| project vmSize, location, subscriptionId, resourceGroup, zones"
 
     if (-not $JsonOutput) { Write-Host "Querying Azure Resource Graph for live VM inventory..." -ForegroundColor Cyan }
 
@@ -703,11 +765,21 @@ if ($LifecycleScan) {
     # Aggregate into lifecycle entries (same format as file-based input)
     $lifecycleEntries = [System.Collections.Generic.List[PSCustomObject]]::new()
     $compositeKeys = @{}
+    $lcVMSubMap = @{}    # "SKUName|region" → @{ subId = qty } — used for accurate per-sub quota risk evaluation
     foreach ($vm in $allVMs) {
         $clean = $vm.vmSize.Trim() -replace '^Standard_Standard_', 'Standard_'
         if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
         $regionClean = $vm.location.ToLower()
         $compositeKey = "$clean|$regionClean"
+        if (-not $lcVMSubMap.ContainsKey($compositeKey)) { $lcVMSubMap[$compositeKey] = @{} }
+        $vmSubId = [string]$vm.subscriptionId
+        if ($vmSubId) {
+            if ($lcVMSubMap[$compositeKey].ContainsKey($vmSubId)) {
+                $lcVMSubMap[$compositeKey][$vmSubId]++
+            } else {
+                $lcVMSubMap[$compositeKey][$vmSubId] = 1
+            }
+        }
         if ($compositeKeys.ContainsKey($compositeKey)) {
             $existingIdx = $compositeKeys[$compositeKey]
             $existing = $lifecycleEntries[$existingIdx]
@@ -763,12 +835,15 @@ if ($LifecycleScan) {
             foreach ($g in $grouped) {
                 $sample = $g.Group[0]
                 $subId = $sample.subscriptionId
+                # Aggregate distinct deployed zones across VMs in this (sub|region|sku) group
+                $deployedZones = @($g.Group | ForEach-Object { if ($_.zones) { $_.zones } } | Where-Object { $_ } | Select-Object -Unique | Sort-Object)
                 $subMapRows.Add([pscustomobject]@{
                     SubscriptionId   = $subId
                     SubscriptionName = if ($subNameMap[$subId]) { $subNameMap[$subId] } else { $subId }
                     Region           = $sample.location
                     SKU              = $sample.vmSize
                     Qty              = $g.Count
+                    Zones            = $deployedZones
                 })
             }
             $subMapRows = [System.Collections.Generic.List[PSCustomObject]]@($subMapRows | Sort-Object SubscriptionName, Region, SKU)
@@ -780,6 +855,7 @@ if ($LifecycleScan) {
             foreach ($g in $grouped) {
                 $sample = $g.Group[0]
                 $subId = $sample.subscriptionId
+                $deployedZones = @($g.Group | ForEach-Object { if ($_.zones) { $_.zones } } | Where-Object { $_ } | Select-Object -Unique | Sort-Object)
                 $rgMapRows.Add([pscustomobject]@{
                     SubscriptionId   = $subId
                     SubscriptionName = if ($subNameMap[$subId]) { $subNameMap[$subId] } else { $subId }
@@ -787,6 +863,7 @@ if ($LifecycleScan) {
                     Region           = $sample.location
                     SKU              = $sample.vmSize
                     Qty              = $g.Count
+                    Zones            = $deployedZones
                 })
             }
             $rgMapRows = [System.Collections.Generic.List[PSCustomObject]]@($rgMapRows | Sort-Object SubscriptionName, ResourceGroup, Region, SKU)
@@ -798,8 +875,12 @@ if ($LifecycleScan) {
 
 # Expand SKU filter to include upgrade path target SKUs so they get scanned
 if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
-    $upgradePathFile = Join-Path $PSScriptRoot 'data' 'UpgradePath.json'
-    if (Test-Path -LiteralPath $upgradePathFile) {
+    # Cascading lookup: module root (PSGallery install) → repo root (development)
+    $upgradePathFile = @(
+        (Join-Path $PSScriptRoot '..' 'data' 'UpgradePath.json'),
+        (Join-Path $PSScriptRoot '..' '..' 'data' 'UpgradePath.json')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($upgradePathFile) {
         try {
             $upData = Get-Content -LiteralPath $upgradePathFile -Raw | ConvertFrom-Json
             $upgradeSkus = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -890,6 +971,7 @@ $script:RunContext = [pscustomobject]@{
     ImageReqs          = $null
     RegionPricing      = @{}
     UsingActualPricing = $false
+    RetailFallbackRegions = @()
     ScanOutput         = $null
     RecommendOutput    = $null
     ShowPlacement      = $false
@@ -909,6 +991,10 @@ if (-not $PSBoundParameters.ContainsKey('MinScore')) {
 
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
+# If LifecycleScan already discovered subscription IDs from ARG, use those
+if (-not $TargetSubIds -and $allVMs -and $allVMs.Count -gt 0) {
+    $TargetSubIds = @($allVMs | ForEach-Object { $_.subscriptionId } | Select-Object -Unique)
+}
 $Regions = $Region
 $EnableDrill = $EnableDrillDown.IsPresent
 $script:RunContext.ShowPlacement = $ShowPlacement.IsPresent
@@ -958,6 +1044,24 @@ if ($Recommend) {
 # Only override environment if explicitly specified (preserve auto-detected sovereign clouds)
 if ($Environment) {
     $script:TargetEnvironment = $Environment
+}
+
+# Auto-detect target environment from current Az context if still unset.
+# Without this, users who pass -Region usgov*/china* directly (without -RegionPreset or -Environment)
+# would have $script:TargetEnvironment empty, causing sovereign-cloud column gates (e.g. SP suppression)
+# to fail and cloud-specific endpoints to fall back to public Azure.
+if (-not $script:TargetEnvironment) {
+    try {
+        $autoCtx = Get-AzContext -ErrorAction SilentlyContinue
+        if ($autoCtx -and $autoCtx.Environment -and $autoCtx.Environment.Name) {
+            $script:TargetEnvironment = $autoCtx.Environment.Name
+            Write-Verbose "Auto-detected environment from Az context: $($script:TargetEnvironment)"
+        }
+        else {
+            $script:TargetEnvironment = 'AzureCloud'
+        }
+    }
+    catch { $script:TargetEnvironment = 'AzureCloud' }
 }
 
 # Detect execution environment (Azure Cloud Shell vs local)
@@ -1021,8 +1125,9 @@ $script:RunContext.AzureEndpoints = $script:AzureEndpoints
 #endregion Initialize Azure Endpoints
 #region Interactive Prompts
 # Prompt user for subscription(s) if not provided via parameters
+# LifecycleRecommendations: ARG scan already discovered subscriptions and regions from live VMs
 
-if (-not $TargetSubIds) {
+if (-not $TargetSubIds -and -not $LifecycleRecommendations) {
     if ($NoPrompt) {
         $ctx = Get-AzContext -ErrorAction SilentlyContinue
         if ($ctx -and $ctx.Subscription.Id) {
@@ -1059,7 +1164,7 @@ if (-not $TargetSubIds) {
     }
 }
 
-if (-not $Regions) {
+if (-not $Regions -and -not $LifecycleRecommendations) {
     $smartDefaults = Get-SmartDefaultRegions -CloudEnvironment $script:TargetEnvironment
     if ($NoPrompt) {
         $Regions = $smartDefaults.Regions
@@ -1140,14 +1245,15 @@ else {
 }
 
 # Validate regions against Azure's available regions
-$validRegions = if ($SkipRegionValidation) { $null } else { Get-ValidAzureRegions -MaxRetries $MaxRetries -AzureEndpoints $script:AzureEndpoints -Caches $script:RunContext.Caches }
+# LifecycleRecommendations: regions came from ARG (already valid), skip validation
+$validRegions = if ($SkipRegionValidation -or $LifecycleRecommendations) { $null } else { Get-ValidAzureRegions -MaxRetries $MaxRetries -AzureEndpoints $script:AzureEndpoints -Caches $script:RunContext.Caches }
 
 $invalidRegions = @()
 $validatedRegions = @()
 
 # If region validation is skipped or failed entirely
-if ($SkipRegionValidation) {
-    Write-Warning "Region validation explicitly skipped via -SkipRegionValidation."
+if ($SkipRegionValidation -or $LifecycleRecommendations) {
+    if ($SkipRegionValidation) { Write-Warning "Region validation explicitly skipped via -SkipRegionValidation." }
     $validatedRegions = $Regions
 }
 elseif ($null -eq $validRegions -or $validRegions.Count -eq 0) {
@@ -1188,6 +1294,19 @@ if ($validatedRegions.Count -eq 0) {
 
 $Regions = $validatedRegions
 
+# LifecycleRecommendations defaults: auto-enable pricing, Excel export, savings/reservation details, and quota
+if ($LifecycleRecommendations) {
+    if (-not $ShowPricing)      { $ShowPricing = [switch]::new($true) }
+    if (-not $AutoExport)       { $AutoExport  = [switch]::new($true) }
+    if (-not $RateOptimization) { $RateOptimization = [switch]::new($true) }
+    if (-not $AZ)               { $AZ = [switch]::new($true) }
+    if ($NoQuota)               { } else { $NoQuota = $false }
+    if (-not $ExportPath)       { $ExportPath = $defaultExportPath }
+    if (-not $JsonOutput) {
+        Write-Host "Lifecycle mode: auto-enabled pricing, Excel export, savings plan/reservation details, quota, and zones" -ForegroundColor DarkGray
+    }
+}
+
 # Validate region count limit (skip for lifecycle scans — all deployed regions need pricing)
 $maxRegions = 5
 if ($Regions.Count -gt $maxRegions -and -not $lifecycleEntries) {
@@ -1220,14 +1339,14 @@ if ($Regions.Count -gt $maxRegions -and -not $lifecycleEntries) {
 }
 
 # Drill-down prompt
-if (-not $NoPrompt -and -not $EnableDrill) {
+if (-not $NoPrompt -and -not $LifecycleRecommendations -and -not $EnableDrill) {
     Write-Host "`nDrill down into specific families/SKUs? (y/N): " -ForegroundColor Yellow -NoNewline
     $drillInput = Read-Host
     if ($drillInput -match '^y(es)?$') { $EnableDrill = $true }
 }
 
 # Export prompt
-if (-not $ExportPath -and -not $NoPrompt -and -not $AutoExport) {
+if (-not $ExportPath -and -not $NoPrompt -and -not $LifecycleRecommendations -and -not $AutoExport) {
     Write-Host "`nExport results to file? (y/N): " -ForegroundColor Yellow -NoNewline
     $exportInput = Read-Host
     if ($exportInput -match '^y(es)?$') {
@@ -1239,14 +1358,14 @@ if (-not $ExportPath -and -not $NoPrompt -and -not $AutoExport) {
 
 # Pricing prompt
 $FetchPricing = $ShowPricing.IsPresent
-if (-not $ShowPricing -and -not $NoPrompt) {
-    Write-Host "`nInclude estimated pricing? (adds ~5-10 sec) (y/N): " -ForegroundColor Yellow -NoNewline
+if (-not $ShowPricing -and -not $NoPrompt -and -not $LifecycleRecommendations) {
+    Write-Host "`nInclude estimated pricing? (first run downloads the price sheet — duration varies by connection speed; cached afterwards) (y/N): " -ForegroundColor Yellow -NoNewline
     $pricingInput = Read-Host
     if ($pricingInput -match '^y(es)?$') { $FetchPricing = $true }
 }
 
 # Placement score prompt — fires independently (useful without pricing)
-if (-not $ShowPlacement -and -not $NoPrompt) {
+if (-not $ShowPlacement -and -not $NoPrompt -and -not $LifecycleRecommendations) {
     Write-Host "`nShow allocation likelihood scores? (High/Medium/Low per SKU) (y/N): " -ForegroundColor Yellow -NoNewline
     $placementInput = Read-Host
     if ($placementInput -match '^y(es)?$') { $ShowPlacement = [switch]::new($true) }
@@ -1254,14 +1373,14 @@ if (-not $ShowPlacement -and -not $NoPrompt) {
 $script:RunContext.ShowPlacement = $ShowPlacement.IsPresent
 
 # Spot pricing prompt — only useful if pricing is enabled
-if (-not $ShowSpot -and -not $NoPrompt -and $FetchPricing) {
+if (-not $ShowSpot -and -not $NoPrompt -and -not $LifecycleRecommendations -and $FetchPricing) {
     Write-Host "`nInclude Spot VM pricing alongside regular pricing? (y/N): " -ForegroundColor Yellow -NoNewline
     $spotInput = Read-Host
     if ($spotInput -match '^y(es)?$') { $ShowSpot = [switch]::new($true) }
 }
 
 # Image compatibility prompt
-if (-not $ImageURN -and -not $NoPrompt) {
+if (-not $ImageURN -and -not $NoPrompt -and -not $LifecycleRecommendations) {
     Write-Host "`nCheck SKU compatibility with a specific VM image? (y/N): " -ForegroundColor Yellow -NoNewline
     $imageInput = Read-Host
     if ($imageInput -match '^y(es)?$') {
@@ -1482,6 +1601,24 @@ if ($ExportPath -and -not (Test-Path $ExportPath)) {
     Write-Host "Created: $ExportPath" -ForegroundColor Green
 }
 
+# Start transcript logging (opt-in via -LogFile)
+if ($LogFile) {
+    $logDir = $PWD.Path
+    $logTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $logFilePath = Join-Path $logDir "AzVMAvailability_${logTimestamp}.log"
+    try {
+        if (-not (Test-Path -LiteralPath $logDir)) {
+            New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $logFilePath -Append | Out-Null
+        $script:TranscriptStarted = $true
+        Write-Host "Logging to: $logFilePath" -ForegroundColor DarkGray
+    }
+    catch {
+        Write-Warning "Failed to start transcript logging: $($_.Exception.Message)"
+    }
+}
+
 #endregion Interactive Prompts
 #region Data Collection
 
@@ -1525,22 +1662,101 @@ if ($FetchPricing) {
     # Auto-detect: Try negotiated pricing first, fall back to retail
     Write-Host "Checking for negotiated pricing (EA/MCA/CSP)..." -ForegroundColor DarkGray
 
-    $actualPricingSuccess = $true
+    # Per-region: each region is evaluated independently. Sovereign enrollments
+    # often publish negotiated rates for some regions but not others (e.g. usgov
+    # primary but not paired regions); previously a single zero-result region
+    # discarded ALL collected negotiated pricing. Now: regions with negotiated
+    # rates use them; regions without fall back to retail individually.
+    $regionsWithNegotiated = [System.Collections.Generic.List[string]]::new()
+    $regionsWithoutNegotiated = [System.Collections.Generic.List[string]]::new()
     foreach ($regionCode in $Regions) {
         $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
         if ($actualPrices -and $actualPrices.Count -gt 0) {
             if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
             $script:RunContext.RegionPricing[$regionCode] = $actualPrices
+            $regionsWithNegotiated.Add($regionCode) | Out-Null
         }
         else {
-            $actualPricingSuccess = $false
-            break
+            $regionsWithoutNegotiated.Add($regionCode) | Out-Null
         }
     }
+    $actualPricingSuccess = ($regionsWithNegotiated.Count -gt 0)
 
-    if ($actualPricingSuccess -and $script:RunContext.RegionPricing.Count -gt 0) {
+    if ($actualPricingSuccess) {
         $script:RunContext.UsingActualPricing = $true
-        Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected)" -ForegroundColor Green
+        # Merge negotiated PAYG into the retail structure so reservation/SP/spot data is preserved.
+        # Tier 1 (Price Sheet API) only returns PAYG meters; Reservation and Savings Plan rates are
+        # not exposed there. Tier 2 (Retail Prices API) carries Reservation1Yr/3Yr, SavingsPlan1Yr/3Yr,
+        # and Spot maps. Negotiated rates override retail Regular entries; everything else comes from retail.
+        foreach ($regionCode in $Regions) {
+            $retailResult = Get-AzVMPricing -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
+            if ($retailResult -is [array]) { $retailResult = $retailResult[0] }
+            $retailMap = Get-RegularPricingMap -PricingContainer $retailResult
+            # Regions with no negotiated rates simply use retail Regular as-is
+            $negotiatedMap = if ($script:RunContext.RegionPricing.ContainsKey($regionCode)) { $script:RunContext.RegionPricing[$regionCode] } else { $null }
+            # Start with retail Regular map, overlay negotiated prices on top
+            $mergedRegular = @{}
+            if ($retailMap) {
+                foreach ($skuName in $retailMap.Keys) { $mergedRegular[$skuName] = $retailMap[$skuName] }
+            }
+            $negotiatedCount = 0
+            if ($negotiatedMap) {
+                foreach ($skuName in $negotiatedMap.Keys) {
+                    $mergedRegular[$skuName] = $negotiatedMap[$skuName]
+                    $negotiatedCount++
+                }
+            }
+            # Store as structured container so Spot/Reservation/SavingsPlan maps work downstream
+            $retailSP1 = if ($retailResult -and $retailResult.SavingsPlan1Yr) { $retailResult.SavingsPlan1Yr } else { @{} }
+            $retailSP3 = if ($retailResult -and $retailResult.SavingsPlan3Yr) { $retailResult.SavingsPlan3Yr } else { @{} }
+            # Overlay negotiated Savings Plan rates (from Price Sheet API savingsPlan sub-object)
+            # onto retail SP maps. Sovereign regions don't expose SP, so this overlay is a no-op there.
+            $negSP = $script:RunContext.Caches.NegotiatedSavingsPlan
+            $negSP1Count = 0; $negSP3Count = 0
+            if ($negSP) {
+                $regionAliases = @($regionCode)
+                foreach ($cand in @('usgovarizona','usgovaz','usgovtexas','usgovtx','usgovvirginia','usgovva','usgov')) { if ($cand) { $regionAliases += $cand } }
+                foreach ($termKey in @('1Yr','3Yr')) {
+                    $srcMap = $negSP[$termKey]
+                    if (-not $srcMap) { continue }
+                    $regionMap = $null
+                    foreach ($a in $regionAliases) { if ($srcMap.ContainsKey($a) -and $srcMap[$a]) { $regionMap = $srcMap[$a]; break } }
+                    if (-not $regionMap) { continue }
+                    $target = if ($termKey -eq '1Yr') { $retailSP1 } else { $retailSP3 }
+                    foreach ($skuName in $regionMap.Keys) {
+                        $target[$skuName] = $regionMap[$skuName]
+                        if ($termKey -eq '1Yr') { $negSP1Count++ } else { $negSP3Count++ }
+                    }
+                }
+            }
+            # Keep an unmerged retail PAYG map alongside the merged Regular map.
+            # SP/RI savings percentages must be computed retail-vs-retail (denominator =
+            # retail PAYG, not negotiated PAYG) so the percentage reflects the inherent
+            # commitment discount and stacks cleanly on top of the customer's EA/MCA
+            # discount. If we used negotiated PAYG, the % would be artificially compressed
+            # because the denominator already includes the EA discount.
+            $script:RunContext.RegionPricing[$regionCode] = [ordered]@{
+                Regular        = $mergedRegular
+                RegularRetail  = if ($retailMap) { $retailMap } else { @{} }
+                Spot           = if ($retailResult -and $retailResult.Spot)           { $retailResult.Spot }           else { @{} }
+                SavingsPlan1Yr = $retailSP1
+                SavingsPlan3Yr = $retailSP3
+                Reservation1Yr = if ($retailResult -and $retailResult.Reservation1Yr) { $retailResult.Reservation1Yr } else { @{} }
+                Reservation3Yr = if ($retailResult -and $retailResult.Reservation3Yr) { $retailResult.Reservation3Yr } else { @{} }
+            }
+            $ri1Count = $script:RunContext.RegionPricing[$regionCode].Reservation1Yr.Count
+            $ri3Count = $script:RunContext.RegionPricing[$regionCode].Reservation3Yr.Count
+            Write-Verbose "Pricing merge for '$regionCode': $negotiatedCount negotiated + $($mergedRegular.Count - $negotiatedCount) retail Regular, $negSP1Count neg-SP1y, $negSP3Count neg-SP3y, $ri1Count RI-1yr, $ri3Count RI-3yr"
+        }
+        if ($regionsWithoutNegotiated.Count -gt 0) {
+            Write-Host "$($Icons.Check) Using negotiated pricing for $($regionsWithNegotiated.Count) of $($Regions.Count) region(s); retail fallback for: $($regionsWithoutNegotiated -join ', ')" -ForegroundColor Yellow
+            Write-Host "  Note: prices in retail-fallback regions are marked with a leading '*' in the report." -ForegroundColor DarkYellow
+            $script:RunContext.RetailFallbackRegions = @($regionsWithoutNegotiated)
+        }
+        else {
+            Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected, RI/SP/Spot from retail)" -ForegroundColor Green
+            $script:RunContext.RetailFallbackRegions = @()
+        }
     }
     else {
         # Fall back to retail pricing
@@ -1560,36 +1776,104 @@ $allSubscriptionData = @()
 $initialAzContext = Get-AzContext -ErrorAction SilentlyContinue
 $initialSubscriptionId = if ($initialAzContext -and $initialAzContext.Subscription) { [string]$initialAzContext.Subscription.Id } else { $null }
 
+$ScanSubIds = $TargetSubIds
+
 # Outer try/finally ensures Az context is restored even if Ctrl+C or PipelineStoppedException
 # interrupts parallel scanning, results processing, or export
 $scanStartTime = Get-Date
 try {
     try {
-        foreach ($subId in $TargetSubIds) {
-        $subscriptionScanStartTime = Get-Date
-        try {
-            Use-SubscriptionContextSafely -SubscriptionId $subId | Out-Null
+        # Single bearer token for the entire scan — REST URIs embed the subscription ID
+        # in the URL path, so no Az context switching is needed per subscription.
+        $armUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
+        $armUrl = $armUrl.TrimEnd('/')
+        $tokenResult = Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop
+        $bearerToken = if ($tokenResult.Token -is [System.Security.SecureString]) {
+            [System.Net.NetworkCredential]::new('', $tokenResult.Token).Password
+        } else { $tokenResult.Token }
+
+        # Token bag: synchronized hashtable so parallel runspaces always read the latest
+        # bearer when the main thread refreshes it. Without this, large scans that exceed
+        # the ARM token lifetime (~60-90 min) flood with ExpiredAuthenticationToken (401).
+        $tokenExpiresOn = $null
+        if ($tokenResult.PSObject.Properties['ExpiresOn'] -and $tokenResult.ExpiresOn) {
+            # Newer Az returns DateTimeOffset; older returns DateTime. Normalize to UTC DateTime.
+            $rawExp = $tokenResult.ExpiresOn
+            $tokenExpiresOn = if ($rawExp -is [System.DateTimeOffset]) { $rawExp.UtcDateTime }
+                              elseif ($rawExp -is [datetime])         { $rawExp.ToUniversalTime() }
+                              else { [datetime]::Parse([string]$rawExp).ToUniversalTime() }
         }
-        catch {
-            Write-Warning "Failed to switch Azure context to subscription '$subId': $($_.Exception.Message)"
-            continue
+        $tokenBag = [hashtable]::Synchronized(@{ Token = $bearerToken; ExpiresOn = $tokenExpiresOn })
+
+        # Refresh helper — called by the main polling loop when the token nears expiry,
+        # and by runspaces only as a last resort (Az SDK calls aren't safe across runspaces,
+        # so workers prefer to re-read $tokenBag.Token rather than refresh themselves).
+        $refreshTokenBag = {
+            param($bag, $resourceUrl)
+            try {
+                $tr = Get-AzAccessToken -ResourceUrl $resourceUrl -ErrorAction Stop
+                $newTok = if ($tr.Token -is [System.Security.SecureString]) {
+                    [System.Net.NetworkCredential]::new('', $tr.Token).Password
+                } else { $tr.Token }
+                $bag.Token = $newTok
+                if ($tr.PSObject.Properties['ExpiresOn'] -and $tr.ExpiresOn) {
+                    $rawExp = $tr.ExpiresOn
+                    $bag.ExpiresOn = if ($rawExp -is [System.DateTimeOffset]) { $rawExp.UtcDateTime }
+                                     elseif ($rawExp -is [datetime])         { $rawExp.ToUniversalTime() }
+                                     else { [datetime]::Parse([string]$rawExp).ToUniversalTime() }
+                }
+                return $true
+            }
+            catch {
+                Write-Verbose "Token refresh failed: $($_.Exception.Message)"
+                return $false
+            }
         }
 
-        $subName = (Get-AzSubscription -SubscriptionId $subId | Select-Object -First 1).Name
-        Write-Host "[$subName] Scanning $($Regions.Count) region(s)..." -ForegroundColor Yellow
+        # Resolve subscription names in one ARG batch query (avoids per-sub Get-AzSubscription calls)
+        $subNameLookup = @{}
+        if ($ScanSubIds.Count -gt 0) {
+            try {
+                $quotedIds = $ScanSubIds | ForEach-Object { "'$_'" }
+                $subFilter = $quotedIds -join ','
+                $subQuery = "ResourceContainers | where type =~ 'microsoft.resources/subscriptions' | where subscriptionId in~ ($subFilter) | project subscriptionId, name"
+                $subQueryParams = @{ Query = $subQuery; First = 1000 }
+                if ($ManagementGroup) { $subQueryParams['ManagementGroup'] = $ManagementGroup }
+                $subResults = Search-AzGraph @subQueryParams
+                foreach ($s in $subResults) { $subNameLookup[[string]$s.subscriptionId] = $s.name }
+            }
+            catch {
+                Write-Verbose "Could not batch-resolve subscription names via ARG: $_"
+            }
+        }
 
-        # Progress indicator for parallel scanning
-        $regionCount = $Regions.Count
-        Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $regionCount region(s) in parallel..." -PercentComplete 0
+        # Shared retry error pattern for all scan paths.
+        # Includes 401/ExpiredAuthenticationToken so retryCall can re-read the token bag
+        # and try again instead of permanently failing the work item.
+        $retryErrorPattern = '429|Too Many Requests|500|Internal Server Error|InternalServerError|503|ServiceUnavailable|Service Unavailable|401|Unauthorized|ExpiredAuthenticationToken|InvalidAuthenticationToken'
+        $authErrorPattern = '401|Unauthorized|ExpiredAuthenticationToken|InvalidAuthenticationToken'
 
-        # Shared retry error pattern for all scan paths
-        $retryErrorPattern = '429|Too Many Requests|500|Internal Server Error|InternalServerError|503|ServiceUnavailable|Service Unavailable'
+        # Build work items: every (subscription × region) pair scanned in parallel
+        $workItems = [System.Collections.Generic.List[hashtable]]::new()
+        foreach ($wSubId in $ScanSubIds) {
+            foreach ($wRegion in $Regions) {
+                $workItems.Add(@{ SubscriptionId = [string]$wSubId; Region = [string]$wRegion })
+            }
+        }
 
+        $totalItems = $workItems.Count
+        $scanStartTime = Get-Date
+        Write-Host "Scanning $($ScanSubIds.Count) subscription(s) x $($Regions.Count) region(s) = $totalItems work items (started $($scanStartTime.ToString('HH:mm:ss')))..." -ForegroundColor Yellow
+        Write-Progress -Activity "Scanning Azure Regions" -Status "Querying $totalItems sub x region pairs in parallel..." -PercentComplete 0
+        $scanStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+        # Sequential scan scriptblock — used as fallback for PS5 and for retrying failed items.
+        # Accepts $itemSubId and $region as parameters; tokenBag and armUrl from enclosing scope.
         $scanRegionScript = {
-            param($region, $skuFilterCopy, $maxRetries, $armUrl, $bearerToken, $retryPattern, $skipQuota)
+            param($itemSubId, $region, $skuFilterCopy, $maxRetries, $armUrl, $tokenBag, $retryPattern, $authPattern, $skipQuota)
             $boundRetryPattern = $retryPattern
+            $boundAuthPattern  = $authPattern
 
-            # Inline retry — parallel runspaces cannot see script-scope functions
             $retryCall = {
                 param([scriptblock]$Action, [int]$Retries)
                 $attempt = 0
@@ -1600,7 +1884,14 @@ try {
                     catch {
                         $attempt++
                         $msg = $_.Exception.Message
+                        $isAuth = $msg -match $boundAuthPattern
                         $isThrottle = $msg -match $boundRetryPattern
+                        if ($isAuth -and $attempt -le ($Retries + 1)) {
+                            # Token likely expired — main thread refreshes the bag on a timer,
+                            # so a brief wait + re-read usually clears 401s.
+                            Start-Sleep -Milliseconds 500
+                            continue
+                        }
                         if ($isThrottle -and $attempt -le $Retries) {
                             $baseDelay = [math]::Pow(2, $attempt)
                             $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
@@ -1613,79 +1904,73 @@ try {
             }
 
             try {
-                $headers = @{ 'Authorization' = "Bearer $bearerToken"; 'Content-Type' = 'application/json' }
+                # Build headers per call from the live bag so token refreshes are picked up.
+                $buildHeaders = { @{ 'Authorization' = "Bearer $($tokenBag.Token)"; 'Content-Type' = 'application/json' } }
 
-                $skuUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
-                $quotaUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
+                $skuUri = "$armUrl/subscriptions/$itemSubId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
+                $quotaUri = "$armUrl/subscriptions/$itemSubId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
 
-                # Fetch SKUs with pagination
                 $skuResult = [System.Collections.Generic.List[object]]::new()
                 $nextLink = $skuUri
                 while ($nextLink) {
                     $capturedLink = $nextLink
-                    $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedLink -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
+                    $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedLink -Headers (& $buildHeaders) -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
                     foreach ($item in $resp.value) { $skuResult.Add($item) }
                     $nextLink = $resp.nextLink
                 }
 
-                # Fetch quotas
                 $capturedQuotaUri = $quotaUri
-                $quotaResp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedQuotaUri -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
+                $quotaResp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedQuotaUri -Headers (& $buildHeaders) -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
                 $quotaResult = $quotaResp.value
 
-                # Filter to virtualMachines only
                 $allSkus = @($skuResult | Where-Object { $_.resourceType -eq 'virtualMachines' })
 
-                # Apply SKU filter if specified
                 if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
                     $allSkus = @($allSkus | Where-Object {
                         $skuName = $_.name
                         $isMatch = $false
                         foreach ($pattern in $skuFilterCopy) {
-                            if ($skuName -like $pattern) {
-                                $isMatch = $true
-                                break
-                            }
+                            if ($skuName -like $pattern) { $isMatch = $true; break }
                         }
                         $isMatch
                     })
                 }
 
-                # Normalize REST response objects to match cmdlet output shape
                 $normalizedSkus = foreach ($sku in $allSkus) { ConvertFrom-RestSku -RestSku $sku }
                 $normalizedQuotas = if ($skipQuota) { @() } else {
                     foreach ($q in $quotaResult) { ConvertFrom-RestQuota -RestQuota $q }
                 }
 
-                @{ Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
+                @{ SubscriptionId = [string]$itemSubId; Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
             }
             catch {
-                @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                @{ SubscriptionId = [string]$itemSubId; Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
             }
         }
 
-        # Get bearer token for REST calls
-        $armUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
-        $armUrl = $armUrl.TrimEnd('/')
-        $tokenResult = Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop
-        $bearerToken = if ($tokenResult.Token -is [System.Security.SecureString]) {
-            [System.Net.NetworkCredential]::new('', $tokenResult.Token).Password
-        } else { $tokenResult.Token }
-
         $canUseParallel = $PSVersionTable.PSVersion.Major -ge 7
+        $allScanResults = @()
+
+        # Thread-safe counter for parallel progress reporting
+        $scanCounter = [System.Collections.Concurrent.ConcurrentDictionary[string,byte]]::new()
+
         if ($canUseParallel) {
             try {
-                $regionData = $Regions | ForEach-Object -Parallel {
-                    $region = [string]$_
+                $parallelJob = $workItems | ForEach-Object -Parallel {
+                    $item = $_
+                    $subId = $item.SubscriptionId
+                    $region = $item.Region
                     $skuFilterCopy = $using:SkuFilter
                     $maxRetries = $using:MaxRetries
                     $armUrl = $using:armUrl
-                    $bearerToken = $using:bearerToken
-                    $subId = $using:subId
+                    $tokenBag = $using:tokenBag
                     $retryPattern = $using:retryErrorPattern
+                    $authPattern = $using:authErrorPattern
                     $skipQuota = $using:NoQuota.IsPresent
+                    $counter = $using:scanCounter
+                    $total = $using:totalItems
 
-                    # Inline retry — parallel runspaces cannot see script-scope functions or external scriptblocks
+                    # Inline retry — parallel runspaces cannot see script-scope functions
                     $retryCall = {
                         param([scriptblock]$Action, [int]$Retries)
                         $attempt = 0
@@ -1696,7 +1981,12 @@ try {
                             catch {
                                 $attempt++
                                 $msg = $_.Exception.Message
+                                $isAuth = $msg -match $authPattern
                                 $isThrottle = $msg -match $retryPattern
+                                if ($isAuth -and $attempt -le ($Retries + 1)) {
+                                    Start-Sleep -Milliseconds 500
+                                    continue
+                                }
                                 if ($isThrottle -and $attempt -le $Retries) {
                                     $baseDelay = [math]::Pow(2, $attempt)
                                     $jitter = $baseDelay * (Get-Random -Minimum 0.0 -Maximum 0.25)
@@ -1709,14 +1999,15 @@ try {
                     }
 
                     try {
-                        $headers = @{ 'Authorization' = "Bearer $bearerToken"; 'Content-Type' = 'application/json' }
+                        # Headers built per call to honor token-bag refreshes mid-scan.
+                        $buildHeaders = { @{ 'Authorization' = "Bearer $($tokenBag.Token)"; 'Content-Type' = 'application/json' } }
 
                         $skuUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/skus?api-version=2021-07-01&`$filter=location eq '$region'"
                         $quotaUri = "$armUrl/subscriptions/$subId/providers/Microsoft.Compute/locations/$region/usages?api-version=2023-09-01"
 
-                        # Concurrent first-page fetch: HttpClient fires SKU + quota in parallel
+                        # Concurrent SKU + quota fetch via HttpClient
                         $client = [System.Net.Http.HttpClient]::new()
-                        $client.DefaultRequestHeaders.TryAddWithoutValidation('Authorization', "Bearer $bearerToken") | Out-Null
+                        $client.DefaultRequestHeaders.TryAddWithoutValidation('Authorization', "Bearer $($tokenBag.Token)") | Out-Null
                         $skuTask   = $client.GetStringAsync($skuUri)
                         $quotaTask = $client.GetStringAsync($quotaUri)
                         [System.Threading.Tasks.Task]::WaitAll(@($skuTask, $quotaTask))
@@ -1729,18 +2020,17 @@ try {
                         $quotaJson = $quotaTask.Result | ConvertFrom-Json
 
                         $skuItems = [System.Collections.Generic.List[object]]::new()
-                        foreach ($item in $skuJson.value) { $skuItems.Add($item) }
+                        foreach ($skuItem in $skuJson.value) { $skuItems.Add($skuItem) }
 
-                        # Paginate remaining SKU pages sequentially
+                        # Paginate remaining SKU pages
                         $nextLink = $skuJson.nextLink
                         while ($nextLink) {
                             $capturedUri = $nextLink
-                            $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedUri -Headers $headers -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
-                            foreach ($item in $resp.value) { $skuItems.Add($item) }
+                            $resp = & $retryCall -Action { Invoke-RestMethod -Uri $capturedUri -Headers (& $buildHeaders) -Method Get -TimeoutSec 60 -ErrorAction Stop } -Retries $maxRetries
+                            foreach ($skuItem in $resp.value) { $skuItems.Add($skuItem) }
                             $nextLink = $resp.nextLink
                         }
 
-                        # Filter to virtualMachines
                         $allSkus = @($skuItems | Where-Object { $_.resourceType -eq 'virtualMachines' })
 
                         if ($skuFilterCopy -and $skuFilterCopy.Count -gt 0) {
@@ -1748,10 +2038,7 @@ try {
                                 $skuName = $_.name
                                 $isMatch = $false
                                 foreach ($pattern in $skuFilterCopy) {
-                                    if ($skuName -like $pattern) {
-                                        $isMatch = $true
-                                        break
-                                    }
+                                    if ($skuName -like $pattern) { $isMatch = $true; break }
                                 }
                                 $isMatch
                             })
@@ -1810,45 +2097,201 @@ try {
                             }
                         }
 
-                        @{ Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
+                        $result = @{ SubscriptionId = [string]$subId; Region = [string]$region; Skus = @($normalizedSkus); Quotas = @($normalizedQuotas); Error = $null }
                     }
                     catch {
-                        @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                        $result = @{ SubscriptionId = [string]$subId; Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
                     }
-                } -ThrottleLimit $ParallelThrottleLimit
+
+                    # Progress: track completed work items (counter polled by main thread)
+                    $counter.TryAdd("$subId|$region", 0) | Out-Null
+                    $result
+                } -ThrottleLimit ($ParallelThrottleLimit * 2) -AsJob
+
+                # Poll the counter from the main thread so the progress bar ticks
+                # every second with elapsed/ETA — Write-Progress from inside parallel
+                # runspaces does not reliably surface to the host. Restore Continue
+                # so the bar isn't suppressed by the function-scope SilentlyContinue.
+                $savedScanProgressPref = $ProgressPreference
+                $ProgressPreference = 'Continue'
+                $pollSw = [System.Diagnostics.Stopwatch]::StartNew()
+                while ($parallelJob.State -eq 'Running' -or $parallelJob.State -eq 'NotStarted') {
+                    # Refresh token in the bag when we're within 10 minutes of expiry. Workers
+                    # rebuild headers per call, so they pick up the new token automatically.
+                    if ($tokenBag.ExpiresOn -and (($tokenBag.ExpiresOn - [datetime]::UtcNow).TotalMinutes -lt 10)) {
+                        if (& $refreshTokenBag $tokenBag $armUrl) {
+                            Write-Verbose "Bearer token refreshed; new expiry $($tokenBag.ExpiresOn)"
+                        }
+                    }
+                    $done = $scanCounter.Count
+                    $pct = if ($totalItems -gt 0) { [math]::Min(99, [math]::Floor(($done / $totalItems) * 100)) } else { 0 }
+                    $elapsed = $pollSw.Elapsed
+                    $elapsedStr = '{0:mm\:ss}' -f $elapsed
+                    if ($done -gt 0 -and $done -lt $totalItems) {
+                        $remaining = $totalItems - $done
+                        # When only a handful of stragglers remain, the average-throughput
+                        # ETA is wildly inaccurate (the last items are usually slow regions /
+                        # throttled subs). Switch to a non-misleading "finalizing" message.
+                        if ($remaining -le [math]::Max(3, [math]::Ceiling($totalItems * 0.005))) {
+                            $etaStr = "finalizing $remaining straggler$(if ($remaining -eq 1) { '' } else { 's' })..."
+                        }
+                        else {
+                            $secsPerItem = $elapsed.TotalSeconds / $done
+                            $etaSecs = [math]::Ceiling($secsPerItem * $remaining)
+                            $etaMin = [math]::Floor($etaSecs / 60)
+                            $etaSec = $etaSecs % 60
+                            $etaStr = if ($etaMin -gt 0) { "${etaMin}m ${etaSec}s remaining" } else { "${etaSec}s remaining" }
+                        }
+                    }
+                    elseif ($done -ge $totalItems) {
+                        $etaStr = 'finalizing...'
+                    }
+                    else {
+                        $etaStr = 'estimating...'
+                    }
+                    Write-Progress -Activity "Scanning Azure Regions" -Status "$done / $totalItems work items - $elapsedStr elapsed - $etaStr" -PercentComplete $pct
+                    Start-Sleep -Milliseconds 1000
+                }
+                # Clear bar immediately when the poll loop exits so it doesn't linger
+                # on screen during retry / regrouping (some terminals leave the last
+                # frame visible until the next progress write).
+                Write-Progress -Activity "Scanning Azure Regions" -Completed
+                $ProgressPreference = $savedScanProgressPref
+                $allScanResults = Receive-Job -Job $parallelJob -Wait -AutoRemoveJob
             }
             catch {
-                Write-Warning "Parallel region scan failed: $($_.Exception.Message)"
+                Write-Warning "Parallel scan failed: $($_.Exception.Message)"
                 Write-Warning "Falling back to sequential scan mode for compatibility."
                 $canUseParallel = $false
             }
         }
 
         if (-not $canUseParallel) {
-            $regionData = foreach ($region in $Regions) {
-                & $scanRegionScript -region ([string]$region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -bearerToken $bearerToken -retryPattern $retryErrorPattern -skipQuota $NoQuota.IsPresent
+            $allScanResults = foreach ($wi in $workItems) {
+                # Refresh proactively in sequential mode too — a slow run can cross the expiry boundary.
+                if ($tokenBag.ExpiresOn -and (($tokenBag.ExpiresOn - [datetime]::UtcNow).TotalMinutes -lt 10)) {
+                    & $refreshTokenBag $tokenBag $armUrl | Out-Null
+                }
+                & $scanRegionScript -itemSubId $wi.SubscriptionId -region $wi.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -tokenBag $tokenBag -retryPattern $retryErrorPattern -authPattern $authErrorPattern -skipQuota $NoQuota.IsPresent
             }
+        }
+
+        # Retry failed work items sequentially (parallel pressure may have caused throttling)
+        $failedItems = @($allScanResults | Where-Object { $_.Error })
+        if ($failedItems.Count -gt 0) {
+            $failedDesc = @($failedItems | ForEach-Object { "$($_.SubscriptionId):$($_.Region)" }) -join ', '
+            Write-Warning "Retrying $($failedItems.Count) failed work item(s) sequentially: $failedDesc"
+            $successfulData = [System.Collections.Generic.List[object]]::new()
+            foreach ($sr in $allScanResults) {
+                if (-not $sr.Error) { $successfulData.Add($sr) }
+            }
+            foreach ($failedItem in $failedItems) {
+                Write-Verbose "Retry: $($failedItem.SubscriptionId) / $($failedItem.Region) (original error: $($failedItem.Error))"
+                # If the original failure was auth-related, refresh the bag before retrying.
+                if ($failedItem.Error -and $failedItem.Error -match $authErrorPattern) {
+                    & $refreshTokenBag $tokenBag $armUrl | Out-Null
+                }
+                elseif ($tokenBag.ExpiresOn -and (($tokenBag.ExpiresOn - [datetime]::UtcNow).TotalMinutes -lt 10)) {
+                    & $refreshTokenBag $tokenBag $armUrl | Out-Null
+                }
+                $retryResult = & $scanRegionScript -itemSubId $failedItem.SubscriptionId -region $failedItem.Region -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -armUrl $armUrl -tokenBag $tokenBag -retryPattern $retryErrorPattern -authPattern $authErrorPattern -skipQuota $NoQuota.IsPresent
+                if ($retryResult.Error) {
+                    Write-Warning "Work item '$($failedItem.SubscriptionId):$($failedItem.Region)' failed after retry: $($retryResult.Error) — data excluded from analysis"
+                }
+                else {
+                    $subLabel = if ($subNameLookup[$failedItem.SubscriptionId]) { $subNameLookup[$failedItem.SubscriptionId] } else { $failedItem.SubscriptionId }
+                    Write-Host "  Retry succeeded: $subLabel / $($failedItem.Region) ($($retryResult.Skus.Count) SKUs, $($retryResult.Quotas.Count) quotas)" -ForegroundColor Green
+                }
+                $successfulData.Add($retryResult)
+            }
+            $allScanResults = $successfulData.ToArray()
+        }
+
+        # Stop timer and report wall-clock elapsed (mirrors the price-sheet completion line)
+        $scanStopwatch.Stop()
+        $scanElapsed = $scanStopwatch.Elapsed
+        $scanElapsedLabel = if ($scanElapsed.TotalMinutes -ge 1) {
+            "{0:N1} minutes" -f $scanElapsed.TotalMinutes
+        } else {
+            "{0:N1} seconds" -f $scanElapsed.TotalSeconds
+        }
+        $itemsPerSec = if ($scanElapsed.TotalSeconds -gt 0) { [math]::Round($totalItems / $scanElapsed.TotalSeconds, 1) } else { 0 }
+        Write-Host "  Scan complete: $totalItems work items in $scanElapsedLabel ($itemsPerSec items/sec)" -ForegroundColor Green
+        Write-Progress -Activity "Scanning Azure Regions" -Completed
+        # Suppress any further progress output during regrouping/announce phase —
+        # the per-sub `[N/total]` lines are the visible activity from here on.
+        $savedRegroupProgressPref = $ProgressPreference
+        $ProgressPreference = 'SilentlyContinue'
+
+        # Pre-declare lifecycle indexes so they are populated during regrouping (single pass)
+        $needLifecycleIndexes = ($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count -gt 0
+        $lcSkuIndex = @{}            # "SKUName|region" → raw SKU object (for .Family quota key)
+        $lcQuotaIndex = @{}          # "region" → hashtable of quota name → quota object (first-sub wins for risk assessment)
+        $lcPerSubQuota = @{}         # "subId|region" → hashtable of quota name → quota object (per-sub for SubMap/RGMap and quota risk)
+        $lcPerSubRestriction = @{}   # "subId|SKUName|region" → restriction status string (per-sub for SubMap/RGMap)
+
+        # Regroup parallel results by subscription into $allSubscriptionData AND build lifecycle indexes
+        $groupedBySub = $allScanResults | Group-Object -Property { $_['SubscriptionId'] }
+        $subGroupIndex = 0
+        $subGroupTotal = @($groupedBySub).Count
+        foreach ($group in $groupedBySub) {
+            $gSubId = $group.Name
+            $gSubName = if ($subNameLookup[$gSubId]) { $subNameLookup[$gSubId] } else { $gSubId }
+            $subGroupIndex++
+            $regionData = @($group.Group | ForEach-Object {
+                @{ Region = $_['Region']; Skus = $_['Skus']; Quotas = $_['Quotas']; Error = $_['Error'] }
+            })
+            $allSubscriptionData += @{
+                SubscriptionId   = $gSubId
+                SubscriptionName = $gSubName
+                RegionData       = $regionData
+            }
+
+            # Build lifecycle indexes inline — avoids a second full iteration
+            if ($needLifecycleIndexes) {
+                foreach ($rd in $regionData) {
+                    if ($rd.Error) { continue }
+                    $regionKey = [string]$rd.Region
+                    $qLookup = @{}
+                    foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
+                    if (-not $lcQuotaIndex.ContainsKey($regionKey)) {
+                        $lcQuotaIndex[$regionKey] = $qLookup
+                    }
+                    $lcPerSubQuota["$gSubId|$regionKey"] = $qLookup
+                    foreach ($sku in $rd.Skus) {
+                        $skuRegionKey = "$($sku.Name)|$regionKey"
+                        if (-not $lcSkuIndex.ContainsKey($skuRegionKey)) {
+                            $lcSkuIndex[$skuRegionKey] = $sku
+                        }
+                        $restrictions = Get-RestrictionDetails $sku
+                        $lcPerSubRestriction["$gSubId|$skuRegionKey"] = $restrictions.Status
+                    }
+                }
+            }
+
+            # Per-subscription progress line
+            $subSkuCount = ($regionData | ForEach-Object { $_.Skus.Count } | Measure-Object -Sum).Sum
+            $subErrCount = @($regionData | Where-Object { $_.Error }).Count
+            $errLabel = if ($subErrCount -gt 0) { ", $subErrCount region error(s)" } else { '' }
+            Write-Host "  [$subGroupIndex/$subGroupTotal] $gSubName — $subSkuCount SKUs across $($regionData.Count) region(s)$errLabel" -ForegroundColor DarkGray
         }
 
         # Zero out bearer token after use
         $bearerToken = $null
 
         Write-Progress -Activity "Scanning Azure Regions" -Completed
+        if ($savedRegroupProgressPref) { $ProgressPreference = $savedRegroupProgressPref }
 
-        $scanElapsed = (Get-Date) - $subscriptionScanStartTime
-        Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
-
-        $allSubscriptionData += @{
-            SubscriptionId   = $subId
-            SubscriptionName = $subName
-            RegionData       = $regionData
-        }
+        # Re-emit the scan-complete line for the second flow (uses wall-clock since scan start).
+        # Don't overwrite $scanElapsed if the stopwatch already captured it \u2014 we want the
+        # stopped value preserved for the SCAN COMPLETE banner at the very end of the run.
+        if (-not $scanElapsed) { $scanElapsed = (Get-Date) - $scanStartTime }
+        Write-Host "Scan complete: $($ScanSubIds.Count) subscription(s) x $($Regions.Count) region(s) in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
     }
-}
-catch {
-    Write-Verbose "Scan loop interrupted: $($_.Exception.Message)"
-    throw
-}
+    catch {
+        Write-Verbose "Scan loop interrupted: $($_.Exception.Message)"
+        throw
+    }
 
 #endregion Data Collection
 #region Inventory Readiness
@@ -1872,34 +2315,20 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
     $lifecycleResults = [System.Collections.Generic.List[PSCustomObject]]::new()
     $skuIndex = 0
 
-    # Pre-build indexes for O(1) lookups during the lifecycle loop
-    $lcSkuIndex = @{}       # "SKUName|region" → raw SKU object (for .Family quota key)
-    $lcQuotaIndex = @{}     # "region" → hashtable of quota name → quota object
-    foreach ($subData in $allSubscriptionData) {
-        foreach ($rd in $subData.RegionData) {
-            if ($rd.Error) { continue }
-            $regionKey = [string]$rd.Region
-            if (-not $lcQuotaIndex.ContainsKey($regionKey)) {
-                $qLookup = @{}
-                foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
-                $lcQuotaIndex[$regionKey] = $qLookup
-            }
-            foreach ($sku in $rd.Skus) {
-                $skuRegionKey = "$($sku.Name)|$regionKey"
-                if (-not $lcSkuIndex.ContainsKey($skuRegionKey)) {
-                    $lcSkuIndex[$skuRegionKey] = $sku
-                }
-            }
-        }
-    }
+    # Lifecycle indexes ($lcSkuIndex, $lcQuotaIndex, $lcPerSubQuota, $lcPerSubRestriction)
+    # were already built during the scan regrouping pass above — no second iteration needed.
 
     # Candidate profile cache — populated on first Invoke-RecommendMode call, reused for all subsequent
     $lcProfileCache = @{}
 
     # Load upgrade path knowledge base for AI-curated recommendations
     $upgradePathData = $null
-    $upgradePathFile = Join-Path $PSScriptRoot 'data' 'UpgradePath.json'
-    if (Test-Path -LiteralPath $upgradePathFile) {
+    # Cascading lookup: module root (PSGallery install) → repo root (development)
+    $upgradePathFile = @(
+        (Join-Path $PSScriptRoot '..' 'data' 'UpgradePath.json'),
+        (Join-Path $PSScriptRoot '..' '..' 'data' 'UpgradePath.json')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($upgradePathFile) {
         try {
             $upgradePathData = Get-Content -LiteralPath $upgradePathFile -Raw | ConvertFrom-Json
             Write-Verbose "Loaded upgrade path knowledge base v$($upgradePathData._metadata.version) ($($upgradePathData._metadata.lastUpdated))"
@@ -1910,21 +2339,82 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
     }
 
     # Fetch retirement data from Azure Advisor (authoritative source, supersedes pattern table)
+    # Single tenant-wide query via ARG advisorresources table (falls back to REST for first sub)
     try {
         $advisorArmUrl = if ($script:AzureEndpoints) { $script:AzureEndpoints.ResourceManagerUrl } else { 'https://management.azure.com' }
         $advisorTokenResult = Get-AzAccessToken -ResourceUrl $advisorArmUrl -ErrorAction Stop
         $advisorToken = if ($advisorTokenResult.Token -is [System.Security.SecureString]) {
             [System.Net.NetworkCredential]::new('', $advisorTokenResult.Token).Password
         } else { $advisorTokenResult.Token }
-        $advisorRetirement = Get-AdvisorRetirementData -SubscriptionId $subId -ArmUrl $advisorArmUrl -BearerToken $advisorToken -MaxRetries $MaxRetries
+        $advisorRetirement = Get-AdvisorRetirementData -SubscriptionId $TargetSubIds -ManagementGroup $ManagementGroup -ArmUrl $advisorArmUrl -BearerToken $advisorToken -MaxRetries $MaxRetries
         $advisorToken = $null
         if ($advisorRetirement.Count -gt 0) {
-            Write-Host "  Advisor: $($advisorRetirement.Count) retirement group(s) detected" -ForegroundColor DarkYellow
+            Write-Host "  Advisor: $($advisorRetirement.Count) retirement group(s) detected across $($TargetSubIds.Count) subscription(s)" -ForegroundColor DarkYellow
         }
     }
     catch {
         Write-Verbose "Advisor retirement fetch skipped: $_"
     }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Fix #1: Deduplicate candidate pool for lifecycle recommendations.
+    # $allSubscriptionData holds one entry per (subscription × region), and each
+    # contains the same ~526 SKUs since SKU capabilities don't differ across subs.
+    # The recommender's per-target candidate loop is O(subs × regions × skus).
+    # At enterprise scale (e.g., 196 subs) this becomes hours.
+    #
+    # Build a single synthetic "aggregate" subscription holding one row per
+    # (region, sku) — keeping the row with the best (lowest-rank) status across
+    # all subs so the recommender sees the best-case availability for each
+    # candidate. Per-sub status/quota detail remains in $allSubscriptionData
+    # and the lifecycle indexes for SubMap/RGMap output.
+    # NOTE: This dedup is local to the lifecycle recommendation pipeline only —
+    # it does NOT replace $allSubscriptionData used by core scan output.
+    # ─────────────────────────────────────────────────────────────────────────
+    $lcDedupStart = Get-Date
+    $statusRank = @{ 'OK' = 0; 'PARTIAL' = 1; 'CAPACITY-CONSTRAINED' = 2; 'LIMITED' = 3; 'RESTRICTED' = 4; 'BLOCKED' = 5 }
+    $dedupedRegionMap = @{}   # region → @{ skuName → @{ Sku=...; StatusRank=... } }
+    foreach ($subData in $allSubscriptionData) {
+        foreach ($rd in $subData.RegionData) {
+            if ($rd.Error) { continue }
+            $rKey = [string]$rd.Region
+            if (-not $dedupedRegionMap.ContainsKey($rKey)) {
+                $dedupedRegionMap[$rKey] = @{}
+            }
+            $skuMap = $dedupedRegionMap[$rKey]
+            foreach ($sku in $rd.Skus) {
+                $rest = Get-RestrictionDetails $sku
+                $rank = if ($statusRank.ContainsKey($rest.Status)) { $statusRank[$rest.Status] } else { 99 }
+                $existing = $skuMap[$sku.Name]
+                if (-not $existing -or $rank -lt $existing.StatusRank) {
+                    $skuMap[$sku.Name] = @{ Sku = $sku; StatusRank = $rank }
+                }
+            }
+        }
+    }
+    # Reshape into the same structure Invoke-RecommendMode expects, but slim:
+    # one synthetic subscription whose RegionData has one entry per scanned region.
+    $lcDedupedRegionData = @(
+        foreach ($rKey in $dedupedRegionMap.Keys) {
+            $regionSkus = @($dedupedRegionMap[$rKey].Values | ForEach-Object { $_.Sku })
+            # Find any quota set for this region (any sub's quota row will do for capability-only scoring)
+            $sampleQuotas = $null
+            foreach ($subData in $allSubscriptionData) {
+                $match = $subData.RegionData | Where-Object { $_.Region -eq $rKey -and -not $_.Error } | Select-Object -First 1
+                if ($match) { $sampleQuotas = $match.Quotas; break }
+            }
+            @{ Region = $rKey; Skus = $regionSkus; Quotas = $sampleQuotas; Error = $null }
+        }
+    )
+    $lcDedupedSubscriptionData = @(@{
+        SubscriptionId   = '_aggregate_'
+        SubscriptionName = '(aggregated for lifecycle recommendations)'
+        RegionData       = $lcDedupedRegionData
+    })
+    $lcDedupElapsed = (Get-Date) - $lcDedupStart
+    $lcOriginalCount = ($allSubscriptionData | ForEach-Object { $_.RegionData | ForEach-Object { $_.Skus.Count } } | Measure-Object -Sum).Sum
+    $lcDedupedCount = ($lcDedupedRegionData | ForEach-Object { $_.Skus.Count } | Measure-Object -Sum).Sum
+    Write-Verbose "Lifecycle dedup: $lcOriginalCount candidate rows → $lcDedupedCount unique (region,sku) pairs in $([math]::Round($lcDedupElapsed.TotalSeconds, 2))s"
 
     foreach ($entry in $lifecycleEntries) {
         $targetSku = $entry.SKU
@@ -1940,7 +2430,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
         }
 
-        Invoke-RecommendMode -TargetSkuName $targetSku -SubscriptionData $allSubscriptionData `
+        Invoke-RecommendMode -TargetSkuName $targetSku -SubscriptionData $lcDedupedSubscriptionData `
             -FamilyInfo $FamilyInfo -Icons $Icons -FetchPricing ([bool]$FetchPricing) `
             -ShowSpot $ShowSpot.IsPresent -ShowPlacement $ShowPlacement.IsPresent `
             -AllowMixedArch $AllowMixedArch.IsPresent -MinvCPU $MinvCPU -MinMemoryGB $MinMemoryGB `
@@ -1957,10 +2447,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
             # Look up target SKU monthly price for cost-diff calculation
             $targetPriceMo = $null
+            $targetPriceIsNegotiated = $false
             if ($FetchPricing -and $deployedRegion -and $script:RunContext.RegionPricing[$deployedRegion]) {
                 $tgtPriceMap = Get-RegularPricingMap -PricingContainer $script:RunContext.RegionPricing[$deployedRegion]
                 $tgtPriceEntry = $tgtPriceMap[$target.Name]
-                if ($tgtPriceEntry) { $targetPriceMo = [double]$tgtPriceEntry.Monthly }
+                if ($tgtPriceEntry) {
+                    $targetPriceMo = [double]$tgtPriceEntry.Monthly
+                    $targetPriceIsNegotiated = [bool]$tgtPriceEntry.IsNegotiated
+                }
             }
 
             # Detect lifecycle risk: old generation, capacity issues, no alternatives
@@ -1982,24 +2476,70 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $hasCapacityIssues = @($targetAvail | Where-Object { $_.Status -notin 'OK','LIMITED' }).Count -gt 0
             }
 
-            # Quota analysis for target SKU: use pre-built indexes for O(1) lookup
-            $targetQuotaStatus = '-'
+            # Quota analysis for target SKU.
+            # When per-sub VM counts are known (live ARG mode, or file mode with SubscriptionId column),
+            # evaluate per-sub: insufficient ONLY if at least one owning sub can't fit its share.
+            # Aggregating $entryQty against a single sub's quota is wrong when VMs span many subs.
             $targetQuotaAvail = $null
             $quotaInsufficient = $false
+            $quotaDeficitSubs = 0
+            $quotaTotalDeployingSubs = 0
+            $quotaDeficitSubIds = [System.Collections.Generic.List[string]]::new()
             if (-not $NoQuota) {
-                $lookupRegions = if ($deployedRegion) { @($deployedRegion) } else { @($lcQuotaIndex.Keys) }
-                foreach ($qRegion in $lookupRegions) {
-                    if ($targetQuotaAvail) { break }
-                    $regionQuotas = $lcQuotaIndex[$qRegion]
-                    if (-not $regionQuotas) { continue }
-                    $rawSku = $lcSkuIndex["$($target.Name)|$qRegion"]
-                    if ($rawSku) {
-                        $requiredvCPUs = $entryQty * [int]$target.vCPU
-                        $qi = Get-QuotaAvailable -QuotaLookup $regionQuotas -SkuFamily $rawSku.Family -RequiredvCPUs $requiredvCPUs
-                        if ($null -ne $qi.Available) {
-                            $targetQuotaAvail = $qi
-                            $targetQuotaStatus = "$($qi.Current)/$($qi.Limit) (avail: $($qi.Available))"
-                            if (-not $qi.OK) { $quotaInsufficient = $true }
+                $perSubMap = $null
+                if ($lcVMSubMap -and $deployedRegion) {
+                    $perSubMap = $lcVMSubMap["$($target.Name)|$deployedRegion"]
+                }
+                if ($perSubMap -and $perSubMap.Count -gt 0) {
+                    # Per-sub quota check — accurate for multi-sub fleets
+                    $aggLimit = 0; $aggCurrent = 0
+                    foreach ($pair in $perSubMap.GetEnumerator()) {
+                        $pSubId = [string]$pair.Key
+                        $pQty = [int]$pair.Value
+                        $quotaTotalDeployingSubs++
+                        $subQuotaLookup = $lcPerSubQuota["$pSubId|$deployedRegion"]
+                        if (-not $subQuotaLookup) { continue }
+                        $rawSku = $lcSkuIndex["$($target.Name)|$deployedRegion"]
+                        if (-not $rawSku) { continue }
+                        # Pass RequiredvCPUs=0: we only care if the running fleet already exceeds
+                        # the family's limit (Current > Limit). The source SKU's inventory is
+                        # already counted in $qi.Current, so checking "qty*vCPU > Available"
+                        # double-counts and produces false-positive deficits on subs whose VMs
+                        # are operating fine. Migration headroom for upgrades is a planning
+                        # concern that depends on the target SKU's family/vCPU and is computed
+                        # later from the recommendation; surfacing it here would require knowing
+                        # the target before the recommendation is selected.
+                        $qi = Get-QuotaAvailable -QuotaLookup $subQuotaLookup -SkuFamily $rawSku.Family -RequiredvCPUs 0
+                        if ($null -ne $qi.Limit)   { $aggLimit   += [int]$qi.Limit }
+                        if ($null -ne $qi.Current) { $aggCurrent += [int]$qi.Current }
+                        # Flag deficit only when the family is actually over quota right now
+                        # (Current > Limit). This matches what an operator means by "this sub
+                        # has insufficient quota": its existing fleet is past the cap.
+                        if ($null -ne $qi.Limit -and $null -ne $qi.Current -and [int]$qi.Current -gt [int]$qi.Limit) {
+                            $quotaDeficitSubs++
+                            $quotaDeficitSubIds.Add($pSubId) | Out-Null
+                        }
+                    }
+                    if ($aggLimit -gt 0 -or $aggCurrent -gt 0) {
+                        $targetQuotaAvail = [pscustomobject]@{ Available = $aggLimit - $aggCurrent; Limit = $aggLimit; Current = $aggCurrent; OK = ($quotaDeficitSubs -eq 0) }
+                    }
+                    if ($quotaDeficitSubs -gt 0) { $quotaInsufficient = $true }
+                }
+                else {
+                    # Fallback: legacy single-region check (file mode without SubscriptionId column)
+                    $lookupRegions = if ($deployedRegion) { @($deployedRegion) } else { @($lcQuotaIndex.Keys) }
+                    foreach ($qRegion in $lookupRegions) {
+                        if ($targetQuotaAvail) { break }
+                        $regionQuotas = $lcQuotaIndex[$qRegion]
+                        if (-not $regionQuotas) { continue }
+                        $rawSku = $lcSkuIndex["$($target.Name)|$qRegion"]
+                        if ($rawSku) {
+                            $requiredvCPUs = $entryQty * [int]$target.vCPU
+                            $qi = Get-QuotaAvailable -QuotaLookup $regionQuotas -SkuFamily $rawSku.Family -RequiredvCPUs $requiredvCPUs
+                            if ($null -ne $qi.Available) {
+                                $targetQuotaAvail = $qi
+                                if (-not $qi.OK) { $quotaInsufficient = $true }
+                            }
                         }
                     }
                 }
@@ -2012,17 +2552,108 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             $riskReasons = [System.Collections.Generic.List[string]]::new()
             if ($isOldGen) { $riskReasons.Add("Gen v$generation"); $riskLevel = 'Medium' }
             $retirementInfo = Get-SkuRetirementInfo -SkuName $target.Name
-            if ($retirementInfo) {
-                $retireLabel = if ($retirementInfo.Status -eq 'Retired') { "Retired $($retirementInfo.RetireDate)" } else { "Retiring $($retirementInfo.RetireDate)" }
-                $riskReasons.Add($retireLabel)
+
+            # Advisor retirement lookup — authoritative, tenant-specific signal
+            $advisorInfo = $null
+            if ($advisorRetirement -and $advisorRetirement.Count -gt 0) {
+                $normalizedFamily = if ($target.Family -cmatch '^([A-Z]+)S$' -and $target.Family -notin 'NVS','NCS','NDS','HBS','HCS','HXS','FXS') { $Matches[1] } else { $target.Family }
+                $seriesIds = [System.Collections.Generic.List[string]]::new()
+                if ($generation -gt 1) {
+                    $seriesIds.Add("${normalizedFamily}v${generation}")
+                    if ($normalizedFamily -ne $target.Family) { $seriesIds.Add("$($target.Family)v${generation}") }
+                }
+                else {
+                    $seriesIds.Add($normalizedFamily)
+                    $seriesIds.Add("${normalizedFamily}v1")
+                    if ($normalizedFamily -ne $target.Family) { $seriesIds.Add($target.Family); $seriesIds.Add("$($target.Family)v1") }
+                }
+                if ($retirementInfo -and $retirementInfo.Series -and $retirementInfo.Series -notin $seriesIds) {
+                    $seriesIds.Add($retirementInfo.Series)
+                }
+                # Direct key lookup first
+                foreach ($sid in $seriesIds) {
+                    if ($advisorRetirement.ContainsKey($sid)) { $advisorInfo = $advisorRetirement[$sid]; break }
+                }
+                # Fuzzy match if direct lookup misses (handles long-form keys like "Virtual Machines - Dv2 Series")
+                if (-not $advisorInfo) {
+                    foreach ($sid in $seriesIds) {
+                        $escapedSid = [regex]::Escape($sid)
+                        foreach ($advKey in $advisorRetirement.Keys) {
+                            if ($advKey -match "(^|[^A-Za-z])${escapedSid}([^A-Za-z0-9]|$)") {
+                                $advisorInfo = $advisorRetirement[$advKey]
+                                break
+                            }
+                        }
+                        if ($advisorInfo) { break }
+                    }
+                }
+            }
+
+            # Combine retirement signals: Advisor is authoritative, static table is fallback
+            $hasRetirement = $retirementInfo -or $advisorInfo
+            if ($hasRetirement) {
+                if ($advisorInfo -and $retirementInfo) {
+                    # Both sources — Advisor wins; flag date discrepancy if any
+                    $retireLabel = if ($advisorInfo.Status -eq 'Retired') { "Retired $($advisorInfo.RetireDate)" } else { "Retiring $($advisorInfo.RetireDate)" }
+                    $retireLabel += ' (Advisor)'
+                    if ($advisorInfo.RetireDate -ne $retirementInfo.RetireDate) {
+                        $retireLabel += " [DATE MISMATCH: Table=$($retirementInfo.RetireDate)]"
+                    }
+                    $riskReasons.Add($retireLabel)
+                    if ($advisorInfo.VMs.Count -gt 0) { $riskReasons.Add("$($advisorInfo.VMs.Count) VM(s) affected in tenant") }
+                }
+                elseif ($advisorInfo) {
+                    # Advisor-only — retirement not yet in static table
+                    $retireLabel = if ($advisorInfo.Status -eq 'Retired') { "Retired $($advisorInfo.RetireDate)" } else { "Retiring $($advisorInfo.RetireDate)" }
+                    $retireLabel += ' (Advisor-only)'
+                    $riskReasons.Add($retireLabel)
+                    if ($advisorInfo.VMs.Count -gt 0) { $riskReasons.Add("$($advisorInfo.VMs.Count) VM(s) affected in tenant") }
+                }
+                else {
+                    # Static table only (Advisor had no data for this series)
+                    $retireLabel = if ($retirementInfo.Status -eq 'Retired') { "Retired $($retirementInfo.RetireDate)" } else { "Retiring $($retirementInfo.RetireDate)" }
+                    $riskReasons.Add($retireLabel)
+                }
                 $riskLevel = 'High'
             }
+
+            # NotAvailableForNewDeployments — early retirement signal from Azure SKU API
+            $notAvailForNew = $false
+            $lookupRegionsForRestrict = if ($deployedRegion) { @($deployedRegion) } else { @($lcSkuIndex.Keys | ForEach-Object { ($_ -split '\|',2)[1] } | Select-Object -Unique) }
+            foreach ($rRegion in $lookupRegionsForRestrict) {
+                $rawTargetSku = $lcSkuIndex["$($target.Name)|$rRegion"]
+                if ($rawTargetSku -and $rawTargetSku.Restrictions) {
+                    foreach ($restr in $rawTargetSku.Restrictions) {
+                        if ($restr.ReasonCode -eq 'NotAvailableForNewDeployments') {
+                            $notAvailForNew = $true
+                            break
+                        }
+                    }
+                }
+                if ($notAvailForNew) { break }
+            }
+            if ($notAvailForNew) {
+                $riskReasons.Add("Not available for new deployments$(if ($deployedRegion) { " ($deployedRegion)" } else { '' })")
+                if ($riskLevel -ne 'High') { $riskLevel = 'High' }
+            }
+
             if ($hasCapacityIssues) { $riskReasons.Add("Capacity$(if ($deployedRegion) { " ($deployedRegion)" } else { '' })"); $riskLevel = 'High' }
-            if ($quotaInsufficient) { $riskReasons.Add("Quota: need $($entryQty)x$($target.vCPU)vCPU"); $riskLevel = 'High' }
-            if ($noAlternatives -and ($isOldGen -or $hasCapacityIssues -or $retirementInfo)) { $riskReasons.Add("No alternatives"); $riskLevel = 'High' }
+            if ($quotaInsufficient) {
+                $qReason = if ($quotaTotalDeployingSubs -gt 0) {
+                    "Quota: family over limit in $quotaDeficitSubs of $quotaTotalDeployingSubs deploying sub(s)"
+                } else {
+                    "Quota: family over limit"
+                }
+                $riskReasons.Add($qReason); $riskLevel = 'High'
+            }
+            # "No alternatives" risk reason is emitted AFTER upgrade-path injection below
+            # so that advisory upgrade-path recommendations (Microsoft-documented successors
+            # not present in scanned regions) can suppress this flag — the user does have
+            # a documented upgrade target, even if it's not deployable in their current scope.
+            $shouldFlagNoAlternatives = $noAlternatives -and ($isOldGen -or $hasCapacityIssues -or $hasRetirement -or $notAvailForNew)
 
             # Current-gen (v4+) SKUs with quota as the only risk → recommend quota increase, not SKU change
-            $isQuotaOnlyCurrentGen = (-not $isOldGen) -and (-not $hasCapacityIssues) -and (-not $retirementInfo) -and $quotaInsufficient
+            $isQuotaOnlyCurrentGen = (-not $isOldGen) -and (-not $hasCapacityIssues) -and (-not $hasRetirement) -and (-not $notAvailForNew) -and $quotaInsufficient
 
             # Select up to 3 weighted recommendations: like-for-like, best fit, alternative
             $ScoreCloseThreshold = 10
@@ -2096,6 +2727,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                 $cached = if ($lcProfileCache.ContainsKey($mappedSku)) { $lcProfileCache[$mappedSku] } else { $null }
                                 if ($cached) {
                                     $upVcpu = $cached.Profile.vCPU
+                                    $upACU = $cached.Profile.ACU
                                     $upMemGiB = $cached.Profile.MemoryGB
                                     $upIOPS = $cached.Caps.UncachedDiskIOPS
                                     $upMaxDisks = $cached.Caps.MaxDataDiskCount
@@ -2104,12 +2736,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                 else {
                                     $upCaps = Get-SkuCapabilities -Sku $rawUpgradeSku
                                     $upVcpu = [int](Get-CapValue $rawUpgradeSku 'vCPUs')
+                                    $upACU = [int](Get-CapValue $rawUpgradeSku 'ACUs')
                                     $upMemGiB = [int](Get-CapValue $rawUpgradeSku 'MemoryGB')
                                     $upIOPS = $upCaps.UncachedDiskIOPS
                                     $upMaxDisks = $upCaps.MaxDataDiskCount
                                     $upCandidateProfile = @{
                                         Name     = $mappedSku
                                         vCPU     = $upVcpu
+                                        ACU      = $upACU
                                         MemoryGB = $upMemGiB
                                         Family   = Get-SkuFamily $mappedSku
                                         Generation               = $upCaps.HyperVGenerations
@@ -2124,6 +2758,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                         UncachedDiskIOPS         = $upCaps.UncachedDiskIOPS
                                         UncachedDiskBytesPerSecond = $upCaps.UncachedDiskBytesPerSecond
                                         EncryptionAtHostSupported = $upCaps.EncryptionAtHostSupported
+                                        GPUCount                 = $upCaps.GPUCount
                                     }
                                 }
                                 # Compute similarity score against the target profile
@@ -2131,15 +2766,20 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                 foreach ($p in $target.PSObject.Properties) { $targetProfileHt[$p.Name] = $p.Value }
                                 $upScore = Get-SkuSimilarityScore -Target $targetProfileHt -Candidate $upCandidateProfile -FamilyInfo $FamilyInfo
                                 $upPriceMo = $null
+                                $upPriceIsNegotiated = $false
                                 if ($FetchPricing -and $rawSkuRegion -and $script:RunContext.RegionPricing[$rawSkuRegion]) {
                                     $prMap = Get-RegularPricingMap -PricingContainer $script:RunContext.RegionPricing[$rawSkuRegion]
                                     $prEntry = $prMap[$mappedSku]
-                                    if ($prEntry) { $upPriceMo = $prEntry.Monthly }
+                                    if ($prEntry) {
+                                        $upPriceMo = $prEntry.Monthly
+                                        $upPriceIsNegotiated = [bool]$prEntry.IsNegotiated
+                                    }
                                 }
                                 $upgradeRecs.Add([pscustomobject]@{
                                     Rec = [pscustomobject]@{
                                         sku      = $mappedSku
                                         vCPU     = $upVcpu
+                                        ACU      = $upACU
                                         memGiB   = $upMemGiB
                                         family   = Get-SkuFamily $mappedSku
                                         score    = $upScore
@@ -2147,20 +2787,63 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                                         IOPS     = $upIOPS
                                         MaxDisks = $upMaxDisks
                                         priceMo  = $upPriceMo
+                                        priceIsNegotiated = $upPriceIsNegotiated
                                     }
                                     MatchType = $pl.Label
                                 })
                                 $usedSkus.Add($mappedSku) | Out-Null
                             }
                             else {
-                                # SKU not in any scanned region — skip (no data to compare)
-                                continue
+                                # SKU not in any scanned region — emit as ADVISORY recommendation
+                                # so users still see Microsoft's documented successor SKU even when
+                                # their scanned regions don't offer it. Common case: SAP/HANA M-series
+                                # successors (M16-8ms_v2, M16s_v3) which only ship in a small subset
+                                # of regions. Without this, "No alternatives" gets flagged on every
+                                # high-memory SKU. Capacity='Advisory' makes this visible in the UI
+                                # without misleading users into thinking the SKU is deployable.
+                                # Numeric capability fields are set to 0 (not '-') so downstream
+                                # [int] casts and -le 0 checks work; the delta formatter renders
+                                # 0 as '-' for display when paired with a non-positive target.
+                                $upgradeRecs.Add([pscustomobject]@{
+                                    Rec = [pscustomobject]@{
+                                        sku      = $mappedSku
+                                        vCPU     = 0
+                                        ACU      = 0
+                                        memGiB   = 0
+                                        family   = Get-SkuFamily $mappedSku
+                                        score    = 0
+                                        capacity = 'Advisory'
+                                        IOPS     = 0
+                                        MaxDisks = 0
+                                        priceMo  = $null
+                                        priceIsNegotiated = $false
+                                    }
+                                    MatchType = "$($pl.Label) (Advisory)"
+                                })
+                                $usedSkus.Add($mappedSku) | Out-Null
                             }
                         }
                     }
 
                     # Add upgrade recs to selectedRecs (weighted recs will be appended after)
                     foreach ($ur in $upgradeRecs) { $selectedRecs.Add($ur) }
+                }
+            }
+
+            # Emit "No alternatives" risk reason now that upgrade-path injection has run.
+            # If injection produced any recs (real or advisory), suppress the flag — the
+            # user has at least one documented upgrade target. If only advisory recs were
+            # produced, label them so it's clear they're not deployable in the scanned regions.
+            if ($shouldFlagNoAlternatives) {
+                $hasAnyUpgradeRec = $selectedRecs.Count -gt 0
+                $hasOnlyAdvisory = $hasAnyUpgradeRec -and -not ($selectedRecs | Where-Object { $_.MatchType -notlike '*Advisory*' })
+                if (-not $hasAnyUpgradeRec) {
+                    $riskReasons.Add("No alternatives")
+                    $riskLevel = 'High'
+                }
+                elseif ($hasOnlyAdvisory) {
+                    $riskReasons.Add("No alternatives in scanned regions (advisory only)")
+                    $riskLevel = 'High'
                 }
             }
 
@@ -2216,14 +2899,28 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 }
             }
 
-            # Look up savings plan and reservation pricing maps for this region
+            # Detect sovereign/GOV regions where Savings Plans are not supported
+            $isSovereignRegion = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud') -or
+                ($deployedRegion -and $deployedRegion -match '^(usgov|usdod|usnat|ussec|china|germany)')
+
+            # Look up savings plan and reservation pricing maps for this region.
+            # Also pull the unmerged retail PAYG map so SP/RI savings percentages are
+            # computed retail-vs-retail (apples-to-apples against list); this ensures
+            # the displayed % reflects the inherent commitment discount and the
+            # customer's EA/MCA discount stacks on top.
             $sp1YrMap = @{}; $sp3YrMap = @{}; $ri1YrMap = @{}; $ri3YrMap = @{}
+            $retailRegularMap = @{}
             if ($RateOptimization -and $FetchPricing -and $deployedRegion -and $script:RunContext.RegionPricing[$deployedRegion]) {
                 $regionContainer = $script:RunContext.RegionPricing[$deployedRegion]
-                $sp1YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '1Yr'
-                $sp3YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                if (-not $isSovereignRegion) {
+                    $sp1YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '1Yr'
+                    $sp3YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                }
                 $ri1YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '1Yr'
                 $ri3YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                if ($regionContainer -is [System.Collections.IDictionary] -and $regionContainer.Contains('RegularRetail') -and $regionContainer['RegularRetail']) {
+                    $retailRegularMap = $regionContainer['RegularRetail']
+                }
             }
 
             # Build lifecycle result rows — one per selected recommendation (or one summary row)
@@ -2237,22 +2934,29 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     Generation       = "v$generation"
                     RiskLevel        = $riskLevel
                     RiskReasons      = ($riskReasons -join '; ')
-                    QuotaStatus      = $targetQuotaStatus
+                    QuotaDeficitSubs = ($quotaDeficitSubIds -join ',')
+                    # _QuotaOnlyCurrentGen flag: row exists ONLY so SubMap / RGMap
+                    # can surface the quota-deficit signal against the affected
+                    # subscription(s). Excluded from Lifecycle Summary, High Risk,
+                    # and Medium Risk sheets because the SKU is current-gen and
+                    # the issue is per-subscription quota, not a lifecycle risk.
+                    _QuotaOnlyCurrentGen = [bool]$isQuotaOnlyCurrentGen
                     MatchType        = '-'
                     TopAlternative   = if ($riskLevel -eq 'Low') { 'N/A' } elseif ($isQuotaOnlyCurrentGen) { 'Request quota increase' } else { '-' }
                     AltScore         = ''
+                    AltZones         = if ($AZ) { '-' } else { '' }
                     CpuDelta         = '-'
+                    AcuDelta         = '-'
                     MemDelta         = '-'
                     DiskDelta        = '-'
                     IopsDelta        = '-'
                     AltCapacity      = '-'
-                    AltQuotaStatus   = '-'
                     PriceDiff        = '-'
                     TotalPriceDiff   = '-'
                     PAYG1Yr          = '-'
                     PAYG3Yr          = '-'
-                    SP1YrSavings     = '-'
-                    SP3YrSavings     = '-'
+                    SP1YrSavings     = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    SP3YrSavings     = if ($isSovereignRegion) { 'N/A' } else { '-' }
                     RI1YrSavings     = '-'
                     RI3YrSavings     = '-'
                     AlternativeCount = 0
@@ -2263,25 +2967,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $isFirstRow = $true
                 foreach ($sel in $selectedRecs) {
                     $rec = $sel.Rec
-                    # Quota lookup for this specific alternative
-                    $thisAltQuota = '-'
-                    if (-not $NoQuota) {
-                        $lookupRegions = if ($deployedRegion) { @($deployedRegion) } else { @($lcQuotaIndex.Keys) }
-                        foreach ($qRegion in $lookupRegions) {
-                            $altRawSku = $lcSkuIndex["$($rec.sku)|$qRegion"]
-                            if ($altRawSku) {
-                                $regionQuotas = $lcQuotaIndex[$qRegion]
-                                if ($regionQuotas) {
-                                    $altRequiredvCPUs = $entryQty * [int]$rec.vCPU
-                                    $altQi = Get-QuotaAvailable -QuotaLookup $regionQuotas -SkuFamily $altRawSku.Family -RequiredvCPUs $altRequiredvCPUs
-                                    if ($null -ne $altQi.Available) {
-                                        $thisAltQuota = "$($altQi.Current)/$($altQi.Limit) (avail: $($altQi.Available))"
-                                        break
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     # Calculate price difference for this alternative
                     $priceDiffStr = '-'
@@ -2289,49 +2974,137 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     $payg1YrStr = '-'
                     $payg3YrStr = '-'
                     if ($null -ne $targetPriceMo -and $null -ne $rec.priceMo) {
+                        # Mark with leading '*' when EITHER price is retail-fallback (not negotiated)
+                        $recIsNeg = $false
+                        if ($rec.PSObject.Properties['priceIsNegotiated']) { $recIsNeg = [bool]$rec.priceIsNegotiated }
+                        $priceMarker = if ($targetPriceIsNegotiated -and $recIsNeg) { '' } else { '*' }
                         $diff = [double]$rec.priceMo - $targetPriceMo
-                        $priceDiffStr = if ($diff -ge 0) { '+$' + $diff.ToString('0') } else { '-$' + ([Math]::Abs($diff)).ToString('0') }
+                        $priceDiffStr = if ($diff -eq 0) { $priceMarker + '0' } elseif ($diff -gt 0) { $priceMarker + '+' + $diff.ToString('0') } else { $priceMarker + '-' + ([Math]::Abs($diff)).ToString('0') }
                         $totalDiff = $diff * $entryQty
-                        $totalDiffStr = if ($totalDiff -ge 0) { '+$' + $totalDiff.ToString('N0') } else { '-$' + ([Math]::Abs($totalDiff)).ToString('N0') }
+                        $totalDiffStr = if ($totalDiff -eq 0) { $priceMarker + '0' } elseif ($totalDiff -gt 0) { $priceMarker + '+' + $totalDiff.ToString('N0') } else { $priceMarker + '-' + ([Math]::Abs($totalDiff)).ToString('N0') }
+                        $recPriceMarker = if ($recIsNeg) { '' } else { '*' }
                         $payg1Yr = [double]$rec.priceMo * 12 * $entryQty
-                        $payg1YrStr = '$' + $payg1Yr.ToString('N0')
+                        $payg1YrStr = $recPriceMarker + $payg1Yr.ToString('N0')
                         $payg3Yr = [double]$rec.priceMo * 36 * $entryQty
-                        $payg3YrStr = '$' + $payg3Yr.ToString('N0')
+                        $payg3YrStr = $recPriceMarker + $payg3Yr.ToString('N0')
                     }
 
                     # Look up savings plan and reservation savings vs PAYG fleet total
-                    $sp1YrSavingsStr = '-'; $sp3YrSavingsStr = '-'; $ri1YrSavingsStr = '-'; $ri3YrSavingsStr = '-'
+                    $sp1YrSavingsStr = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    $sp3YrSavingsStr = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    $ri1YrSavingsStr = '-'; $ri3YrSavingsStr = '-'
                     if ($RateOptimization -and $FetchPricing -and $null -ne $rec.priceMo) {
-                        $recPaygFleet1Yr = [double]$rec.priceMo * 12 * $entryQty
-                        $recPaygFleet3Yr = [double]$rec.priceMo * 36 * $entryQty
-                        $sp1Entry = $sp1YrMap[$rec.sku]
-                        if ($sp1Entry) { $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty; $sp1Savings = $recPaygFleet1Yr - $sp1Fleet; $sp1YrSavingsStr = '$' + $sp1Savings.ToString('N0') }
-                        $sp3Entry = $sp3YrMap[$rec.sku]
-                        if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
+                        # Denominator for SP/RI percentages = RETAIL PAYG fleet total.
+                        # Falls back to the (possibly-negotiated) priceMo when no retail
+                        # entry exists for the SKU/region (e.g. sovereign clouds where the
+                        # Retail Prices API has no record). This keeps the percentage
+                        # apples-to-apples against list rates so the customer's EA/MCA
+                        # discount stacks on top, rather than compressing the %.
+                        $retailRecEntry = $null
+                        if ($retailRegularMap -and $retailRegularMap.ContainsKey($rec.sku)) { $retailRecEntry = $retailRegularMap[$rec.sku] }
+                        $retailMonthly = if ($retailRecEntry -and $retailRecEntry.Monthly) { [double]$retailRecEntry.Monthly } else { [double]$rec.priceMo }
+                        $recPaygFleet1Yr = $retailMonthly * 12 * $entryQty
+                        $recPaygFleet3Yr = $retailMonthly * 36 * $entryQty
+                        if (-not $isSovereignRegion) {
+                            # Mark SP savings with leading '*' when the SP rate is retail (not negotiated).
+                            # Negotiated SP rates come from the Price Sheet savingsPlan sub-object;
+                            # retail SP rates come from the public Retail Prices API.
+                            # Format: "<marker><savings> (<pct>%)" where pct is savings as a
+                            # percentage of the corresponding PAYG fleet total.
+                            $sp1Entry = $sp1YrMap[$rec.sku]
+                            if ($sp1Entry) {
+                                $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty
+                                $sp1Savings = $recPaygFleet1Yr - $sp1Fleet
+                                $sp1Pct = if ($recPaygFleet1Yr -gt 0) { [math]::Round(($sp1Savings / $recPaygFleet1Yr) * 100, 0) } else { 0 }
+                                $sp1Marker = if ($sp1Entry.IsNegotiated) { '' } else { '*' }
+                                $sp1YrSavingsStr = $sp1Marker + $sp1Savings.ToString('N0') + ' (' + $sp1Pct + '%)'
+                            }
+                            $sp3Entry = $sp3YrMap[$rec.sku]
+                            if ($sp3Entry) {
+                                $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty
+                                $sp3Savings = $recPaygFleet3Yr - $sp3Fleet
+                                $sp3Pct = if ($recPaygFleet3Yr -gt 0) { [math]::Round(($sp3Savings / $recPaygFleet3Yr) * 100, 0) } else { 0 }
+                                $sp3Marker = if ($sp3Entry.IsNegotiated) { '' } else { '*' }
+                                $sp3YrSavingsStr = $sp3Marker + $sp3Savings.ToString('N0') + ' (' + $sp3Pct + '%)'
+                            }
+                        }
+                        # Reservation rates are NOT exposed by the Consumption Price Sheet API
+                        # (PriceSheetProperties schema has no reservation sub-object — only savingsPlan).
+                        # RI savings here always come from the public Retail Prices API, so flag them
+                        # with a permanent leading '*' to match the retail-fallback marker convention.
+                        # Format: "*<savings> (<pct>%)" where pct is savings as a percentage of the
+                        # corresponding PAYG fleet total (1Yr or 3Yr). Helps users compare reservation
+                        # discount magnitudes across SKUs/regions at a glance.
                         $ri1Entry = $ri1YrMap[$rec.sku]
-                        if ($ri1Entry) { $ri1Fleet = [double]$ri1Entry.Total * $entryQty; $ri1Savings = $recPaygFleet1Yr - $ri1Fleet; $ri1YrSavingsStr = '$' + $ri1Savings.ToString('N0') }
+                        if ($ri1Entry) {
+                            $ri1Fleet = [double]$ri1Entry.Total * $entryQty
+                            $ri1Savings = $recPaygFleet1Yr - $ri1Fleet
+                            $ri1Pct = if ($recPaygFleet1Yr -gt 0) { [math]::Round(($ri1Savings / $recPaygFleet1Yr) * 100, 0) } else { 0 }
+                            $ri1YrSavingsStr = '*' + $ri1Savings.ToString('N0') + ' (' + $ri1Pct + '%)'
+                        }
                         $ri3Entry = $ri3YrMap[$rec.sku]
-                        if ($ri3Entry) { $ri3Fleet = [double]$ri3Entry.Total * $entryQty; $ri3Savings = $recPaygFleet3Yr - $ri3Fleet; $ri3YrSavingsStr = '$' + $ri3Savings.ToString('N0') }
+                        if ($ri3Entry) {
+                            $ri3Fleet = [double]$ri3Entry.Total * $entryQty
+                            $ri3Savings = $recPaygFleet3Yr - $ri3Fleet
+                            $ri3Pct = if ($recPaygFleet3Yr -gt 0) { [math]::Round(($ri3Savings / $recPaygFleet3Yr) * 100, 0) } else { 0 }
+                            $ri3YrSavingsStr = '*' + $ri3Savings.ToString('N0') + ' (' + $ri3Pct + '%)'
+                        }
                     }
 
                     # Compute CPU, memory, and disk deltas
-                    $isUnscannedUpgrade = ($rec.capacity -eq 'Not scanned')
-                    if ($isUnscannedUpgrade) {
-                        $cpuDiff = 0; $cpuDeltaStr = '-'
-                        $memDiff = 0; $memDeltaStr = '-'
-                        $diskDeltaStr = '-'
-                        $iopsDiff = 0; $iopsDeltaStr = '-'
+                    # Resolve capabilities (ACU/IOPS/MaxDisks/memGiB/vCPU) for this alternative.
+                    # Upgrade-path recs may not carry all fields populated; fall back to the SKU index
+                    # (region-invariant for capability data) so deltas don't show '-' when we actually
+                    # know the values from another scanned region.
+                    $resolveCapFromIndex = {
+                        param($skuName)
+                        if (-not $skuName) { return $null }
+                        $hit = $lcSkuIndex["$skuName|$deployedRegion"]
+                        if (-not $hit) {
+                            foreach ($k in $lcSkuIndex.Keys) {
+                                if ($k -like "$skuName|*") { $hit = $lcSkuIndex[$k]; break }
+                            }
+                        }
+                        return $hit
                     }
-                    else {
-                        $cpuDiff = [int]$rec.vCPU - [int]$target.vCPU
-                        $cpuDeltaStr = if ($cpuDiff -eq 0) { '=' } elseif ($cpuDiff -gt 0) { "+$cpuDiff" } else { "$cpuDiff" }
-                        $memDiff = [double]$rec.memGiB - [double]$target.MemoryGB
-                        $memDeltaStr = if ($memDiff -eq 0) { '=' } elseif ($memDiff -gt 0) { "+$memDiff" } else { "$memDiff" }
-                        $diskDiff = [int]$rec.MaxDisks - [int]$target.MaxDataDiskCount
-                        $diskDeltaStr = if ($diskDiff -eq 0) { '=' } elseif ($diskDiff -gt 0) { "+$diskDiff" } else { "$diskDiff" }
-                        $iopsDiff = [int]$rec.IOPS - [int]$target.UncachedDiskIOPS
-                        $iopsDeltaStr = if ($iopsDiff -eq 0) { '=' } elseif ($iopsDiff -gt 0) { "+$iopsDiff" } else { "$iopsDiff" }
+                    # ACU
+                    $recACU = 0
+                    if ($rec.PSObject.Properties['ACU']) { $recACU = [int]$rec.ACU }
+                    if ($recACU -le 0) {
+                        $acuRaw = & $resolveCapFromIndex $rec.sku
+                        if ($acuRaw) { $recACU = [int](Get-CapValue $acuRaw 'ACUs') }
                     }
+                    $targetACU = if ($target.PSObject.Properties['ACU']) { [int]$target.ACU } else { 0 }
+                    if ($targetACU -le 0) {
+                        $targetAcuRaw = & $resolveCapFromIndex $target.Name
+                        if ($targetAcuRaw) { $targetACU = [int](Get-CapValue $targetAcuRaw 'ACUs') }
+                    }
+                    # IOPS / MaxDisks / memGiB / vCPU \u2014 fall back to SKU index when rec has 0/missing.
+                    $recIOPS = [int]$rec.IOPS
+                    $recMaxDisks = [int]$rec.MaxDisks
+                    $recMemGiB = [double]$rec.memGiB
+                    $recVCPU = [int]$rec.vCPU
+                    if ($recIOPS -le 0 -or $recMaxDisks -le 0 -or $recMemGiB -le 0 -or $recVCPU -le 0) {
+                        $capRaw = & $resolveCapFromIndex $rec.sku
+                        if ($capRaw) {
+                            if ($recIOPS -le 0)     { $recIOPS     = [int](Get-CapValue $capRaw 'UncachedDiskIOPS') }
+                            if ($recMaxDisks -le 0) { $recMaxDisks = [int](Get-CapValue $capRaw 'MaxDataDiskCount') }
+                            if ($recMemGiB -le 0)   { $recMemGiB   = [double](Get-CapValue $capRaw 'MemoryGB') }
+                            if ($recVCPU -le 0)     { $recVCPU     = [int](Get-CapValue $capRaw 'vCPUs') }
+                        }
+                    }
+
+                    # Compute deltas from rec/target capability data \u2014 always available even when capacity is unknown
+                    $cpuDiff = $recVCPU - [int]$target.vCPU
+                    $cpuDeltaStr = if ($recVCPU -le 0 -or [int]$target.vCPU -le 0) { '-' } elseif ($cpuDiff -eq 0) { '0' } elseif ($cpuDiff -gt 0) { "+$cpuDiff" } else { "$cpuDiff" }
+                    $acuDiff = $recACU - $targetACU
+                    $acuDeltaStr = if ($targetACU -le 0 -or $recACU -le 0) { '-' } elseif ($acuDiff -eq 0) { '0' } elseif ($acuDiff -gt 0) { "+$acuDiff" } else { "$acuDiff" }
+                    $memDiff = $recMemGiB - [double]$target.MemoryGB
+                    $memDeltaStr = if ($recMemGiB -le 0 -or [double]$target.MemoryGB -le 0) { '-' } elseif ($memDiff -eq 0) { '0' } elseif ($memDiff -gt 0) { "+$memDiff" } else { "$memDiff" }
+                    $diskDiff = $recMaxDisks - [int]$target.MaxDataDiskCount
+                    $diskDeltaStr = if ($recMaxDisks -le 0 -or [int]$target.MaxDataDiskCount -le 0) { '-' } elseif ($diskDiff -eq 0) { '0' } elseif ($diskDiff -gt 0) { "+$diskDiff" } else { "$diskDiff" }
+                    $iopsDiff = $recIOPS - [int]$target.UncachedDiskIOPS
+                    $iopsDeltaStr = if ($recIOPS -le 0 -or [int]$target.UncachedDiskIOPS -le 0) { '-' } elseif ($iopsDiff -eq 0) { '0' } elseif ($iopsDiff -gt 0) { "+$iopsDiff" } else { "$iopsDiff" }
 
                     # Build Details string explaining why this recommendation was selected
                     $targetFamily = $target.Family
@@ -2406,7 +3179,29 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
                     $detailsStr = $detailParts -join '; '
 
+                    # Compute supported zones for the recommended/alternative SKU at the deployed region (-AZ summary column)
+                    $altZonesStr = ''
+                    if ($AZ) {
+                        $altZonesStr = '-'
+                        $rawAltSku = $lcSkuIndex["$($rec.sku)|$deployedRegion"]
+                        if (-not $rawAltSku) {
+                            # Fallback: any scanned region for this SKU (zone IDs are region-relative but better than blank)
+                            foreach ($k in $lcSkuIndex.Keys) {
+                                if ($k -like "$($rec.sku)|*") { $rawAltSku = $lcSkuIndex[$k]; break }
+                            }
+                        }
+                        if ($rawAltSku) {
+                            $altZi = Get-RestrictionDetails $rawAltSku
+                            $altZonesStr = Format-ZoneStatus $altZi.ZonesOK $altZi.ZonesLimited $altZi.ZonesRestricted
+                        }
+                    }
+
                     $lifecycleResults.Add([pscustomobject]@{
+                        # Grouping cells (SKU/Region/Qty/vCPU/Mem/Gen/Risk/Reasons) are populated
+                        # only on the first alternative row of each (SKU, Region) group; continuation
+                        # rows leave them blank so a single deployed SKU isn't visually duplicated
+                        # across its 3-6 alternatives. SubMap / RGMap sheets use separate data sources
+                        # ($subMapRows / $rgMapRows) and therefore aren't affected.
                         SKU              = if ($isFirstRow) { $target.Name } else { '' }
                         DeployedRegion   = if ($isFirstRow) { if ($deployedRegion) { $deployedRegion } else { '-' } } else { '' }
                         Qty              = if ($isFirstRow) { $entryQty } else { '' }
@@ -2415,16 +3210,24 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         Generation       = if ($isFirstRow) { "v$generation" } else { '' }
                         RiskLevel        = if ($isFirstRow) { $riskLevel } else { '' }
                         RiskReasons      = if ($isFirstRow) { ($riskReasons -join '; ') } else { '' }
-                        QuotaStatus      = if ($isFirstRow) { $targetQuotaStatus } else { '' }
+                        QuotaDeficitSubs = if ($isFirstRow) { ($quotaDeficitSubIds -join ',') } else { '' }
+                        # Hidden grouping fields — always populated so SubMap/RGMap projections
+                        # and per-row risk/quota lookups can resolve the parent SKU/Region/Qty
+                        # even on continuation rows.
+                        _ParentSKU       = $target.Name
+                        _ParentRegion    = if ($deployedRegion) { $deployedRegion } else { '-' }
+                        _ParentQty       = $entryQty
+                        _ParentRisk      = $riskLevel
                         MatchType        = $sel.MatchType
                         TopAlternative   = $rec.sku
                         AltScore         = if ($rec.score -is [ValueType] -and $rec.score -isnot [bool]) { "$([int]$rec.score)%" } else { '' }
+                        AltZones         = $altZonesStr
                         CpuDelta         = $cpuDeltaStr
+                        AcuDelta         = $acuDeltaStr
                         MemDelta         = $memDeltaStr
                         DiskDelta        = $diskDeltaStr
                         IopsDelta        = $iopsDeltaStr
                         AltCapacity      = $rec.capacity
-                        AltQuotaStatus   = $thisAltQuota
                         PriceDiff        = $priceDiffStr
                         TotalPriceDiff   = $totalDiffStr
                         PAYG1Yr          = $payg1YrStr
@@ -2433,10 +3236,9 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                         SP3YrSavings     = $sp3YrSavingsStr
                         RI1YrSavings     = $ri1YrSavingsStr
                         RI3YrSavings     = $ri3YrSavingsStr
-                        AlternativeCount = if ($isFirstRow) { $allRecs.Count } else { '' }
+                        AlternativeCount = $allRecs.Count
                         Details          = $detailsStr
                     })
-
                     $isFirstRow = $false
                 }
             }
@@ -2453,25 +3255,16 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
         Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
         Write-Host ""
 
-        if ($NoQuota) {
-            if ($FetchPricing) {
-                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8} {15,-10} {16,-12}"
-                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Price Diff', 'Total') -ForegroundColor White
-            }
-            else {
-                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-7} {14,-8}"
-                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-') -ForegroundColor White
-            }
+        # Lifecycle console: quota columns moved to SubMap/RGMap tabs.
+        # ACU and 1-Year columns intentionally omitted: many SKUs lack ACU data, and 3-Year
+        # cost/savings is the actionable horizon for lifecycle planning.
+        if ($FetchPricing) {
+            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-5} {14,-7} {15,-10} {16,-12}"
+            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Price Diff', 'Total') -ForegroundColor White
         }
         else {
-            if ($FetchPricing) {
-                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-22} {8,-33} {9,-24} {10,-26} {11,-6} {12,-5} {13,-5} {14,-7} {15,-8} {16,-10} {17,-10} {18,-12}"
-                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Quota (used/limit)', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Alt Quota', 'Price Diff', 'Total') -ForegroundColor White
-            }
-            else {
-                $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-22} {8,-33} {9,-24} {10,-26} {11,-6} {12,-5} {13,-5} {14,-7} {15,-8} {16,-10}"
-                Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Quota (used/limit)', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-', 'Alt Quota') -ForegroundColor White
-            }
+            $sumFmt = " {0,-26} {1,-13} {2,-4} {3,-5} {4,-7} {5,-4} {6,-7} {7,-33} {8,-24} {9,-26} {10,-6} {11,-5} {12,-5} {13,-5} {14,-7}"
+            Write-Host ($sumFmt -f 'Current SKU', 'Region', 'Qty', 'vCPU', 'Mem(GB)', 'Gen', 'Risk', 'Risk Reasons', 'Match Type', 'Alternative', 'Score', 'CPU+/-', 'Mem+/-', 'Disk+/-', 'IOPS+/-') -ForegroundColor White
         }
         Write-Host (' ' + ('-' * ($script:OutputWidth - 2))) -ForegroundColor DarkGray
 
@@ -2489,19 +3282,14 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             else {
                 $riskColor = $lastSeenRiskColor
             }
-            if ($NoQuota) {
-                [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta)
-            }
-            else {
-                [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.QuotaStatus, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta, $r.AltQuotaStatus)
-            }
+            [object[]]$fmtArgs = @($r.SKU, $r.DeployedRegion, $r.Qty, $r.vCPU, $r.MemoryGB, $r.Generation, $r.RiskLevel, $r.RiskReasons, $r.MatchType, $r.TopAlternative, $r.AltScore, $r.CpuDelta, $r.MemDelta, $r.DiskDelta, $r.IopsDelta)
             if ($FetchPricing) { $fmtArgs += @($r.PriceDiff, $r.TotalPriceDiff) }
             $line = $sumFmt -f $fmtArgs
             Write-Host $line -ForegroundColor $riskColor
         }
 
-        $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' })
-        $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' })
+        $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) })
+        $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) })
         $highVMs = ($highRisk | Measure-Object -Property Qty -Sum).Sum
         $medVMs = ($medRisk | Measure-Object -Property Qty -Sum).Sum
         Write-Host ""
@@ -2520,13 +3308,13 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
     # XLSX Export — auto-export lifecycle results
     if (-not $JsonOutput -and (Test-ImportExcelModule)) {
         $lcTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        if ($LifecycleRecommendations) {
-            $sourceDir = [System.IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $LifecycleRecommendations).Path)
-            $sourceBase = [System.IO.Path]::GetFileNameWithoutExtension($LifecycleRecommendations)
+        if ($LifecycleFile) {
+            $sourceDir = [System.IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $LifecycleFile).Path)
+            $sourceBase = [System.IO.Path]::GetFileNameWithoutExtension($LifecycleFile)
         }
         else {
             $sourceDir = $PWD.Path
-            $sourceBase = 'LifecycleScan'
+            $sourceBase = 'AzVMAvailability'
         }
         $lcXlsxFile = Join-Path $sourceDir "${sourceBase}_Lifecycle_Recommendations_${lcTimestamp}.xlsx"
 
@@ -2561,58 +3349,64 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $rowSeq++
             }
 
-            $lcSortedResults = $lifecycleResults | Sort-Object @{e={switch($_._ParentRisk){'High'{0}'Medium'{1}'Low'{2}default{3}}}}, _ParentSKU, _GroupSeq, _RowSeq
+            $lcSortedResults = $lifecycleResults |
+                Where-Object { -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) } |
+                Sort-Object @{e={switch($_._ParentRisk){'High'{0}'Medium'{1}'Low'{2}default{3}}}}, _ParentSKU, _GroupSeq, _RowSeq
 
-            # SP/RI columns included only with -RateOptimization flag
+            # Detect sovereign/GOV tenant — SP columns are N/A, so omit them entirely
+            $isSovereignTenant = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud')
+
+            # SP/RI columns included only with -RateOptimization flag (SP columns excluded for sovereign tenants).
+            # 1-Year columns intentionally omitted in favor of 3-Year (the actionable lifecycle horizon).
             $rateOptCols = if ($RateOptimization) {
-                @(
-                    @{N='SP 1-Year Savings';E={$_.SP1YrSavings}},
-                    @{N='SP 3-Year Savings';E={$_.SP3YrSavings}},
-                    @{N='RI 1-Year Savings';E={$_.RI1YrSavings}},
-                    @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
-                )
+                $cols = @()
+                if (-not $isSovereignTenant) {
+                    $cols += @{N='SP 3-Year Savings';E={$_.SP3YrSavings}}
+                }
+                $cols += @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
+                $cols
             } else { @() }
 
-            # PAYG pricing columns included only with -ShowPricing
+            # PAYG pricing columns included only with -ShowPricing.
+            # 1-Year cost dropped — 3-Year is the lifecycle planning horizon.
             $pricingCols = if ($FetchPricing) {
                 @(
                     @{N='Price Diff';E={$_.PriceDiff}}, @{N='Total';E={$_.TotalPriceDiff}},
-                    @{N='1-Year Cost';E={$_.PAYG1Yr}}, @{N='3-Year Cost';E={$_.PAYG3Yr}}
+                    @{N='3-Year Cost';E={$_.PAYG3Yr}}
                 ) + $rateOptCols
             } else { @() }
 
-            if ($NoQuota) {
-                $lcProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
-                $riskColLetter = 'G'
-                $altColLetter = 'J'
-                $riskReasonsColNum = 8
+            # Lifecycle Summary: quota columns moved to SubMap/RGMap tabs.
+            # ALL "Quota:" reasons are stripped from Summary Risk Reasons because quota
+            # is per-subscription — surfacing it on the cross-sub Summary is misleading.
+            # Per-sub quota deficits are still shown on SubMap/RGMap tabs against the
+            # specific subscription that is short on quota.
+            $stripQuotaReasons = {
+                $raw = [string]$_.RiskReasons
+                if (-not $raw) { return '' }
+                ($raw -split '\s*;\s*' | Where-Object { $_ -and $_ -notmatch '^\s*Quota\s*:' }) -join '; '
             }
-            else {
-                $lcProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Quota (Used/Limit)';E={$_.QuotaStatus}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}},
-                    @{N='Alt Quota';E={$_.AltQuotaStatus}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
-                $riskColLetter = 'G'
-                $altColLetter = 'K'
-                $riskReasonsColNum = 8
-            }
+            $altZonesCol = if ($AZ) { @(@{N='Zones (Supported)';E={$_.AltZones}}) } else { @() }
+            $lcProps = @(
+                @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                @{N='Risk Level';E={$_.RiskLevel}}, @{N='Risk Reasons';E=$stripQuotaReasons},
+                @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}}
+            ) + $altZonesCol + @(
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
+            ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+            $lcExportRows = $lcSortedResults | Select-Object -Property $lcProps
+            $riskColLetter = 'G'
+            $altColLetter = 'J'
+            $riskReasonsColNum = 8
 
-            $excel = $lcExportRows | Export-Excel -Path $lcXlsxFile -WorksheetName "Lifecycle Summary" -AutoSize -AutoFilter -FreezeTopRow -PassThru
+            # Price columns must stay as text (with their '*' / '$' / '-' formatting). Without
+            # -NoNumberConversion, ImportExcel auto-coerces strings like "-271" into Doubles,
+            # which then right-align while sibling strings like "*+$407" stay text/left-aligned
+            # — producing the visible column-alignment mismatch within a single column.
+            $priceColNames = @('Price Diff','Total','3-Year Cost','SP 3-Year Savings','RI 3-Year Savings')
+            $excel = $lcExportRows | Export-Excel -Path $lcXlsxFile -WorksheetName "Lifecycle Summary" -AutoSize -AutoFilter -FreezeTopRow -NoNumberConversion $priceColNames -PassThru
 
             $ws = $excel.Workbook.Worksheets["Lifecycle Summary"]
             $lastRow = $ws.Dimension.End.Row
@@ -2653,6 +3447,39 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $dataRange.Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
 
+            # Annotate pricing column headers with a legend explaining the leading '*' marker.
+            # Two cases produce a '*':
+            #   1. PAYG / Price Diff / Total cells in regions that fell back to retail pricing
+            #      (Consumption Price Sheet didn't cover the region for this enrollment).
+            #   2. RI 1-Year / 3-Year Savings columns ALWAYS — Reservation rates are not exposed
+            #      by the Consumption Price Sheet API (schema has no reservation sub-object), so
+            #      RI savings are always sourced from the public Retail Prices API.
+            if ($FetchPricing) {
+                $retailFallback = @($script:RunContext.RetailFallbackRegions)
+                $riLegendText = "RI 3-Year Savings is always shown with a leading '*' because the Consumption Price Sheet API does not expose negotiated reservation rates. These values come from the public Azure Retail Prices API (list prices). Format: '*<savings> (<pct>%)' where pct is savings vs the 3-year RETAIL (list) PAYG fleet total — apples-to-apples against list. Your EA/MCA discount stacks on top: e.g. if the cell shows 70% and you have a 20% EA discount, the realized discount on top of your existing PAYG bill is closer to 50%. Your actual reservation cost at purchase quote time may differ."
+                foreach ($riHeader in @('RI 3-Year Savings')) {
+                    $riColIdx = 0
+                    for ($c = 1; $c -le $lastCol; $c++) {
+                        if ($ws.Cells[1, $c].Value -eq $riHeader) { $riColIdx = $c; break }
+                    }
+                    if ($riColIdx -gt 0) {
+                        $hdrCell = $ws.Cells[1, $riColIdx]
+                        if (-not $hdrCell.Comment) { $hdrCell.AddComment($riLegendText, 'Get-AzVMAvailability') | Out-Null }
+                    }
+                }
+                if ($retailFallback.Count -gt 0) {
+                    $legendText = "Prices marked with leading '*' are RETAIL (list) prices from the public Azure Retail Prices API. Negotiated EA/MCA/CSP rates were not available for the following region(s) in this enrollment: $($retailFallback -join ', '). Unmarked prices use negotiated rates from the Consumption Price Sheet."
+                    $priceDiffColIdx = 0
+                    for ($c = 1; $c -le $lastCol; $c++) {
+                        if ($ws.Cells[1, $c].Value -eq 'Price Diff') { $priceDiffColIdx = $c; break }
+                    }
+                    if ($priceDiffColIdx -gt 0) {
+                        $hdrCell = $ws.Cells[1, $priceDiffColIdx]
+                        if (-not $hdrCell.Comment) { $hdrCell.AddComment($legendText, 'Get-AzVMAvailability') | Out-Null }
+                    }
+                }
+            }
+
             # Center-align numeric and short columns
             $ws.Cells["C2:F$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
             $ws.Cells["${riskColLetter}2:${riskColLetter}$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
@@ -2662,8 +3489,8 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 
             # Summary footer rows
             $footerStart = $lastRow + 2
-            $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' })
-            $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' })
+            $highRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'High' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) })
+            $medRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Medium' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen) })
             $lowRisk = @($lifecycleResults | Where-Object { $_.RiskLevel -eq 'Low' })
             $highVMs = ($highRisk | Measure-Object -Property Qty -Sum).Sum
             $medVMs = ($medRisk | Measure-Object -Property Qty -Sum).Sum
@@ -2701,37 +3528,91 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 }
                 $sRow++
             }
+
+            # Legend / footnote — explain markers used throughout the sheet.
+            # Layout: A:B = marker (merged), C:J = meaning (merged). Wider marker
+            # column accommodates long phrases like "No alternatives in scanned
+            # regions (advisory only)" without wrapping into the meaning column;
+            # wider meaning column reduces line wraps in the explanations.
+            $legendRow = $sRow + 1
+            $ws.Cells["A$legendRow"].Value = "LEGEND"
+            $ws.Cells["A$legendRow`:J$legendRow"].Merge = $true
+            $ws.Cells["A$legendRow"].Style.Font.Bold = $true
+            $ws.Cells["A$legendRow"].Style.Font.Size = 11
+            $ws.Cells["A$legendRow`:J$legendRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            $ws.Cells["A$legendRow`:J$legendRow"].Style.Fill.BackgroundColor.SetColor($headerBlue)
+            $ws.Cells["A$legendRow`:J$legendRow"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+            $ws.Cells["A$legendRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+
+            $legendItems = @(
+                @{ Marker = '*';   Meaning = "RETAIL price (list, from Azure Retail Prices API). Negotiated EA/MCA/CSP rate was not available for that SKU/region. Your actual cost may be lower." }
+                @{ Marker = '* (RI)'; Meaning = "Reserved Instance (1-Yr / 3-Yr) Savings columns are ALWAYS marked with '*'. The Azure Consumption Price Sheet API does not expose negotiated reservation rates — only PAYG and Savings Plan effective prices. Reservation rates therefore come from the public Azure Retail Prices API (list prices). Format: '*<savings> (<pct>%)' where pct is savings vs the corresponding RETAIL (list) PAYG fleet total — apples-to-apples against list. Your EA/MCA discount stacks on top: if the cell shows 70% and you have a 20% EA discount, the realized discount above your existing PAYG bill is roughly 50%. Treat RI savings shown here as a CONSERVATIVE LOWER BOUND." }
+                @{ Marker = '+N';  Meaning = "Recommended SKU costs MORE than current (e.g. +25 = +`$25/mo per VM, or +1 vCPU)." }
+                @{ Marker = '-N';  Meaning = "Recommended SKU costs LESS than current, or has fewer resources (e.g. -10 = saves `$10/mo per VM)." }
+                @{ Marker = '0';   Meaning = "No change between current and recommended (price, vCPU, memory, disks, or IOPS)." }
+                @{ Marker = '-';   Meaning = "Data not available (capability missing from SKU index, or price unavailable for region)." }
+                @{ Marker = '✓ Zones N'; Meaning = "Recommended SKU is fully available in those availability zone(s) of the deployed region." }
+                @{ Marker = '⚠ Zones N'; Meaning = "Recommended SKU has LIMITED availability in those zone(s) — capacity-constrained or quota-restricted. Deployment may succeed but consider widening the region or alternate zones." }
+                @{ Marker = '✗ Zones N'; Meaning = "Recommended SKU is RESTRICTED in those zone(s) — Microsoft has marked the SKU as unavailable for new deployments there. Choose a different zone or SKU." }
+                @{ Marker = 'Non-zonal'; Meaning = "Region or SKU does not advertise per-zone availability (regional deployment only)." }
+                @{ Marker = 'No alternatives'; Meaning = "No same-family or compatible-profile SKU was found in the scanned regions AND no Microsoft-documented upgrade path applies. Treat as HIGH risk — the workload may be locked to a retiring/constrained SKU. Widening -Regions scope often resolves this for SAP/HANA M-series and other niche families." }
+                @{ Marker = 'No alternatives in scanned regions (advisory only)'; Meaning = "Microsoft has a documented successor SKU for this family (shown in the Best-fit row with 'Advisory' capacity), but it is not deployable in any of the regions you scanned. Widen -Regions to include a region that offers the successor, or treat the advisory SKU as a planning target." }
+                @{ Marker = 'Advisory'; Meaning = "Recommendation is informational only — the SKU is Microsoft's documented successor (from data/UpgradePath.json) but was NOT found in any scanned region. Capability deltas, prices, and zones are unavailable. Use to identify migration targets; widen -Regions to validate deployability." }
+            )
+
+            $legendIdx = 0
+            foreach ($li in $legendItems) {
+                $legendRow++
+                $legendIdx++
+                # Marker cell: A:B merged, centered, bold
+                $ws.Cells["A$legendRow`:B$legendRow"].Merge = $true
+                $ws.Cells["A$legendRow"].Value = $li.Marker
+                $ws.Cells["A$legendRow"].Style.Font.Bold = $true
+                $ws.Cells["A$legendRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+                $ws.Cells["A$legendRow"].Style.VerticalAlignment = [OfficeOpenXml.Style.ExcelVerticalAlignment]::Center
+                $ws.Cells["A$legendRow"].Style.WrapText = $true
+                # Meaning cell: C:J merged, wrapped, top-aligned for cleaner read
+                $ws.Cells["C$legendRow`:J$legendRow"].Merge = $true
+                $ws.Cells["C$legendRow"].Value = $li.Meaning
+                $ws.Cells["C$legendRow"].Style.WrapText = $true
+                $ws.Cells["C$legendRow"].Style.VerticalAlignment = [OfficeOpenXml.Style.ExcelVerticalAlignment]::Center
+                # Zebra striping: alternate light gray / white for readability between rows
+                $stripeColor = if ($legendIdx % 2 -eq 1) { $lightGray } else { [System.Drawing.Color]::White }
+                $ws.Cells["A$legendRow`:J$legendRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                $ws.Cells["A$legendRow`:J$legendRow"].Style.Fill.BackgroundColor.SetColor($stripeColor)
+                # Thin border between rows for clearer separation
+                $ws.Cells["A$legendRow`:J$legendRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+                $ws.Cells["A$legendRow`:J$legendRow"].Style.Border.Bottom.Color.SetColor([System.Drawing.Color]::FromArgb(217, 217, 217))
+                # Row heights — with the wider C:J meaning column, most explanations
+                # fit on 1-2 lines; only the longest two need extra height.
+                if ($li.Marker -eq '* (RI)') { $ws.Row($legendRow).Height = 60 }
+                elseif ($li.Marker -in @('No alternatives','No alternatives in scanned regions (advisory only)','Advisory')) {
+                    $ws.Row($legendRow).Height = 38
+                }
+                else { $ws.Row($legendRow).Height = 22 }
+            }
             #endregion Lifecycle Summary Sheet
 
             #region Risk Breakdown Sheet
-            $highBase = @($lifecycleResults | Where-Object { $_._ParentRisk -eq 'High' })
-            if ($NoQuota) {
-                $hrProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $highRows = @($highBase | Select-Object -Property $hrProps)
-            }
-            else {
-                $hrProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Quota (Used/Limit)';E={$_.QuotaStatus}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}},
-                    @{N='Alt Quota';E={$_.AltQuotaStatus}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $highRows = @($highBase | Select-Object -Property $hrProps)
-            }
+            # Quota-only current-gen rows are excluded from these sheets — they're not
+            # lifecycle risks (current-gen, not retiring); the quota-deficit signal
+            # is surfaced on the SubMap / RGMap sheets against the affected sub(s).
+            $highBase = @($lifecycleResults | Where-Object {
+                $_._ParentRisk -eq 'High' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen)
+            })
+            $hrProps = @(
+                @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                @{N='Risk Reasons';E=$stripQuotaReasons},
+                @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}}
+            ) + $altZonesCol + @(
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
+            ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+            $highRows = @($highBase | Select-Object -Property $hrProps)
 
             if ($highRows.Count -gt 0) {
-                $excel = $highRows | Export-Excel -ExcelPackage $excel -WorksheetName "High Risk" -AutoSize -AutoFilter -FreezeTopRow -PassThru
+                $excel = $highRows | Export-Excel -ExcelPackage $excel -WorksheetName "High Risk" -AutoSize -AutoFilter -FreezeTopRow -NoNumberConversion $priceColNames -PassThru
                 $wsH = $excel.Workbook.Worksheets["High Risk"]
                 $hLastRow = $wsH.Dimension.End.Row
                 $hLastCol = $wsH.Dimension.End.Column
@@ -2749,34 +3630,22 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 }
             }
 
-            $medBase = @($lifecycleResults | Where-Object { $_._ParentRisk -eq 'Medium' })
-            if ($NoQuota) {
-                $mrProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $medRows = @($medBase | Select-Object -Property $mrProps)
-            }
-            else {
-                $mrProps = @(
-                    @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
-                    @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
-                    @{N='Risk Reasons';E={$_.RiskReasons}},
-                    @{N='Quota (Used/Limit)';E={$_.QuotaStatus}},
-                    @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}},
-                    @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
-                    @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}},
-                    @{N='Alt Quota';E={$_.AltQuotaStatus}}
-                ) + $pricingCols + @(@{N='Details';E={$_.Details}})
-                $medRows = @($medBase | Select-Object -Property $mrProps)
-            }
+            $medBase = @($lifecycleResults | Where-Object {
+                $_._ParentRisk -eq 'Medium' -and -not ($_.PSObject.Properties['_QuotaOnlyCurrentGen'] -and $_._QuotaOnlyCurrentGen)
+            })
+            $mrProps = @(
+                @{N='SKU';E={$_.SKU}}, @{N='Region';E={$_.DeployedRegion}}, @{N='Qty';E={$_.Qty}},
+                @{N='vCPU';E={$_.vCPU}}, @{N='Memory (GB)';E={$_.MemoryGB}}, @{N='Generation';E={$_.Generation}},
+                @{N='Risk Reasons';E=$stripQuotaReasons},
+                @{N='Match Type';E={$_.MatchType}}, @{N='Alternative';E={$_.TopAlternative}}, @{N='Alt Score';E={$_.AltScore}}
+            ) + $altZonesCol + @(
+                @{N='CPU +/-';E={$_.CpuDelta}}, @{N='Mem +/-';E={$_.MemDelta}},
+                @{N='Disk +/-';E={$_.DiskDelta}}, @{N='IOPS +/-';E={$_.IopsDelta}}
+            ) + $pricingCols + @(@{N='Details';E={$_.Details}})
+            $medRows = @($medBase | Select-Object -Property $mrProps)
 
             if ($medRows.Count -gt 0) {
-                $excel = $medRows | Export-Excel -ExcelPackage $excel -WorksheetName "Medium Risk" -AutoSize -AutoFilter -FreezeTopRow -PassThru
+                $excel = $medRows | Export-Excel -ExcelPackage $excel -WorksheetName "Medium Risk" -AutoSize -AutoFilter -FreezeTopRow -NoNumberConversion $priceColNames -PassThru
                 $wsM = $excel.Workbook.Worksheets["Medium Risk"]
                 $mLastRow = $wsM.Dimension.End.Row
                 $mLastCol = $wsM.Dimension.End.Column
@@ -2802,7 +3671,16 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 foreach ($lr in $lifecycleResults) {
                     $riskKey = "$($lr.SKU)|$($lr.DeployedRegion)"
                     if (-not $riskLookup.ContainsKey($riskKey)) {
-                        $riskLookup[$riskKey] = @{ RiskLevel = $lr.RiskLevel; RiskReasons = $lr.RiskReasons }
+                        $deficitField = if ($lr.PSObject.Properties['QuotaDeficitSubs']) { [string]$lr.QuotaDeficitSubs } else { '' }
+                        $deficitSet = [System.Collections.Generic.HashSet[string]]::new()
+                        if ($deficitField) {
+                            foreach ($s in ($deficitField -split ',')) { if ($s) { [void]$deficitSet.Add($s.Trim()) } }
+                        }
+                        $riskLookup[$riskKey] = @{
+                            RiskLevel        = $lr.RiskLevel
+                            RiskReasons      = $lr.RiskReasons
+                            QuotaDeficitSubs = $deficitSet
+                        }
                     }
                 }
             }
@@ -2814,6 +3692,25 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 foreach ($mapRow in $mapRows) {
                     $rKey = "$($mapRow.SKU)|$($mapRow.Region)"
                     $risk = $riskLookup[$rKey]
+                    # Filter Quota:* reasons so they appear only on rows for the deficient subscription(s).
+                    # A row in a sub that has sufficient quota should not show a quota risk.
+                    $rowRiskReasons = ''
+                    $rowRiskLevel   = if ($risk) { $risk.RiskLevel } else { 'Low' }
+                    if ($risk -and $risk.RiskReasons) {
+                        $thisSubInDeficit = ($risk.QuotaDeficitSubs -and $risk.QuotaDeficitSubs.Contains([string]$mapRow.SubscriptionId))
+                        $parts = @($risk.RiskReasons -split '\s*;\s*' | Where-Object { $_ })
+                        $kept = foreach ($p in $parts) {
+                            if ($p -match '^\s*Quota\s*:') {
+                                if ($thisSubInDeficit) { $p } # only keep on the affected sub
+                            }
+                            else { $p }
+                        }
+                        $rowRiskReasons = ($kept -join '; ')
+                        # If the only original risk was Quota and this sub isn't deficient, downgrade level
+                        if (-not $rowRiskReasons -and $rowRiskLevel -eq 'High' -and $parts.Count -gt 0 -and -not ($parts | Where-Object { $_ -notmatch '^\s*Quota\s*:' })) {
+                            $rowRiskLevel = 'Low'
+                        }
+                    }
                     $props = [ordered]@{
                         SubscriptionId   = $mapRow.SubscriptionId
                         SubscriptionName = $mapRow.SubscriptionName
@@ -2822,8 +3719,29 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     $props['Region']      = $mapRow.Region
                     $props['SKU']         = $mapRow.SKU
                     $props['Qty']         = $mapRow.Qty
-                    $props['RiskLevel']   = if ($risk) { $risk.RiskLevel } else { 'Low' }
-                    $props['RiskReasons'] = if ($risk) { $risk.RiskReasons } else { '' }
+                    $props['RiskLevel']   = $rowRiskLevel
+                    $props['RiskReasons'] = $rowRiskReasons
+                    # Per-subscription quota lookup
+                    if (-not $NoQuota) {
+                        $quotaStr = '-'
+                        $subQuotas = $lcPerSubQuota["$($mapRow.SubscriptionId)|$($mapRow.Region)"]
+                        if ($subQuotas) {
+                            $rawSku = $lcSkuIndex[$rKey]
+                            if ($rawSku) {
+                                $skuVcpu = [int](Get-CapValue $rawSku 'vCPUs')
+                                $qi = Get-QuotaAvailable -QuotaLookup $subQuotas -SkuFamily $rawSku.Family -RequiredvCPUs ([int]$mapRow.Qty * $skuVcpu)
+                                if ($null -ne $qi.Available) {
+                                    $quotaStr = "$($qi.Current)/$($qi.Limit) (avail: $($qi.Available))"
+                                }
+                            }
+                        }
+                        $props['Quota (Used/Limit)'] = $quotaStr
+                    }
+                    # Optional Availability Zones column (-AZ): show zones the VMs in this group are CURRENTLY DEPLOYED to.
+                    if ($AZ) {
+                        $deployed = if ($mapRow.PSObject.Properties['Zones']) { @($mapRow.Zones) } else { @() }
+                        $props['Zones (Deployed)'] = if ($deployed.Count -gt 0) { ($deployed -join ',') } else { 'Non-zonal' }
+                    }
                     $enriched.Add([pscustomobject]$props)
                 }
                 $excel = $enriched | Export-Excel -ExcelPackage $excel -WorksheetName $sheetName -AutoSize -AutoFilter -FreezeTopRow -PassThru
@@ -2835,8 +3753,9 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 $mapHeader.Style.Font.Color.SetColor([System.Drawing.Color]::White)
                 $mapHeader.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
                 $mapHeader.Style.Fill.BackgroundColor.SetColor($headerBlue)
-                $riskColNum = if ($hasRG) { 7 } else { 6 }
-                $riskColLtr = ConvertTo-ExcelColumnLetter $riskColNum
+                # RiskLevel column position depends on RG column and Quota column presence
+                $riskColBase = if ($hasRG) { 7 } else { 6 }
+                $riskColLtr = ConvertTo-ExcelColumnLetter $riskColBase
                 for ($row = 2; $row -le $mapLastRow; $row++) {
                     $rowRange = $wsMap.Cells["A$row`:$(ConvertTo-ExcelColumnLetter $mapLastCol)$row"]
                     $rowRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
@@ -2878,10 +3797,10 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
             if ($highRows.Count -gt 0) { $sheetList += ", High Risk" }
             if ($medRows.Count -gt 0) { $sheetList += ", Medium Risk" }
             if ($SubMap -and $subMapRows -and $subMapRows.Count -gt 0) {
-                $sheetList += ", Subscription Map"
+                $sheetList += ", Subscription Map (incl. quota)"
             }
             if ($RGMap -and $rgMapRows -and $rgMapRows.Count -gt 0) {
-                $sheetList += ", Resource Group Map"
+                $sheetList += ", Resource Group Map (incl. quota)"
             }
             Write-Host "  Sheets: $sheetList" -ForegroundColor Cyan
         }
@@ -3038,8 +3957,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
                     $skuName = $skuInfo.Sku.Name
                     $pricing = $regularPriceMap[$skuName]
                     if ($pricing) {
-                        $priceHrStr = '$' + $pricing.Hourly.ToString('0.00')
-                        $priceMoStr = '$' + $pricing.Monthly.ToString('0')
+                        $priceHrStr = $pricing.Hourly.ToString('0.00')
+                        $priceMoStr = $pricing.Monthly.ToString('0')
                         break
                     }
                 }
@@ -3078,8 +3997,8 @@ foreach ($subscriptionData in $allSubscriptionData) {
                 if ($FetchPricing -and $regularPriceMap) {
                     $skuPricing = $regularPriceMap[$sku.Name]
                     if ($skuPricing) {
-                        $skuPriceHr = '$' + $skuPricing.Hourly.ToString('0.00')
-                        $skuPriceMo = '$' + $skuPricing.Monthly.ToString('0')
+                        $skuPriceHr = $skuPricing.Hourly.ToString('0.00')
+                        $skuPriceMo = $skuPricing.Monthly.ToString('0')
                     }
                 }
 
@@ -3730,12 +4649,12 @@ Write-Progress -Activity "Processing Region Data" -Completed
 #endregion Detailed Breakdown
 #region Completion
 
-$totalElapsed = (Get-Date) - $scanStartTime
+$totalElapsed = if ($scanElapsed) { $scanElapsed } else { (Get-Date) - $scanStartTime }
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "SCAN COMPLETE" -ForegroundColor Green
-Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | Total time: $([math]::Round($totalElapsed.TotalSeconds, 1)) seconds" -ForegroundColor DarkGray
+Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | Scan time: $([math]::Round($totalElapsed.TotalSeconds, 1)) seconds" -ForegroundColor DarkGray
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 
 #endregion Completion
@@ -4135,5 +5054,8 @@ if ($ExportPath) {
 finally {
     $script:SuppressConsole = $false
     [void](Restore-OriginalSubscriptionContext -OriginalSubscriptionId $initialSubscriptionId)
+    if ($script:TranscriptStarted) {
+        try { Stop-Transcript | Out-Null } catch { Write-Verbose "Transcript already stopped: $($_.Exception.Message)" }
+    }
 }
 }

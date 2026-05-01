@@ -583,18 +583,18 @@ Describe 'Generate Fleet Template — -GenerateFleetTemplate' {
         try {
             $output = & $script:ScriptPath -GenerateFleetTemplate 6>&1 *>&1
             $joined = $output -join "`n"
-            $joined | Should -Match 'Created fleet templates'
+            $joined | Should -Match 'Created (fleet|inventory) templates'
 
-            (Join-Path $templateDir 'fleet-template.csv') | Should -Exist
-            (Join-Path $templateDir 'fleet-template.json') | Should -Exist
+            (Join-Path $templateDir 'inventory-template.csv') | Should -Exist
+            (Join-Path $templateDir 'inventory-template.json') | Should -Exist
 
             # Validate CSV content
-            $csv = Import-Csv (Join-Path $templateDir 'fleet-template.csv')
+            $csv = Import-Csv (Join-Path $templateDir 'inventory-template.csv')
             $csv.Count | Should -BeGreaterThan 0
             $csv[0].SKU | Should -Not -BeNullOrEmpty
 
             # Validate JSON content
-            $json = Get-Content (Join-Path $templateDir 'fleet-template.json') -Raw | ConvertFrom-Json
+            $json = Get-Content (Join-Path $templateDir 'inventory-template.json') -Raw | ConvertFrom-Json
             $json.Count | Should -BeGreaterThan 0
             $json[0].SKU | Should -Not -BeNullOrEmpty
         }
@@ -1191,22 +1191,12 @@ Describe 'Environment Parameter' {
 # ============================================================================
 
 Describe 'Function Availability' {
-    It 'All core functions are defined after script initializes' {
-        # Parse the script AST to find all function names
-        $tokens = $null
-        $parseErrors = $null
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
-            $script:ScriptPath, [ref]$tokens, [ref]$parseErrors
-        )
+    It 'All core functions are available after script initializes' {
+        # Post-modularization: the wrapper imports the AzVMAvailability module which
+        # registers private/public functions as commands. Verify availability via
+        # Get-Command rather than AST-parsing the wrapper (which is now a thin shim).
+        Import-Module (Join-Path $PSScriptRoot '..' 'AzVMAvailability') -Force
 
-        $functions = $ast.FindAll({
-                param($node)
-                $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
-            }, $true)
-
-        $functionNames = $functions | ForEach-Object { $_.Name }
-
-        # All expected core functions should be defined
         $expectedFunctions = @(
             'Get-SafeString'
             'Invoke-WithRetry'
@@ -1244,8 +1234,15 @@ Describe 'Function Availability' {
             'Get-AzActualPricing'
         )
 
+        $module = Get-Module AzVMAvailability
+        $available = @()
         foreach ($fn in $expectedFunctions) {
-            $functionNames | Should -Contain $fn -Because "$fn must be defined in the script"
+            $cmd = & $module ([scriptblock]::Create("Get-Command -Name '$fn' -ErrorAction SilentlyContinue"))
+            if ($cmd) { $available += $fn }
+        }
+
+        foreach ($fn in $expectedFunctions) {
+            $available | Should -Contain $fn -Because "$fn must be available via the AzVMAvailability module"
         }
     }
 }
@@ -1334,7 +1331,7 @@ Describe 'Fleet File Full Integration' {
             # Step 1: Generate templates
             & $script:ScriptPath -GenerateFleetTemplate 6>&1 *>&1 | Out-Null
 
-            $csvPath = Join-Path $templateDir 'fleet-template.csv'
+            $csvPath = Join-Path $templateDir 'inventory-template.csv'
             $csvPath | Should -Exist
 
             # Step 2: Use generated CSV in fleet scan

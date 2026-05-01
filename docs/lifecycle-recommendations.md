@@ -4,6 +4,14 @@
 
 Analyze your current VM inventory to identify SKUs that need lifecycle planning (old generation, capacity-constrained, or deprecated) and get compatibility-validated replacement recommendations for each.
 
+The simplest way to run a lifecycle analysis is:
+
+```powershell
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations
+```
+
+This runs fully autonomous — no prompts, no manual switches needed. It automatically pulls live VM inventory via Azure Resource Graph, enables pricing, Excel export, savings plan/reservation details, and quota. You can optionally provide a file with `-LifecycleFile` or apply filters with `-LifecycleScan`.
+
 ## Option 1: From a CSV/JSON file
 
 ```csv
@@ -30,7 +38,7 @@ Standard_F4s_v2
 > **Column names are flexible:** `SKU`, `Size`, or `VmSize` (falls back to `Name`) for the SKU column; `Region`, `Location`, or `AzureRegion` for region; `Qty`, `Quantity`, or `Count` for quantity.
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations -LifecycleFile .\my-vms.csv -Region "eastus"
 ```
 
 ## Option 2: From an Azure portal export (XLSX)
@@ -38,7 +46,7 @@ Standard_F4s_v2
 Export your VM list directly from the Azure portal (Virtual Machines blade → Export to CSV/Excel) and pass the XLSX file with no reformatting:
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -NoPrompt
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations -LifecycleFile .\AzureVirtualMachines.xlsx
 ```
 
 The parser automatically maps the `SIZE` column to SKU and `LOCATION` to Region, converts display names (e.g., "West US" → `westus`, "USGov Virginia" → `usgovvirginia`), and aggregates one-VM-per-row into SKU+Region quantities. Requires the `ImportExcel` module.
@@ -98,24 +106,35 @@ Risk levels:
 
 ## Pricing in Lifecycle Reports
 
-By default, lifecycle reports include only PAYG (pay-as-you-go) cost columns when `-ShowPricing` is used:
+`-LifecycleRecommendations` automatically enables pricing, Excel export, and quota — no need to add `-ShowPricing`, `-AutoExport`, or `-NoPrompt` separately. By default, lifecycle reports include PAYG (pay-as-you-go) cost columns:
 
 ```powershell
 # PAYG pricing only (Price Diff, Total, 1-Year Cost, 3-Year Cost)
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -ShowPricing -NoPrompt
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations -LifecycleFile .\my-vms.csv -Region "eastus"
 ```
 
 To include Savings Plan (SP) and Reserved Instance (RI) savings columns, add `-RateOptimization`:
 
 ```powershell
 # Full pricing: PAYG + SP/RI savings vs PAYG fleet total
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -ShowPricing -RateOptimization -NoPrompt
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations -LifecycleFile .\my-vms.csv -Region "eastus" -RateOptimization
 
 # Live scan with rate optimization and auto-export to XLSX
-.\Get-AzVMAvailability.ps1 -LifecycleScan -ShowPricing -RateOptimization -AutoExport -NoPrompt
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations -RateOptimization
 
 # Azure portal export with full pricing comparison
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization -NoQuota -AutoExport
+.\Get-AzVMAvailability.ps1 -LifecycleRecommendations -LifecycleFile .\AzureVirtualMachines.xlsx -RateOptimization -NoQuota
 ```
 
 With `-RateOptimization`, the XLSX report adds 4 savings columns: `SP 1-Year Savings`, `SP 3-Year Savings`, `RI 1-Year Savings`, `RI 3-Year Savings` — showing how much the fleet saves compared to PAYG by committing to each term.
+
+> **Sovereign clouds:** `SP 1-Year Savings` / `SP 3-Year Savings` columns are omitted automatically for `AzureUSGovernment`, `AzureChinaCloud`, and `AzureGermanCloud` tenants where Savings Plans are not offered. Reserved Instance columns are still emitted.
+
+## Availability Zones
+
+`-LifecycleRecommendations` automatically enables zone columns in the XLSX report (equivalent to passing `-AZ`):
+
+- **`Zones (Deployed)`** on the **SubMap** and **Resource Group Map** sheets — the union of zones the affected VMs are *currently* deployed to (e.g., `1,2,3` or `Non-zonal`). Sourced from Azure Resource Graph in live mode and from `Zone` / `Zones` / `AvailabilityZone` columns in file mode.
+- **`Zones (Supported)`** on the **Lifecycle Summary**, **High Risk**, and **Medium Risk** sheets, between `Alt Score` and `CPU +/-` — the zone availability of the *recommended alternative* SKU in the deployed region, formatted as `✓ Zones 1,2 | ⚠ Zones 3` (OK / Limited / Restricted) or `Non-zonal`. A cross-region fallback is applied when the alternative SKU isn't indexed in the deployed region.
+
+Use these columns together to plan zone-aligned migrations: confirm the recommended SKU still supports the zones your VMs are pinned to today.

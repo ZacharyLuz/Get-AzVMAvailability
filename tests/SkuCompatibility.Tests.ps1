@@ -192,13 +192,13 @@ Describe 'Test-SkuCompatibility' {
 
 Describe 'Get-SkuSimilarityScore - Enhanced Weights' {
     Context 'Identical profiles with new dimensions' {
-        It 'Returns 93 for identical SKU profiles (version same = 5/12)' {
+        It 'Returns 91 for identical SKU profiles (version same = 6 of 15)' {
             $skuProfile = @{
                 vCPU = 64; MemoryGB = 512; Family = 'E'; Generation = 'V1,V2'
                 Architecture = 'x64'; PremiumIO = $true
                 UncachedDiskIOPS = 80000; MaxDataDiskCount = 32
             }
-            Get-SkuSimilarityScore -Target $skuProfile -Candidate $skuProfile | Should -Be 93
+            Get-SkuSimilarityScore -Target $skuProfile -Candidate $skuProfile | Should -Be 91
         }
     }
 
@@ -253,14 +253,14 @@ Describe 'Get-SkuSimilarityScore - Enhanced Weights' {
             ($scoreMatch - $scoreWrong) | Should -Be 10
         }
 
-        It 'Family + version dimension is worth 23 points for same-family vs unknown' {
+        It 'Family + version dimension is worth 21 points for same-family vs unknown' {
             $target = @{ vCPU = 0; MemoryGB = 0; Family = 'E'; Generation = 'V1'; Architecture = 'x64'; PremiumIO = $true; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $sameFamily = @{ vCPU = 0; MemoryGB = 0; Family = 'E'; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
             $diffFamily = @{ vCPU = 0; MemoryGB = 0; Family = 'Z'; Generation = 'V2'; Architecture = 'Arm64'; PremiumIO = $false; UncachedDiskIOPS = 0; MaxDataDiskCount = 0 }
 
             $scoreSame = Get-SkuSimilarityScore -Target $target -Candidate $sameFamily
             $scoreDiff = Get-SkuSimilarityScore -Target $target -Candidate $diffFamily
-            ($scoreSame - $scoreDiff) | Should -Be 23
+            ($scoreSame - $scoreDiff) | Should -Be 21
         }
 
         It 'Never exceeds 100' {

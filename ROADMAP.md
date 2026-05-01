@@ -1,8 +1,10 @@
 # Roadmap
 
-## Current Release: v2.1.1
+## Current Release: v2.2.1
 
-> **v2.1.1:** Pipeline capture detection UX improvement and roadmap accuracy updates. See [CHANGELOG.md](CHANGELOG.md) for details.
+> **v2.2.1:** Pricing correctness follow-up to v2.2.0 — Tier 2 (Cost Management) fallback is now `ResourceLocation`-scoped and skips Spot/Low-Priority rows (matching Tier 1); negotiated Savings Plan maps are aliased from `meterLocation` to ARM region keys so commercial regions stop falling back to retail SP rates; `tools/Update-RetirementData.ps1` no longer stamps "Last verified" when new series are pending manual addition. See [CHANGELOG.md](CHANGELOG.md) for details.
+>
+> **v2.2.0:** Sovereign + commercial pricing correctness (Price Sheet resolver now matches commercial regions via 70+ ARM→cache aliases plus a geo-token permutation fallback), Reservation/Savings-Plan savings as retail-vs-retail percent, advisory upgrade-path recs, AZ zone columns by default, Lifecycle Summary legend, dedupe candidate pool (~100× speedup on lifecycle phase), parallel cross-sub scan, mid-scan token refresh, straggler-aware progress/ETA, new `tools/Inspect-PriceSheetCache.ps1` diagnostic. See [CHANGELOG.md](CHANGELOG.md) for details.
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 

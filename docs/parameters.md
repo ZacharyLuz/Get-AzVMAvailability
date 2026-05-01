@@ -43,6 +43,7 @@
 | `-Tag`                  | Hashtable| Filter `-LifecycleScan` to VMs with specific tags. Hashtable of key=value pairs (e.g., `@{Environment='prod'}`). Use `'*'` as value to match any VM that has the tag key regardless of value |
 | `-SubMap`               | Switch   | Include a Subscription Map sheet in lifecycle XLSX exports, grouping affected VMs by subscription with risk-level enrichment |
 | `-RGMap`                | Switch   | Include a Resource Group Map sheet in lifecycle XLSX exports, grouping affected VMs by subscription + resource group with risk-level enrichment |
+| `-AZ`                   | Switch   | Add Availability Zone columns to lifecycle XLSX exports: `Zones (Deployed)` on SubMap / RGMap (zones the VMs run in today) and `Zones (Supported)` on Lifecycle Summary / High Risk / Medium Risk (zones the recommended replacement supports). **Auto-enabled when `-LifecycleRecommendations` is used.** |
 
 > **Backward compatibility:** The previous parameter names `-Fleet`, `-FleetFile`, and `-GenerateFleetTemplate` still work as aliases.
 
