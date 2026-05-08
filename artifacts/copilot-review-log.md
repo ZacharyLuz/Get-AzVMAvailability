@@ -53,3 +53,10 @@
 **Root cause:** The previous append used a PowerShell double-quoted here-string (`@"..."@`) where backticks are escape characters. The markdown-quoted paths `` `tests`` and `` `tools`` were interpreted as `` `t`` (TAB, 0x09), and `` `examples`` was interpreted as `` `e`` (ESC, 0x1B). Result: `\tests` rendered as TAB+`ests`, `\examples` as ESC+`xamples`, etc.
 
 **Prevention:** When appending to this log from PowerShell, use either (a) a single-quoted here-string `@'...'@` (no interpolation, no escape interpretation), or (b) direct file editing tools that take literal text. Avoid `@"..."@` for content that contains markdown backticks.
+
+
+## PR #154 — fix/psgallery-package-parity (post-bump review pass)
+
+- Branch: fix/psgallery-package-parity
+- Reviewed head SHA: 09f78c4 (fix in follow-up commit)
+- `ROADMAP.md:5` (Copilot) — "The ROADMAP header was bumped to v2.2.2, but the 'Current Release' summary immediately below still describes v2.2.1. This makes the roadmap internally inconsistent; update the blockquote section to describe v2.2.2 (or add a new v2.2.2 summary entry above the v2.2.1 entry)." Assessment: **Agree**. Action: added a new v2.2.2 summary blockquote above the existing v2.2.1 summary, mirroring the wording style used for v2.2.1 / v2.2.0 (subject + theme + see CHANGELOG.md). The summary covers the four PR #154 fixes: PSGallery package staging + Pester guard, version-bump.yml stamp coverage, release-publish lint filter, and manual release-publish retry / serialization.
