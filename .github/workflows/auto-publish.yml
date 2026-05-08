@@ -1,0 +1,410 @@
+name: "Auto-Publish on Merge"
+
+# Purpose
+# -------
+# Guarantees PSGallery stays in lock-step with `main`. Whenever a publishable
+# asset (module code, wrapper, data, README, examples, docs, CHANGELOG) lands
+# on `main` without a manual version bump, this workflow opens (and auto-merges)
+# a chore PR that bumps the patch version. The merge of that chore PR then
+# triggers `release-on-main.yml` -> tag -> `release-publish.yml` -> PSGallery.
+#
+# Loop prevention
+# ---------------
+# 1. Path filter excludes `.github/**`, `tests/**`, `tools/**`, etc.
+# 2. Skips when HEAD commit author is `github-actions[bot]`.
+# 3. Skips when ScriptVersion already exceeds the latest tag (manual bump in
+#    flight — release-on-main.yml will handle it).
+# 4. Skips when the auto-publish branch for the next patch already exists
+#    (PR is already open).
+#
+# Source of truth
+# ---------------
+# Mirrors the eight version-stamp regex/format pairs from `version-bump.yml`.
+# Keep both in sync when versions move. Long-term cleanup: factor into shared
+# `tools/Bump-Version.ps1` (tracked separately).
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "Get-AzVMAvailability.ps1"
+      - "AzVMAvailability/**"
+      - "data/**"
+      - "examples/**"
+      - "docs/**"
+      - "README.md"
+      - "LICENSE"
+      - "CHANGELOG.md"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Plan only — print what would be bumped, do not push or open PR"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-publish-on-merge
+  cancel-in-progress: false
+
+jobs:
+  auto-publish:
+    name: Auto-bump patch and open release PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main with full history
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect whether auto-bump is needed
+        id: detect
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Skip if HEAD commit was authored by the bot (avoids auto-trigger loops
+          # from the chore PR's own merge commit when squashed).
+          $headAuthor = (& git log -1 --pretty=format:'%an').Trim()
+          Write-Host "HEAD author: $headAuthor"
+          if ($headAuthor -eq 'github-actions[bot]') {
+              Write-Host "HEAD authored by github-actions[bot] — skipping to avoid loop."
+              "should_bump=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+              return
+          }
+
+          # Read current ScriptVersion from wrapper.
+          $scriptText = Get-Content "./Get-AzVMAvailability.ps1" -Raw
+          $vMatch = [regex]::Match($scriptText, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
+          if (-not $vMatch.Success) { throw "Could not parse ScriptVersion from Get-AzVMAvailability.ps1" }
+          $currentVersion = $vMatch.Groups[1].Value
+          Write-Host "Current ScriptVersion: $currentVersion"
+
+          # Latest semver tag.
+          $latestTag = (& git tag --list 'v*' --sort=-v:refname | Select-Object -First 1)
+          if ([string]::IsNullOrWhiteSpace($latestTag)) {
+              Write-Host "No prior tag — letting initial release flow handle this."
+              "should_bump=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+              return
+          }
+          $latestTagVersion = $latestTag -replace '^v', ''
+          Write-Host "Latest tag:            $latestTag (version $latestTagVersion)"
+
+          $parsedCurrent = $null; $parsedLatest = $null
+          # [version]::TryParse always assigns the [ref] out param to a non-null struct, so checking the
+          # out param itself is meaningless. Capture the bool return value instead.
+          $okCurrent = [version]::TryParse($currentVersion, [ref]$parsedCurrent)
+          $okLatest  = [version]::TryParse($latestTagVersion, [ref]$parsedLatest)
+          if (-not $okCurrent -or -not $okLatest) {
+              throw "Failed to parse versions: current='$currentVersion' latest='$latestTagVersion'"
+          }
+
+          if ($parsedCurrent -gt $parsedLatest) {
+              Write-Host "Wrapper version > latest tag — release-on-main.yml will publish v$currentVersion. No auto-bump needed."
+              "should_bump=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+              return
+          }
+          if ($parsedCurrent -lt $parsedLatest) {
+              Write-Host "Wrapper version < latest tag — regression. release-on-main.yml will throw."
+              "should_bump=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+              return
+          }
+
+          # Wrapper == latest tag. Confirm HEAD is actually ahead of the tag.
+          $tagSha  = (& git rev-list -n 1 $latestTag).Trim()
+          $headSha = (& git rev-list -n 1 HEAD).Trim()
+          if ($tagSha -eq $headSha) {
+              Write-Host "HEAD already at tagged commit — nothing to publish."
+              "should_bump=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+              return
+          }
+
+          # Compute next patch version.
+          $parts = $currentVersion.Split('.')
+          if ($parts.Count -ne 3) { throw "Unexpected version format: $currentVersion" }
+          $major = [int]$parts[0]; $minor = [int]$parts[1]; $patch = [int]$parts[2] + 1
+          $newVersion = "$major.$minor.$patch"
+          $branch = "chore/auto-publish-$newVersion"
+
+          # If the branch already exists upstream, an auto-publish PR is in flight.
+          $existing = (& git ls-remote --heads origin $branch).Trim()
+          if (-not [string]::IsNullOrWhiteSpace($existing)) {
+              Write-Host "Auto-publish branch '$branch' already exists upstream — PR likely in flight. Exiting."
+              "should_bump=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+              return
+          }
+
+          Write-Host "Auto-bump approved: $currentVersion -> $newVersion (branch '$branch')."
+          "should_bump=true"                    | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "current_version=$currentVersion"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "new_version=$newVersion"             | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "branch=$branch"                      | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "latest_tag=$latestTag"               | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Apply version bumps and update CHANGELOG
+        if: steps.detect.outputs.should_bump == 'true'
+        id: bump
+        shell: pwsh
+        env:
+          NEW_VERSION:     ${{ steps.detect.outputs.new_version }}
+          CURRENT_VERSION: ${{ steps.detect.outputs.current_version }}
+          LATEST_TAG:      ${{ steps.detect.outputs.latest_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $newVersion     = $env:NEW_VERSION
+          $currentVersion = $env:CURRENT_VERSION
+          $latestTag      = $env:LATEST_TAG
+
+          # Mirror of the eight version stamps from .github/workflows/version-bump.yml.
+          # Keep in sync with that workflow until both call a shared script.
+          $targets = @(
+              @{ Path='Get-AzVMAvailability.ps1';                          Pattern='(?m)^\$ScriptVersion\s*=\s*"([^"]+)"';                                                    Format='$ScriptVersion = "{0}"';                                                  Label='wrapper $ScriptVersion' }
+              @{ Path='Get-AzVMAvailability.ps1';                          Pattern='(?m)^(\s*Version:\s*)([0-9]+\.[0-9]+\.[0-9]+)\s*$';                                       Format='    Version:        {0}';                                                 Label='wrapper .NOTES Version' }
+              @{ Path='AzVMAvailability/AzVMAvailability.psd1';            Pattern="(?m)^(\s*ModuleVersion\s*=\s*')([^']+)(')";                                               Format="    ModuleVersion     = '{0}'";                                           Label='manifest ModuleVersion' }
+              @{ Path='AzVMAvailability/Public/Get-AzVMAvailability.ps1';  Pattern='(?m)^(\s*Version:\s*)([0-9]+\.[0-9]+\.[0-9]+)\s*$';                                       Format='    Version:        {0}';                                                 Label='public function .NOTES Version' }
+              @{ Path='README.md';                                         Pattern='!\[Version\]\(https://img\.shields\.io/badge/Version-([0-9]+\.[0-9]+\.[0-9]+)-brightgreen\)'; Format='![Version](https://img.shields.io/badge/Version-{0}-brightgreen)';      Label='README version badge' }
+              @{ Path='demo/DEMO-GUIDE.md';                                Pattern='(?m)^(\*\*Version:\*\*\s+)([0-9]+\.[0-9]+\.[0-9]+)';                                       Format='**Version:** {0}';                                                        Label='DEMO-GUIDE version' }
+              @{ Path='ROADMAP.md';                                        Pattern='(?m)^(## Current Release: v)([0-9]+\.[0-9]+\.[0-9]+)';                                     Format='## Current Release: v{0}';                                                Label='ROADMAP Current Release header' }
+          )
+
+          $observed = @()
+          foreach ($t in $targets) {
+              $text = Get-Content $t.Path -Raw
+              $m = [regex]::Match($text, $t.Pattern)
+              if (-not $m.Success) {
+                  throw "Pattern did not match in $($t.Path) for $($t.Label)"
+              }
+              $found = if ($m.Groups.Count -ge 3) { $m.Groups[2].Value } else { $m.Groups[1].Value }
+              if ($found -ne $currentVersion) {
+                  throw "Pre-bump parity failure: $($t.Label) in $($t.Path) = '$found' but wrapper = '$currentVersion'."
+              }
+              $lineNumber = ($text.Substring(0, $m.Index) -split "`n").Count
+              $observed += @{ Path=$t.Path; Line=$lineNumber; Label=$t.Label }
+
+              $replacement = $t.Format -f $newVersion
+              # NOTE: The static [regex]::Replace($input,$pattern,$replacement,$X) overload binds $X as
+              # RegexOptions, not a replacement count. To cap replacements at one, use a Regex instance
+              # whose .Replace(input, replacement, count) overload genuinely accepts a count.
+              $rgx = [regex]::new($t.Pattern)
+              $updated = $rgx.Replace($text, $replacement, 1)
+              if ($updated -eq $text) { throw "Replacement made no change in $($t.Path)" }
+              $hadNL = $text.EndsWith("`n")
+              Set-Content -Path $t.Path -Value $updated -NoNewline -Encoding utf8
+              if ($hadNL -and -not $updated.EndsWith("`n")) {
+                  Add-Content -Path $t.Path -Value '' -Encoding utf8
+              }
+              Write-Host "  Bumped: $($t.Label) ($($t.Path) line $lineNumber)"
+          }
+
+          # Build commit list since the previous tag for the CHANGELOG fallback.
+          $rawCommits = & git log "$latestTag..HEAD" --pretty=format:'%h %s'
+          $commitLines = @()
+          foreach ($line in $rawCommits) {
+              if ([string]::IsNullOrWhiteSpace($line)) { continue }
+              if ($line -match '^[0-9a-f]+\s+Merge ') { continue }
+              $commitLines += "- $line"
+          }
+          if (-not $commitLines) { $commitLines = @('- _Maintenance release with no user-visible changes._') }
+          $commitsText = ($commitLines -join "`n")
+
+          # Update CHANGELOG: promote any [Unreleased] content under the new version.
+          $changelogPath = 'CHANGELOG.md'
+          $changelog = Get-Content $changelogPath -Raw
+          $date = (Get-Date -Format 'yyyy-MM-dd')
+
+          # Match [Unreleased] body up to either the next '## [' header OR end-of-file (\Z), so notes that
+          # live as the final section in the file still get promoted into the new version section.
+          $unreleasedMatch = [regex]::Match($changelog, '(?ms)(##\s+\[Unreleased\][^\n]*\n)(.*?)(?=(\n##\s+\[|\Z))')
+
+          $newSectionLines = @(
+              "## [$newVersion] - $date",
+              '',
+              '### Changed',
+              "- Auto-published patch release for changes since $latestTag.",
+              '',
+              "_Commits in this release ($latestTag..v$newVersion):_",
+              $commitsText,
+              '',
+              ''
+          )
+          $newSection = ($newSectionLines -join "`n")
+
+          if ($unreleasedMatch.Success) {
+              $unreleasedHeader = $unreleasedMatch.Groups[1].Value
+              $unreleasedBody   = $unreleasedMatch.Groups[2].Value.TrimEnd("`r","`n")
+
+              if (-not [string]::IsNullOrWhiteSpace($unreleasedBody)) {
+                  # Promote [Unreleased] body under the new version section.
+                  $newSectionLines = @(
+                      "## [$newVersion] - $date",
+                      ''
+                  ) + ($unreleasedBody -split "`n") + @(
+                      '',
+                      "_Auto-published from changes since $latestTag._",
+                      ''
+                  )
+                  $newSection = ($newSectionLines -join "`n")
+              }
+
+              $newChangelog = $changelog.Substring(0, $unreleasedMatch.Index) +
+                              $unreleasedHeader + "`n" +
+                              $newSection +
+                              $changelog.Substring($unreleasedMatch.Index + $unreleasedMatch.Length)
+          } else {
+              # No [Unreleased] section — prepend before first ## [.
+              $anchor = [regex]::Match($changelog, '(?m)^## \[')
+              if ($anchor.Success) {
+                  $newChangelog = $changelog.Substring(0, $anchor.Index) + $newSection + $changelog.Substring($anchor.Index)
+              } else {
+                  $newChangelog = $newSection + $changelog
+              }
+          }
+
+          $hadNL = $changelog.EndsWith("`n")
+          Set-Content -Path $changelogPath -Value $newChangelog -NoNewline -Encoding utf8
+          if ($hadNL -and -not $newChangelog.EndsWith("`n")) {
+              Add-Content -Path $changelogPath -Value '' -Encoding utf8
+          }
+
+          # Update psd1 ReleaseNotes (not in $targets — needs free-form text).
+          $psdPath = 'AzVMAvailability/AzVMAvailability.psd1'
+          $psdContent = Get-Content $psdPath -Raw
+          $psdRnPattern     = "(?m)^\s*ReleaseNotes\s*=\s*'[^']+'"
+          $psdRnReplacement = "        ReleaseNotes = 'v${newVersion}: Auto-published patch release rolling up changes since ${latestTag}. See CHANGELOG.md for the commit list.'"
+          $psdUpdated = [regex]::Replace($psdContent, $psdRnPattern, $psdRnReplacement)
+          if ($psdUpdated -eq $psdContent) { throw "ReleaseNotes pattern did not match in $psdPath" }
+          $psdHadNL = $psdContent.EndsWith("`n")
+          Set-Content -Path $psdPath -Value $psdUpdated -NoNewline -Encoding utf8
+          if ($psdHadNL -and -not $psdUpdated.EndsWith("`n")) {
+              Add-Content -Path $psdPath -Value '' -Encoding utf8
+          }
+          Write-Host "  Bumped: psd1 ReleaseNotes -> v$newVersion"
+
+          $observedJson = $observed | ConvertTo-Json -Compress
+          "observed=$observedJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Commit, push, open PR, enable auto-merge
+        if: steps.detect.outputs.should_bump == 'true' && (github.event_name != 'workflow_dispatch' || inputs.dry_run != true)
+        env:
+          GH_TOKEN:        ${{ github.token }}
+          NEW_VERSION:     ${{ steps.detect.outputs.new_version }}
+          CURRENT_VERSION: ${{ steps.detect.outputs.current_version }}
+          BRANCH:          ${{ steps.detect.outputs.branch }}
+          LATEST_TAG:      ${{ steps.detect.outputs.latest_tag }}
+          OBSERVED:        ${{ steps.bump.outputs.observed }}
+          REPO:            ${{ github.repository }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Invoke-Git {
+              param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Arguments)
+              & git @Arguments
+              if ($LASTEXITCODE -ne 0) { throw "git $($Arguments -join ' ') failed (exit $LASTEXITCODE)" }
+          }
+
+          Invoke-Git config user.name  'github-actions[bot]'
+          Invoke-Git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          Invoke-Git checkout -b $env:BRANCH
+
+          Invoke-Git add `
+              'Get-AzVMAvailability.ps1' `
+              'AzVMAvailability/AzVMAvailability.psd1' `
+              'AzVMAvailability/Public/Get-AzVMAvailability.ps1' `
+              'README.md' `
+              'demo/DEMO-GUIDE.md' `
+              'ROADMAP.md' `
+              'CHANGELOG.md'
+
+          Invoke-Git commit -m "chore(release): auto-bump $($env:CURRENT_VERSION) -> $($env:NEW_VERSION) for PSGallery parity"
+          Invoke-Git push -u origin $env:BRANCH
+
+          # Build PR body — must satisfy pr-verification-gate.yml + release-metadata-guard.yml.
+          $observed = $env:OBSERVED | ConvertFrom-Json
+          $tableRows = foreach ($l in $observed) {
+              "| $($l.Label) bumped to $($env:NEW_VERSION) | $($l.Path) L$($l.Line) — regex-replaced by workflow | [OBSERVED] |"
+          }
+          $tableRows = @($tableRows) + @(
+              "| CHANGELOG.md ## [$($env:NEW_VERSION)] section added | CHANGELOG.md — heading + commit list since $($env:LATEST_TAG) | [OBSERVED] |",
+              "| psd1 ReleaseNotes prefixed with v$($env:NEW_VERSION) | AzVMAvailability/AzVMAvailability.psd1 — regex-replaced | [OBSERVED] |"
+          )
+
+          $compareUrl = "https://github.com/$($env:REPO)/compare/$($env:LATEST_TAG)...$($env:BRANCH)"
+
+          $bodyLines = @(
+              '## Summary',
+              '',
+              'Auto-published patch release ensuring PSGallery stays in lock-step with `main`.',
+              '',
+              "Bumps version **$($env:CURRENT_VERSION) -> $($env:NEW_VERSION)**. On merge of this PR, ``release-on-main.yml`` creates tag ``v$($env:NEW_VERSION)`` and a non-draft GitHub Release; ``release-publish.yml`` then publishes ``v$($env:NEW_VERSION)`` to PSGallery.",
+              '',
+              'Generated automatically by `.github/workflows/auto-publish.yml` because publishable assets changed since the last tag without a manual version bump.',
+              '',
+              "[Compare $($env:LATEST_TAG)...$($env:BRANCH)]($compareUrl)",
+              '',
+              '## Verification Checklist',
+              '',
+              '### Verified Landmark Table',
+              '',
+              '| Landmark / Claim | Evidence (file + how verified) | Tag |',
+              '|---|---|---|'
+          )
+          $bodyLines += $tableRows
+          $bodyLines += @(
+              '',
+              '### Behavior Parity',
+              '- [x] No public parameter changes.',
+              '- [x] No module runtime code changes — version stamps and CHANGELOG only.',
+              '- [x] Public command export remains `Get-AzVMAvailability` only.',
+              '- [x] PSGallery package shape unchanged (still uses `tools/Stage-ModulePackage.ps1`).',
+              '',
+              '## Quality Checklist',
+              '',
+              "- [x] All eight version stamps updated atomically in one commit.",
+              "- [x] CHANGELOG.md ## [$($env:NEW_VERSION)] section present (required by ``release-metadata-guard.yml``).",
+              "- [x] ``release-on-main.yml`` will create tag ``v$($env:NEW_VERSION)`` + GitHub Release on merge.",
+              "- [x] ``release-publish.yml`` will publish ``v$($env:NEW_VERSION)`` to PSGallery on ``release: published``.",
+              "- [x] **Release/tag plan prepared for this version bump** — on merge: tag ``v$($env:NEW_VERSION)`` auto-created, GitHub Release auto-created from CHANGELOG section, PSGallery publish auto-triggered. No manual steps.",
+              '',
+              '## Risk',
+              '',
+              'Low. Metadata-only bump that closes the parity gap between `main` and PSGallery.'
+          )
+
+          $body = ($bodyLines -join "`n")
+          $bodyFile = Join-Path $env:RUNNER_TEMP 'auto-publish-pr-body.md'
+          # Write as ASCII-safe UTF-8 without BOM (gh CLI BOM trap, see gh-cli-pr-body-encoding-corruption skill).
+          [System.IO.File]::WriteAllText($bodyFile, $body, [System.Text.UTF8Encoding]::new($false))
+
+          gh pr create `
+              --base main `
+              --head $env:BRANCH `
+              --title "chore(release): auto-bump $($env:CURRENT_VERSION) -> $($env:NEW_VERSION) for PSGallery parity" `
+              --body-file $bodyFile
+          if ($LASTEXITCODE -ne 0) { throw "gh pr create failed (exit $LASTEXITCODE)" }
+
+          # Enable auto-merge so the PR self-merges once required checks pass.
+          # Falls back to leaving the PR open if auto-merge is not allowed.
+          gh pr merge $env:BRANCH --auto --squash --delete-branch
+          if ($LASTEXITCODE -ne 0) {
+              Write-Warning "gh pr merge --auto failed. PR is open for manual merge."
+          }
+
+      - name: Dry-run summary
+        if: steps.detect.outputs.should_bump == 'true' && github.event_name == 'workflow_dispatch' && inputs.dry_run == true
+        shell: pwsh
+        run: |
+          Write-Host "DRY RUN — would have:"
+          Write-Host "  Bumped:  ${{ steps.detect.outputs.current_version }} -> ${{ steps.detect.outputs.new_version }}"
+          Write-Host "  Branch:  ${{ steps.detect.outputs.branch }}"
+          # Print the GitHub Actions expression directly. Wrapping it in $(...) makes pwsh evaluate the
+          # substituted literal (e.g. `v2.2.2`) as a sub-expression, which throws.
+          Write-Host "  Base:    main (after ${{ steps.detect.outputs.latest_tag }})"
+          Write-Host "No commit, push, or PR was created."
+
