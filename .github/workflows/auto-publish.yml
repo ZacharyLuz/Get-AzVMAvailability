@@ -97,9 +97,11 @@ jobs:
           Write-Host "Latest tag:            $latestTag (version $latestTagVersion)"
 
           $parsedCurrent = $null; $parsedLatest = $null
-          [void][version]::TryParse($currentVersion, [ref]$parsedCurrent)
-          [void][version]::TryParse($latestTagVersion, [ref]$parsedLatest)
-          if (-not $parsedCurrent -or -not $parsedLatest) {
+          # [version]::TryParse always assigns the [ref] out param to a non-null struct, so checking the
+          # out param itself is meaningless. Capture the bool return value instead.
+          $okCurrent = [version]::TryParse($currentVersion, [ref]$parsedCurrent)
+          $okLatest  = [version]::TryParse($latestTagVersion, [ref]$parsedLatest)
+          if (-not $okCurrent -or -not $okLatest) {
               throw "Failed to parse versions: current='$currentVersion' latest='$latestTagVersion'"
           }
 
@@ -186,7 +188,11 @@ jobs:
               $observed += @{ Path=$t.Path; Line=$lineNumber; Label=$t.Label }
 
               $replacement = $t.Format -f $newVersion
-              $updated = [regex]::Replace($text, $t.Pattern, $replacement, 1)
+              # NOTE: The static [regex]::Replace($input,$pattern,$replacement,$X) overload binds $X as
+              # RegexOptions, not a replacement count. To cap replacements at one, use a Regex instance
+              # whose .Replace(input, replacement, count) overload genuinely accepts a count.
+              $rgx = [regex]::new($t.Pattern)
+              $updated = $rgx.Replace($text, $replacement, 1)
               if ($updated -eq $text) { throw "Replacement made no change in $($t.Path)" }
               $hadNL = $text.EndsWith("`n")
               Set-Content -Path $t.Path -Value $updated -NoNewline -Encoding utf8
@@ -212,7 +218,9 @@ jobs:
           $changelog = Get-Content $changelogPath -Raw
           $date = (Get-Date -Format 'yyyy-MM-dd')
 
-          $unreleasedMatch = [regex]::Match($changelog, '(?ms)(##\s+\[Unreleased\][^\n]*\n)(.*?)(?=\n##\s+\[)')
+          # Match [Unreleased] body up to either the next '## [' header OR end-of-file (\Z), so notes that
+          # live as the final section in the file still get promoted into the new version section.
+          $unreleasedMatch = [regex]::Match($changelog, '(?ms)(##\s+\[Unreleased\][^\n]*\n)(.*?)(?=(\n##\s+\[|\Z))')
 
           $newSectionLines = @(
               "## [$newVersion] - $date",
@@ -395,5 +403,8 @@ jobs:
           Write-Host "DRY RUN — would have:"
           Write-Host "  Bumped:  ${{ steps.detect.outputs.current_version }} -> ${{ steps.detect.outputs.new_version }}"
           Write-Host "  Branch:  ${{ steps.detect.outputs.branch }}"
-          Write-Host "  Base:    main (after $(${{ steps.detect.outputs.latest_tag }}))"
+          # Print the GitHub Actions expression directly. Wrapping it in $(...) makes pwsh evaluate the
+          # substituted literal (e.g. `v2.2.2`) as a sub-expression, which throws.
+          Write-Host "  Base:    main (after ${{ steps.detect.outputs.latest_tag }})"
           Write-Host "No commit, push, or PR was created."
+
