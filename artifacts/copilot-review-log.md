@@ -33,12 +33,23 @@
 
 | # | Finding | Assessment | Reasoning |
 |---|---------|------------|-----------|
-| F4 | "Verify excluded directories with case-insensitive comparison and absolute path matching" | **Disagree** | Excluded directory list (	ests, xamples, dev, etc.) is hard-coded and known to be lowercase. Adding case-insensitive matching is defensive code for a non-existent scenario. PowerShell on Windows is case-insensitive by default for path comparison; Linux runner uses the same hard-coded constants. |
-| F5 | "Add a Pester / unit test for the staging script that asserts the expected layout end-to-end" | **Partially Agree** | The existing 	ests/PackageLayout.Tests.ps1 already validates layout (5 tests). The new test added in c96cd24 covers the regression. Additional end-to-end CI testing is captured by the workflow itself running the script — duplicating that in unit tests adds maintenance burden without catching new failure modes. |
+| F4 | "Verify excluded directories with case-insensitive comparison and absolute path matching" | **Disagree** | Excluded directory list (`tests`, `examples`, `dev`, etc.) is hard-coded and known to be lowercase. Adding case-insensitive matching is defensive code for a non-existent scenario. PowerShell on Windows is case-insensitive by default for path comparison; Linux runner uses the same hard-coded constants. |
+| F5 | "Add a Pester / unit test for the staging script that asserts the expected layout end-to-end" | **Partially Agree** | The existing `tests/PackageLayout.Tests.ps1` already validates layout (5 tests). The new test added in c96cd24 covers the regression. Additional end-to-end CI testing is captured by the workflow itself running the script — duplicating that in unit tests adds maintenance burden without catching new failure modes. |
 | F6 | "Validate that copied required asset files are non-empty and exist after copy" | **Disagree** | Copy-Item throws on missing source files; the staging output already includes an IncludedAssetCount and IncludedAssets array consumed by the workflow's verification step. Adding per-file size assertions inside the staging script duplicates existing test coverage in PackageLayout.Tests.ps1. |
 
 ### Outcome
 
 - 4/4 inline threads addressed (3 replied + resolved, 1 auto-resolved by Sourcery on the fix commit).
 - All 11 required CI checks: PASS (Pester ubuntu + windows, PSScriptAnalyzer x2, CodeQL, Sourcery review, Repo Self-Audit, Release Metadata Guard, Verification-First Checklist).
-- Net diff: +24 / -2 across 2 files (	ools/Stage-ModulePackage.ps1, 	ests/PackageLayout.Tests.ps1).
+- Net diff: +24 / -2 across 2 files (`tools/Stage-ModulePackage.ps1`, `tests/PackageLayout.Tests.ps1`).
+
+### Follow-up — Copilot review of commit `162e39f` (this entry)
+
+| # | ID | Reviewer | File:Line | Finding (quoted) | Assessment | Action |
+|---|----|----------|-----------|------------------|------------|--------|
+| 5 | 3208645739 | Copilot | artifacts/copilot-review-log.md:44 | "This log entry contains stray control characters / corrupted words (e.g., '\tests' / '^[xamples') which makes the review log hard to read and can break Markdown rendering/search." | **Agree** | Sanitized in this commit. |
+| 6 | review 4252223212 (low-confidence suppressed) | copilot-pull-request-reviewer[bot] | artifacts/copilot-review-log.md:45 | "The 'Net diff' line also includes corrupted file paths (e.g., missing leading characters like 'ools/' and 'ests/')." | **Agree** | Same root cause; addressed by the same sanitization. |
+
+**Root cause:** The previous append used a PowerShell double-quoted here-string (`@"..."@`) where backticks are escape characters. The markdown-quoted paths `` `tests`` and `` `tools`` were interpreted as `` `t`` (TAB, 0x09), and `` `examples`` was interpreted as `` `e`` (ESC, 0x1B). Result: `\tests` rendered as TAB+`ests`, `\examples` as ESC+`xamples`, etc.
+
+**Prevention:** When appending to this log from PowerShell, use either (a) a single-quoted here-string `@'...'@` (no interpolation, no escape interpretation), or (b) direct file editing tools that take literal text. Avoid `@"..."@` for content that contains markdown backticks.
