@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Release: v2.2.1
+## Current Release: v2.2.2
 
 > **v2.2.1:** Pricing correctness follow-up to v2.2.0 — Tier 2 (Cost Management) fallback is now `ResourceLocation`-scoped and skips Spot/Low-Priority rows (matching Tier 1); negotiated Savings Plan maps are aliased from `meterLocation` to ARM region keys so commercial regions stop falling back to retail SP rates; `tools/Update-RetirementData.ps1` no longer stamps "Last verified" when new series are pending manual addition. See [CHANGELOG.md](CHANGELOG.md) for details.
 >

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] — 2026-05-08
+**Theme: PSGallery package parity with the GitHub repo.**
+
 ### Fixed
 - **PSGallery package parity** - release publishing now stages the runtime UpgradePath data, README, LICENSE, CHANGELOG, examples, and curated docs into the module package before publishing. A package-layout Pester test now guards those assets so PSGallery installs keep parity with repo-based usage.
 - **Version bump workflow coverage** — `version-bump.yml` now updates the README badge, demo guide, ROADMAP current-release header, and psd1 `ReleaseNotes` alongside the existing wrapper, manifest, public help, and changelog updates. Current public help and demo-guide version stamps were also realigned to v2.2.1.
