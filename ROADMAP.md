@@ -1,7 +1,9 @@
 # Roadmap
 
-## Current Release: v2.2.1
+## Current Release: v2.2.2
 
+> **v2.2.2:** PSGallery package parity with the GitHub repo — release publishing now stages the runtime `UpgradePath` data, README, LICENSE, CHANGELOG, examples, and curated docs into the module package before publishing, with a Pester package-layout guard. `version-bump.yml` now also updates the README badge, demo guide, ROADMAP current-release header, and psd1 `ReleaseNotes`. `release-publish.yml` reports PSScriptAnalyzer warnings via SARIF and only blocks on errors, supports manual retry against an existing tag, and serializes runs per release. See [CHANGELOG.md](CHANGELOG.md) for details.
+>
 > **v2.2.1:** Pricing correctness follow-up to v2.2.0 — Tier 2 (Cost Management) fallback is now `ResourceLocation`-scoped and skips Spot/Low-Priority rows (matching Tier 1); negotiated Savings Plan maps are aliased from `meterLocation` to ARM region keys so commercial regions stop falling back to retail SP rates; `tools/Update-RetirementData.ps1` no longer stamps "Last verified" when new series are pending manual addition. See [CHANGELOG.md](CHANGELOG.md) for details.
 >
 > **v2.2.0:** Sovereign + commercial pricing correctness (Price Sheet resolver now matches commercial regions via 70+ ARM→cache aliases plus a geo-token permutation fallback), Reservation/Savings-Plan savings as retail-vs-retail percent, advisory upgrade-path recs, AZ zone columns by default, Lifecycle Summary legend, dedupe candidate pool (~100× speedup on lifecycle phase), parallel cross-sub scan, mid-scan token refresh, straggler-aware progress/ETA, new `tools/Inspect-PriceSheetCache.ps1` diagnostic. See [CHANGELOG.md](CHANGELOG.md) for details.

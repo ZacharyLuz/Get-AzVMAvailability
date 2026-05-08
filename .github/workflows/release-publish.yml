@@ -111,9 +111,8 @@ jobs:
       - name: Package module
         shell: pwsh
         run: |
-          $stagingDir = './staging/AzVMAvailability'
-          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
-          Copy-Item -Path ./AzVMAvailability/* -Destination $stagingDir -Recurse -Force
+          $stageResult = ./tools/Stage-ModulePackage.ps1 -StagingRoot './staging'
+          $stagingDir = $stageResult.ModulePath
           Compress-Archive -Path $stagingDir -DestinationPath ./AzVMAvailability.zip -Force
           Write-Host "Module packaged: AzVMAvailability.zip"
 

@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] — 2026-05-08
+**Theme: PSGallery package parity with the GitHub repo.**
+
 ### Fixed
+- **PSGallery package parity** - release publishing now stages the runtime UpgradePath data, README, LICENSE, CHANGELOG, examples, and curated docs into the module package before publishing. A package-layout Pester test now guards those assets so PSGallery installs keep parity with repo-based usage.
 - **Version bump workflow coverage** — `version-bump.yml` now updates the README badge, demo guide, ROADMAP current-release header, and psd1 `ReleaseNotes` alongside the existing wrapper, manifest, public help, and changelog updates. Current public help and demo-guide version stamps were also realigned to v2.2.1.
 - **Release publish gate** — `release-publish.yml` now logs non-blocking PSScriptAnalyzer diagnostics but filters failures to blocking errors before stopping PSGallery publishing, matching the main lint gate behavior that already reports warnings through SARIF/code scanning.
 - **Manual release publish retry** — `release-publish.yml` can now be run manually for an existing tag, so a release can be published to PSGallery without moving the tag when an older tag contains stale workflow logic. Manual publishes now also validate that the GitHub Release exists before PSGallery publishing and serialize runs per release tag.
