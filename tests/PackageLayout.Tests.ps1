@@ -62,3 +62,20 @@ Describe 'PSGallery package layout' {
         { Test-ModuleManifest -Path $manifestPath -ErrorAction Stop } | Should -Not -Throw
     }
 }
+
+Describe 'PSGallery package staging cleans stale files' {
+    It 'Removes pre-existing files from a previous staging run' {
+        $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+        $stageScript = Join-Path $repoRoot 'tools' 'Stage-ModulePackage.ps1'
+        $stageRoot = Join-Path $TestDrive 'staging-clean'
+        $staleFile = Join-Path $stageRoot 'AzVMAvailability' 'stale-from-previous-run.txt'
+
+        New-Item -ItemType Directory -Path (Split-Path $staleFile -Parent) -Force | Out-Null
+        Set-Content -LiteralPath $staleFile -Value 'this should be wiped before the next stage'
+        Test-Path -LiteralPath $staleFile -PathType Leaf | Should -BeTrue
+
+        & $stageScript -RepoRoot $repoRoot -StagingRoot $stageRoot | Out-Null
+
+        Test-Path -LiteralPath $staleFile -PathType Leaf | Should -BeFalse
+    }
+}

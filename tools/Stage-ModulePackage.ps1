@@ -13,12 +13,13 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot = (Split-Path $PSScriptRoot -Parent),
-    [string]$StagingRoot = (Join-Path (Split-Path $PSScriptRoot -Parent) 'staging'),
-    [string]$ModuleName = 'AzVMAvailability'
+    [string]$StagingRoot = (Join-Path (Split-Path $PSScriptRoot -Parent) 'staging')
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$ModuleName = 'AzVMAvailability'
 
 $repoRootPath = (Resolve-Path -LiteralPath $RepoRoot).Path
 $moduleSource = Join-Path $repoRootPath $ModuleName
@@ -35,6 +36,10 @@ else {
 }
 
 $stagingDir = Join-Path $stagingRootPath $ModuleName
+# Wipe any prior staged contents so stale files from previous runs cannot leak into the package.
+if (Test-Path -LiteralPath $stagingDir) {
+    Remove-Item -LiteralPath $stagingDir -Recurse -Force
+}
 New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
 
 Get-ChildItem -LiteralPath $moduleSource -Force | ForEach-Object {
