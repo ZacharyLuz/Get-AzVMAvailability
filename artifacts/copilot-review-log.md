@@ -55,12 +55,6 @@
 **Prevention:** When appending to this log from PowerShell, use either (a) a single-quoted here-string `@'...'@` (no interpolation, no escape interpretation), or (b) direct file editing tools that take literal text. Avoid `@"..."@` for content that contains markdown backticks.
 
 
-## PR #154 — fix/psgallery-package-parity (post-bump review pass)
-
-- Branch: fix/psgallery-package-parity
-- Reviewed head SHA: 09f78c4 (fix in follow-up commit)
-- `ROADMAP.md:5` (Copilot) — "The ROADMAP header was bumped to v2.2.2, but the 'Current Release' summary immediately below still describes v2.2.1. This makes the roadmap internally inconsistent; update the blockquote section to describe v2.2.2 (or add a new v2.2.2 summary entry above the v2.2.1 entry)." Assessment: **Agree**. Action: added a new v2.2.2 summary blockquote above the existing v2.2.1 summary, mirroring the wording style used for v2.2.1 / v2.2.0 (subject + theme + see CHANGELOG.md). The summary covers the four PR #154 fixes: PSGallery package staging + Pester guard, version-bump.yml stamp coverage, release-publish lint filter, and manual release-publish retry / serialization.
-
 ## PR #155 — ci/auto-publish-on-merge
 
 - Branch: ci/auto-publish-on-merge
@@ -70,3 +64,17 @@
 - `.github/workflows/auto-publish.yml:189` (Copilot) — "`[regex]::Replace($text, $t.Pattern, $replacement, 1)` is not a reliable way to limit replacements to a single match. In .NET, the 4-argument overload commonly binds the last argument as `RegexOptions` (so `1` becomes `IgnoreCase`)." Assessment: **Agree**. Action: replaced static call with a `[regex]::new($t.Pattern)` instance and called the instance `.Replace(input, replacement, 1)` overload, which genuinely accepts a count.
 - `.github/workflows/auto-publish.yml:398` (Copilot) — "The dry-run output line uses `"$(${{ steps.detect.outputs.latest_tag }})"`, which will be expanded by Actions into something like `$(v2.2.2)` and then executed as a PowerShell subexpression, causing a parse/runtime error." Assessment: **Agree**. Action: removed the `$(...)` wrapper so Actions interpolation is printed verbatim, matching the previous two `Write-Host` lines.
 - `.github/workflows/auto-publish.yml:195` (Copilot) — "The workflow writes PowerShell files (`*.ps1`/`*.psd1`) using `Set-Content -Encoding utf8`, which in pwsh writes UTF-8 **without BOM** and may also introduce LF-only line endings where the repo requires CRLF." Assessment: **Partially Agree** (intentional non-fix in this PR). The `.editorconfig` does require UTF-8-BOM for `*.ps1`/`*.psm1`/`*.psd1`, but `.github/workflows/version-bump.yml` already uses the identical `Set-Content -Encoding utf8` / `Add-Content -Encoding utf8` pattern on the same file set. Fixing it only in `auto-publish.yml` would create asymmetry between the two workflows that share these targets, and would risk diverging output. Action: leaving as-is in PR #155 to preserve parity with the established `version-bump.yml` pattern; tracked as a separate cleanup that should fix both workflows in one pass.
+
+## PR #154 — fix/psgallery-package-parity (post-bump review pass)
+
+- Branch: fix/psgallery-package-parity
+- Reviewed head SHA: 09f78c4 (fix in follow-up commit)
+- `ROADMAP.md:5` (Copilot) — "The ROADMAP header was bumped to v2.2.2, but the 'Current Release' summary immediately below still describes v2.2.1. This makes the roadmap internally inconsistent; update the blockquote section to describe v2.2.2 (or add a new v2.2.2 summary entry above the v2.2.1 entry)." Assessment: **Agree**. Action: added a new v2.2.2 summary blockquote above the existing v2.2.1 summary, mirroring the wording style used for v2.2.1 / v2.2.0 (subject + theme + see CHANGELOG.md). The summary covers the four PR #154 fixes: PSGallery package staging + Pester guard, version-bump.yml stamp coverage, release-publish lint filter, and manual release-publish retry / serialization.
+
+
+## PR (follow-up to #154) — fix/post-merge-roadmap-reviewlog
+
+- Branch: fix/post-merge-roadmap-reviewlog
+- Reviewed head SHA: pending (post-merge fix-up branch)
+- `ROADMAP.md:5` (Copilot, ID 3209405083) — "The current-release blockquote claims `release-publish.yml reports PSScriptAnalyzer warnings via SARIF and only blocks on errors`, but that workflow has no `upload-sarif` step or `security-events: write` permission, and uses `-Severity Error,Warning` so it blocks on warnings too. The SARIF + errors-only claim is not accurate." Assessment: **Agree**. Action: replaced the inaccurate sentence with `release-publish.yml runs PSScriptAnalyzer (Error/Warning severity, shared PSScriptAnalyzerSettings.psd1) before publishing, supports manual retry against an existing tag, and serializes runs per release.` — wording now matches what the workflow actually does. No SARIF emitter added (out of scope per Simplicity First).
+- `artifacts/copilot-review-log.md:33` (Copilot, ID 3209405138) — "This PR adds a new PR #154 block above an existing PR #155 entry, which isn't an append-at-end update." Assessment: **Agree**. Action: swapped the PR #154 (post-bump) and PR #155 sections so PR #155 (which landed on main first) precedes PR #154 (post-bump), and this follow-up entry is appended at strict EOF — restoring strict append-at-end ordering for future audits.

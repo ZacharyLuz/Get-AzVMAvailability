@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (docs)
+- **ROADMAP current-release blockquote (Copilot review on PR #154)** — replaced the inaccurate claim that `release-publish.yml` "reports PSScriptAnalyzer warnings via SARIF and only blocks on errors" with what the workflow actually does: runs PSScriptAnalyzer at Error/Warning severity using the shared `PSScriptAnalyzerSettings.psd1`. Verified the workflow has no `upload-sarif` step and no `security-events: write` permission.
+- **`artifacts/copilot-review-log.md` ordering (Copilot review on PR #154)** — restored strict append-at-end ordering by swapping the PR #155 and PR #154 (post-bump) sections so the section-order matches merge order, and appended a new follow-up entry at strict EOF.
+
 ## [2.2.2] — 2026-05-08
 **Theme: PSGallery package parity with the GitHub repo.**
 
