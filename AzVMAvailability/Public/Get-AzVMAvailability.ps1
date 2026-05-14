@@ -45,6 +45,11 @@ function Get-AzVMAvailability {
 .PARAMETER SkuFilter
     Filter to specific SKU names. Supports wildcards (e.g., 'Standard_D*_v5').
 
+.PARAMETER ArchFilter
+    Filter to specific CPU architectures (x64, ARM64). Multiple values allowed.
+    Use to exclude ARM64 SKUs when planning x64-only workloads, or vice versa.
+    Example: -ArchFilter x64 (excludes all ARM64 SKUs)
+
 .PARAMETER ShowPricing
     Show hourly/monthly pricing for VM SKUs.
     Auto-detects negotiated rates (EA/MCA/CSP) via Cost Management API.
@@ -289,6 +294,10 @@ param(
 
     [Parameter(Mandatory = $false, HelpMessage = "Filter to specific SKUs (supports wildcards)")]
     [string[]]$SkuFilter,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Filter to specific CPU architectures (x64, ARM64, or Arm64)")]
+    [ValidateSet("x64", "ARM64", "Arm64")]
+    [string[]]$ArchFilter,
 
     [Parameter(Mandatory = $false, HelpMessage = "Show hourly pricing (auto-detects negotiated rates, falls back to retail)")]
     [switch]$ShowPricing,
@@ -1643,6 +1652,9 @@ Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ',
 if ($SkuFilter -and $SkuFilter.Count -gt 0) {
     Write-Host "SKU Filter: $($SkuFilter -join ', ')" -ForegroundColor Yellow
 }
+if ($ArchFilter -and $ArchFilter.Count -gt 0) {
+    Write-Host "Architecture Filter: $($ArchFilter -join ', ')" -ForegroundColor Yellow
+}
 Write-Host "Icons: $(if ($supportsUnicode) { 'Unicode' } else { 'ASCII' }) | Pricing: $(if ($FetchPricing) { 'Enabled' } else { 'Disabled' })" -ForegroundColor DarkGray
 if ($script:RunContext.ImageReqs) {
     Write-Host "Image: $ImageURN" -ForegroundColor Cyan
@@ -1936,6 +1948,17 @@ try {
                     })
                 }
 
+                # NEW: Architecture filtering
+                if ($ArchFilter -and $ArchFilter.Count -gt 0) {
+                    $allSkus = @($allSkus | Where-Object {
+                        $sku = $_
+                        $caps = Get-SkuCapabilities -Sku $sku
+                        $skuArch = $caps.CpuArchitecture
+                        # Normalize comparison (ARM64 vs Arm64)
+                        $ArchFilter | Where-Object { $_ -eq $skuArch -or ($_ -eq 'ARM64' -and $skuArch -eq 'Arm64') } | Select-Object -First 1
+                    })
+                }
+
                 $normalizedSkus = foreach ($sku in $allSkus) { ConvertFrom-RestSku -RestSku $sku }
                 $normalizedQuotas = if ($skipQuota) { @() } else {
                     foreach ($q in $quotaResult) { ConvertFrom-RestQuota -RestQuota $q }
@@ -1961,6 +1984,7 @@ try {
                     $subId = $item.SubscriptionId
                     $region = $item.Region
                     $skuFilterCopy = $using:SkuFilter
+                    $archFilterCopy = $using:ArchFilter
                     $maxRetries = $using:MaxRetries
                     $armUrl = $using:armUrl
                     $tokenBag = $using:tokenBag
@@ -2041,6 +2065,25 @@ try {
                                     if ($skuName -like $pattern) { $isMatch = $true; break }
                                 }
                                 $isMatch
+                            })
+                        }
+
+                        # NEW: Architecture filtering (duplicate from serial block for parallel execution)
+                        if ($archFilterCopy -and $archFilterCopy.Count -gt 0) {
+                            $allSkus = @($allSkus | Where-Object {
+                                $sku = $_
+                                # Inline SkuCapabilities extraction (can't call module functions from parallel runspace)
+                                $skuArch = 'x64'  # Default
+                                if ($sku.Capabilities) {
+                                    foreach ($cap in $sku.Capabilities) {
+                                        if ($cap.Name -eq 'CpuArchitectureType') {
+                                            $skuArch = $cap.Value
+                                            break
+                                        }
+                                    }
+                                }
+                                # Normalize comparison (ARM64 vs Arm64)
+                                $archFilterCopy | Where-Object { $_ -eq $skuArch -or ($_ -eq 'ARM64' -and $skuArch -eq 'Arm64') } | Select-Object -First 1
                             })
                         }
 

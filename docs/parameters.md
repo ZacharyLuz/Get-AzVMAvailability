@@ -13,6 +13,7 @@
 | `-EnableDrillDown`      | Switch   | Interactive family/SKU exploration                                                                                        |
 | `-FamilyFilter`         | String[] | Filter to specific VM families                                                                                            |
 | `-SkuFilter`            | String[] | Filter to specific SKUs (supports wildcards)                                                                              |
+| `-ArchFilter`           | String[] | Filter to specific CPU architectures (x64, ARM64). Multiple values allowed to include both architectures                  |
 | `-ShowPricing`          | Switch   | Show pricing (auto-detects negotiated EA/MCA/CSP rates, falls back to retail)                                             |
 | `-ShowSpot`             | Switch   | Include Spot VM pricing in output. Requires `-ShowPricing`                                                                |
 | `-ShowPlacement`        | Switch   | Show allocation likelihood scores (High/Medium/Low) for each SKU via Azure Spot Placement API                            |
