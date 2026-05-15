@@ -168,7 +168,7 @@ Always redirect Pester output to log file in CI: `Invoke-Pester ... *> artifacts
 All 39 parameters are preserved with identical names, types, defaults, aliases, and validation attributes. See `Get-Help Get-AzVMAvailability -Full` after module import for complete reference. Key parameter groups:
 
 - **Region & Subscription**: `SubscriptionId` (aliases: SubId, Subscription), `Region` (alias: Location), `RegionPreset`, `Environment`, `SkipRegionValidation`
-- **Filtering**: `FamilyFilter`, `SkuFilter`, `ImageURN`
+- **Filtering**: `FamilyFilter`, `SkuFilter`, `ArchFilter`, `ImageURN`
 - **Pricing & Placement**: `ShowPricing`, `ShowSpot`, `ShowPlacement`, `DesiredCount`, `RateOptimization`
 - **Recommend Mode**: `Recommend`, `TopN`, `MinScore`, `MinvCPU`, `MinMemoryGB`, `AllowMixedArch`
 - **Lifecycle Analysis**: `LifecycleRecommendations`, `LifecycleScan`, `ManagementGroup`, `ResourceGroup`, `Tag` (alias: Tags), `SubMap`, `RGMap`

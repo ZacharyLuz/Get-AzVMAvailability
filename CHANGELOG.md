@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-05-14
+
+### Added
+- **`-ArchFilter` parameter** — filter scan results to specific CPU architectures (x64, ARM64)
+  - Supports multiple values: `-ArchFilter "x64","ARM64"` to include both
+  - Applied during SKU enumeration (reduces scan payload and improves performance)
+  - Works with all existing filters (`-FamilyFilter`, `-SkuFilter`, `-ImageURN`)
+  - Header displays active architecture filter for transparency
+  - Validates against Azure capability metadata (normalizes ARM64 vs Arm64)
+
 ## [Unreleased]
 
 ### Fixed (docs)

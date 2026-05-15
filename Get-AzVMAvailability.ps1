@@ -68,6 +68,10 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Filter to specific SKUs (supports wildcards)")]
     [string[]]$SkuFilter,
 
+    [Parameter(Mandatory = $false, HelpMessage = "Filter to specific CPU architectures")]
+    [ValidateSet("x64", "ARM64", "Arm64")]
+    [string[]]$ArchFilter,
+
     [Parameter(Mandatory = $false, HelpMessage = "Show hourly pricing (auto-detects negotiated rates, falls back to retail)")]
     [switch]$ShowPricing,
 

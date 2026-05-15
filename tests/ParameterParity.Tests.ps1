@@ -21,7 +21,7 @@ Describe 'Get-AzVMAvailability Parameter Parity' {
 
         $testCases = @(
             'SubscriptionId', 'Region', 'RegionPreset', 'ExportPath', 'AutoExport',
-            'EnableDrillDown', 'FamilyFilter', 'SkuFilter', 'ShowPricing', 'ShowSpot',
+            'EnableDrillDown', 'FamilyFilter', 'SkuFilter', 'ArchFilter', 'ShowPricing', 'ShowSpot',
             'ShowPlacement', 'DesiredCount', 'ImageURN', 'CompactOutput', 'NoPrompt',
             'NoQuota', 'OutputFormat', 'UseAsciiIcons', 'Environment', 'MaxRetries',
             'Recommend', 'TopN', 'MinScore', 'MinvCPU', 'MinMemoryGB', 'JsonOutput',
@@ -47,6 +47,7 @@ Describe 'Get-AzVMAvailability Parameter Parity' {
             @{ Name = 'EnableDrillDown';           ExpectedType = 'System.Management.Automation.SwitchParameter' }
             @{ Name = 'FamilyFilter';              ExpectedType = 'System.String[]' }
             @{ Name = 'SkuFilter';                 ExpectedType = 'System.String[]' }
+            @{ Name = 'ArchFilter';                ExpectedType = 'System.String[]' }
             @{ Name = 'ShowPricing';               ExpectedType = 'System.Management.Automation.SwitchParameter' }
             @{ Name = 'ShowSpot';                  ExpectedType = 'System.Management.Automation.SwitchParameter' }
             @{ Name = 'ShowPlacement';             ExpectedType = 'System.Management.Automation.SwitchParameter' }
@@ -170,6 +171,14 @@ Describe 'Get-AzVMAvailability Parameter Parity' {
             $attr.ValidValues | Should -Contain 'AzureCloud'
             $attr.ValidValues | Should -Contain 'AzureUSGovernment'
             $attr.ValidValues | Should -Contain 'AzureChinaCloud'
+        }
+
+        It 'ArchFilter has x64, ARM64, Arm64' {
+            $attr = $script:params['ArchFilter'].Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+            $attr | Should -Not -BeNullOrEmpty
+            $attr.ValidValues | Should -Contain 'x64'
+            $attr.ValidValues | Should -Contain 'ARM64'
+            $attr.ValidValues | Should -Contain 'Arm64'
         }
     }
 
