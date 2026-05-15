@@ -295,7 +295,7 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Filter to specific SKUs (supports wildcards)")]
     [string[]]$SkuFilter,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Filter to specific CPU architectures (x64, ARM64, or Arm64)")]
+    [Parameter(Mandatory = $false, HelpMessage = "Filter to specific CPU architectures (x64, ARM64, or Arm64). SKUs without explicit architecture metadata are excluded when filter is active.")]
     [ValidateSet("x64", "ARM64", "Arm64")]
     [string[]]$ArchFilter,
 
@@ -1948,14 +1948,18 @@ try {
                     })
                 }
 
-                # NEW: Architecture filtering
+                 # NEW: Architecture filtering
                 if ($ArchFilter -and $ArchFilter.Count -gt 0) {
+                    # Normalize filter values (ARM64 → Arm64 for consistent comparison)
+                    $normalizedFilters = @($ArchFilter | ForEach-Object { 
+                        if ($_ -eq 'ARM64') { 'Arm64' } else { $_ } 
+                    })
                     $allSkus = @($allSkus | Where-Object {
                         $sku = $_
                         $caps = Get-SkuCapabilities -Sku $sku
                         $skuArch = $caps.CpuArchitecture
-                        # Normalize comparison (ARM64 vs Arm64)
-                        $ArchFilter | Where-Object { $_ -eq $skuArch -or ($_ -eq 'ARM64' -and $skuArch -eq 'Arm64') } | Select-Object -First 1
+                        # Only include SKUs with explicit architecture match (exclude unknown/missing)
+                        $null -ne $skuArch -and $normalizedFilters -contains $skuArch
                     })
                 }
 
@@ -2070,10 +2074,14 @@ try {
 
                         # NEW: Architecture filtering (duplicate from serial block for parallel execution)
                         if ($archFilterCopy -and $archFilterCopy.Count -gt 0) {
+                            # Normalize filter values (ARM64 → Arm64 for consistent comparison)
+                            $normalizedFilters = @($archFilterCopy | ForEach-Object { 
+                                if ($_ -eq 'ARM64') { 'Arm64' } else { $_ } 
+                            })
                             $allSkus = @($allSkus | Where-Object {
                                 $sku = $_
                                 # Inline SkuCapabilities extraction (can't call module functions from parallel runspace)
-                                $skuArch = 'x64'  # Default
+                                $skuArch = $null  # Default to null (unknown architecture)
                                 if ($sku.Capabilities) {
                                     foreach ($cap in $sku.Capabilities) {
                                         if ($cap.Name -eq 'CpuArchitectureType') {
@@ -2082,8 +2090,8 @@ try {
                                         }
                                     }
                                 }
-                                # Normalize comparison (ARM64 vs Arm64)
-                                $archFilterCopy | Where-Object { $_ -eq $skuArch -or ($_ -eq 'ARM64' -and $skuArch -eq 'Arm64') } | Select-Object -First 1
+                                # Only include SKUs with explicit architecture match (exclude unknown/missing)
+                                $null -ne $skuArch -and $normalizedFilters -contains $skuArch
                             })
                         }
 
