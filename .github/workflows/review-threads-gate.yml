@@ -1,0 +1,84 @@
+name: "Review Threads Gate"
+
+# Blocks merge if any PR review threads are unresolved.
+# Contributors must either fix Copilot/reviewer findings or reply with
+# a rationale and resolve the thread themselves.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-threads:
+    name: All review threads resolved
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for unresolved review threads
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const prNumber = context.payload.pull_request?.number
+              ?? context.payload.review?.pull_request?.number
+              ?? context.payload.comment?.pull_request_url?.split('/').pop();
+
+            if (!prNumber) {
+              core.setFailed('Could not determine PR number from event payload.');
+              return;
+            }
+
+            // GraphQL query to get all review threads and their resolved status
+            const query = `query($owner: String!, $repo: String!, $pr: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $pr) {
+                  reviewThreads(first: 100) {
+                    nodes {
+                      isResolved
+                      isOutdated
+                      comments(first: 1) {
+                        nodes {
+                          author { login }
+                          body
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }`;
+
+            const result = await github.graphql(query, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pr: Number(prNumber)
+            });
+
+            const threads = result.repository.pullRequest.reviewThreads.nodes;
+            const unresolved = threads.filter(t => !t.isResolved && !t.isOutdated);
+
+            if (unresolved.length === 0) {
+              core.info(`✅ All ${threads.length} review threads are resolved or outdated.`);
+              return;
+            }
+
+            // Build a summary of unresolved threads
+            const summary = unresolved.map((t, i) => {
+              const comment = t.comments.nodes[0];
+              const author = comment?.author?.login ?? 'unknown';
+              const preview = (comment?.body ?? '').substring(0, 120).replace(/\n/g, ' ');
+              return `  ${i + 1}. @${author}: ${preview}${comment?.body?.length > 120 ? '...' : ''}`;
+            }).join('\n');
+
+            core.setFailed(
+              `❌ ${unresolved.length} unresolved review thread(s) found.\n\n` +
+              `All review comments must be resolved before merging.\n` +
+              `For each comment: fix the issue, OR reply with your rationale and resolve the thread.\n\n` +
+              `Unresolved threads:\n${summary}`
+            );
