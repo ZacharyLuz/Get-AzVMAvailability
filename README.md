@@ -7,7 +7,7 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.3.0-brightgreen)
+![Version](https://img.shields.io/badge/Version-2.3.1-brightgreen)
 
 ## Overview
 
@@ -15,26 +15,45 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 
 ## What's New
 
-### v2.3.0 — Architecture Filter (May 2026)
-- **`-ArchFilter` parameter** — filter scan results to specific CPU architectures (`x64`, `ARM64`). Supports multiple values, applied during SKU enumeration for cleaner results and faster scans. Header displays an interpretability hint when active.
+### v2.3.1
+- Metadata-only: updated README What's New section and CHANGELOG release notes for PSGallery parity
 
-### v2.2.2 — PSGallery Package Parity (May 2026)
-- **PSGallery installs now include all runtime assets** — UpgradePath data, README, LICENSE, CHANGELOG, examples, and curated docs are staged into the module package before publishing. A Pester test guards the layout.
-- **Version bump workflow coverage** — README badge, demo guide, ROADMAP header, and psd1 `ReleaseNotes` are now updated atomically alongside existing version stamps.
+### v2.3.0
+- **`-ArchFilter` parameter** — filter scan results to specific CPU architectures (x64, ARM64)
+- **ValidateSet cleanup** — removed redundant `Arm64` from `-ArchFilter` ValidateSet (PowerShell is case-insensitive)
+- **Serial scan path** — inlined `CpuArchitectureType` extraction to match parallel block pattern; unknown-arch SKUs now excluded (was defaulting to x64)
+- **CHANGELOG placement** — moved ArchFilter entry from premature `[2.3.0]` to `[Unreleased]` (corrected in this release)
 
-### v2.2.1 — Pricing Correctness Follow-up (April 2026)
-- **Tier 2 region scoping** — Cost Management fallback now groups by `ResourceLocation` so multi-region subscriptions don't cross-contaminate cached rates.
-- **Spot/Low-Priority laundering fix** — Tier 2 no longer silently caches spot rates as negotiated PAYG.
-- **Savings Plan alias resolution** — SP1Yr/SP3Yr maps now apply the same ARM→cache alias pass as the Regular PAYG map, fixing silent retail fallback in commercial regions.
+### v2.2.2
+- **PSGallery package parity** - release publishing now stages the runtime UpgradePath data, README, LICENSE, CHANGELOG, examples, and curated docs into the module package before publishing. A package-layout Pester test now guards those assets so PSGallery installs keep parity with repo-based usage.
+- **Version bump workflow coverage** — `version-bump.yml` now updates the README badge, demo guide, ROADMAP current-release header, and psd1 `ReleaseNotes` alongside the existing wrapper, manifest, public help, and changelog updates. Current public help and demo-guide version stamps were also realigned to v2.2.1.
+- **Release publish gate** — `release-publish.yml` now logs non-blocking PSScriptAnalyzer diagnostics but filters failures to blocking errors before stopping PSGallery publishing, matching the main lint gate behavior that already reports warnings through SARIF/code scanning.
 
-### v2.2.0 — Pricing Correctness & Lifecycle UX (April 2026)
-- **`-AZ` switch** — adds `Zones (Deployed)` and `Zones (Supported)` columns in lifecycle reports (auto-enabled by `-LifecycleRecommendations`)
-- **Commercial pricing fix** — 70+ region ARM→cache alias table resolves negotiated rates that were silently falling back to retail
-- **GOV / sovereign cloud fixes** — Savings Plan columns omitted for sovereign tenants; RI/SP/Spot retail rates preserved when negotiated price sheet succeeds
+### v2.2.1
+- **Tier 2 (Cost Management) was not actually region-scoped.** The fallback query filtered only `MeterCategory = 'Virtual Machines'` and grouped by `MeterSubcategory` + `Meter`, then wrote every returned usage-derived rate under the requested `$armLocation`. In a subscription with multi-region VM usage, another region's effective rate could be cached as the queried region's negotiated PAYG. The query now also groups by `ResourceLocation`, and rows whose normalized location does not equal `$armLocation` are rejected before being written to the cache. A small `Tier 2 skip reasons` verbose line surfaces the new counters.
+- **Tier 2 silently laundered Spot / Low Priority rows into the negotiated PAYG map.** The previous code stripped a trailing ` Spot` / ` Low Priority` from the meter name with a regex, so a spot rate (~⅛ of PAYG) could be cached as a negotiated PAYG rate. Spot/Low-Priority rows are now skipped outright in Tier 2, matching the Tier 1 behaviour fixed in v2.2.0.
+- **Negotiated Savings Plan maps fell back to retail in commercial regions.** The Price Sheet API publishes SP rows under `meterLocation` keys (`useast2`, `euwest`, `apsoutheast`), but the ARM→cache alias pass that the Regular PAYG map enjoys was never run on the SP1Yr / SP3Yr maps. Commercial regions like `eastus2` therefore missed every negotiated SP probe and silently inherited retail SP rates. A shared `applyArmAliases` helper now applies the same alias resolution to the Regular map and both Savings Plan term maps, in both the live-scan path and the disk-cache load path. Existing v4 disk caches are fixed up on load — no cache version bump or one-time refetch required.
+- **`tools/Update-RetirementData.ps1`** no longer stamps `Last verified: <today>` when newly detected series still need manual regex patterns added. With pending entries, the script now emits a warning, leaves the timestamp untouched, and exits non-zero so CI/operators can act on the gap before the static table is marked fresh.
+- **`-LifecycleRecommendations <path>` legacy positional form preserved.** When `-LifecycleRecommendations` was reshaped from `[string]` to `[switch]` (with the path moving to `-LifecycleFile`), existing callers using the old positional form `-LifecycleRecommendations .\my-vms.csv` would error out. `-LifecycleFile` is now `Position = 0`, so the legacy invocation rebinds the path to `-LifecycleFile` and continues to work.
+- **`Get-SkuRetirementInfo.ps1`: Av1 (`Retired`) entry moved into the retired block** so the table sections match their statuses (was sitting under "Scheduled for retirement").
+- **`-AZ` HelpMessage** in the wrapper now matches the actual lifecycle output (`Zones (Deployed)` + `Zones (Supported)`); previously claimed a single `Zones (Available)` column.
 
-### v2.1.1 — Retirement Data & CI Fixes (April 2026)
-- **Retirement data freshness** — staleness check is opt-in via environment variable; structural assertions are always-on
-- **CI reliability** — PSScriptAnalyzer empty-catch fixes, UTF-8 BOM alignment, unreachable bash heredoc removed
+### v2.2.0
+- **Commercial regions silently used retail prices despite a populated negotiated cache.** The Consumption Price Sheet API publishes `meterLocation` values in `<geoShort><locality>` form (`uswest`, `useast2`, `euwest`, `apsoutheast`, `jaeast`, `dewestcentral`), but the resolver compared them against ARM `<locality><geo>` names (`westus`, `eastus2`, `westeurope`, `southeastasia`, `japaneast`, `germanywestcentral`). Only sovereign aliases were in the lookup table, so every commercial scan logged `no negotiated rates for '<region>' — falling back to retail` even when 70k+ SKUs across 87 regions were sitting in the cache. Resolver now (a) consults a 70+ entry explicit ARM→cache alias table covering every public commercial region observed in EA price sheets, including the non-obvious `japaneast → jaeast` (“ja”, not “jp”), and (b) falls back to a generic geo-token permutation derived from `australia↔au`, `germany↔de`, `europe↔eu`, `asia↔ap`, `india↔in`, `korea↔kr`, `brazil↔br`, `canada↔ca`, `mexico↔mx`, `france↔fr`, `sweden↔se`, `norway↔no`, `switzerland↔ch`, `italy↔it`, `spain↔es`, `poland↔pl`, `israel↔il`, `denmark↔dk`, `austria↔at`, `belgium↔be`, `newzealand↔nz`, `malaysia↔my`, `indonesia↔id`, `taiwan↔tw`, `uae↔ae`, `qatar↔qa`, `southafrica→za` so future regions auto-resolve before the table is updated. The cache-miss diagnostic also stops claiming “No sovereign keys present in cache” for non-sovereign regions where that hint is irrelevant.
+- **Misleading `Ns remaining` ETA stuck near 100%.** The parallel sub×region scanner divides remaining work by average throughput, but the last few items are usually slow regions / throttled subscriptions whose runtime exceeds the average by 5–20×. The bar would freeze at e.g. `1263 / 1266 · 11s remaining` while the final stragglers ran for several minutes. When `remaining ≤ max(3, 0.5%)`, the status now shows `finalizing N straggler(s)...` instead of an inaccurate countdown.
+- **Progress bar lingered during regrouping.** After the parallel poll loop exited, the bar's last frame stayed visible in some terminals while the per-subscription `[N/total]` announce lines scrolled. The bar is now force-completed immediately after the poll loop, and `$ProgressPreference` is pinned to `SilentlyContinue` for the regrouping phase so any stray inner write can't redraw it.
+- **`-AZ` switch — Availability Zones in lifecycle reports** — Adds two new zone columns; auto-enabled by `-LifecycleRecommendations` so the default lifecycle XLSX now includes zones with no extra flags.
+  - **`Zones (Deployed)`** on the **SubMap** and **Resource Group Map** sheets — shows the union of zones the affected VMs are *currently* deployed to (e.g., `1,2,3` or `Non-zonal`). Sourced from the ARG `zones` projection in live mode and from `Zone`/`Zones`/`AvailabilityZone` columns in file mode.
+  - **`Zones (Supported)`** on the **Lifecycle Summary**, **High Risk**, and **Medium Risk** sheets, inserted between `Alt Score` and `CPU +/-` — shows OK / Limited / Restricted zones for the *recommended alternative* SKU in the deployed region (e.g., `✓ Zones 1,2 | ⚠ Zones 3`, `Non-zonal`). Cross-region fallback applied when the SKU isn't indexed in the deployed region.
+- **Issue 1 — Generalized quota text on Summary** — Stripped per-sub `Quota: need NxNvCPU` fragments from the Lifecycle Summary `Risk Reasons` column. Per-sub quota detail remains on the SubMap / RGMap sheets where it is meaningful.
+- **Issue 2 — Missing ACU values for upgrade-path candidates** — Added cross-region ACU fallback: if a recommended alternative isn't indexed in the deployed region, scan all scanned regions for the same SKU before reporting `-`.
+- **Issue 3 — Savings Plan columns shown for sovereign clouds** — Auto-detect `$script:TargetEnvironment` (AzureCloud / AzureUSGovernment / AzureChinaCloud) and omit `SP 1-Year Savings` / `SP 3-Year Savings` columns entirely for tenants where Savings Plans aren't offered. RI columns are still emitted.
+- **Dedupe candidate pool in lifecycle recommendation loop (~100×)** — At-scale lifecycle phase reduced from ~7 hr to ~3–5 min on 196-sub × 224-SKU fleets by deduping the candidate pool before scoring.
+- **Parallel cross-sub scan** — `ForEach-Object -Parallel` across subscriptions for the lifecycle/quota path; per-region+restriction dedup before scoring.
+- **Tenant-wide ARG Advisor query** — Replaced N-subscription REST calls with a single tenant-wide `Microsoft.Advisor/recommendations` ARG query at module start.
+- **`tools/Probe-PriceSheetRI.ps1`** — Discovery probe that walks a subscription's Consumption Price Sheet API and buckets meters across 6 tiers (PAYG, Reservation 1Yr/3Yr, Savings Plan 1Yr/3Yr, Spot) to determine whether negotiated RI / SP rates are available for the parser to harvest. Supports both commercial and sovereign tenants.
+- **`tools/Dump-PriceSheetRaw.ps1`** — Captures every Price Sheet row verbatim (no source-side filtering) into per-page JSON files + zip for offline parser/schema design and support evidence.
+- **`tools/Inspect-PriceSheetCache.ps1`** (companion repo) — read-only diagnostic that loads the on-disk Price Sheet cache, lists every cache key, runs an ARM-name probe and an alias probe against suspected meterLocation conventions, and dumps a sample SKU entry. Output is teed to a timestamped `results.<yyyyMMdd-HHmmss>.log` with embedded ANSI color escapes. No Azure API calls. Used to prove the `<geoShort><locality>` mismatch in the commercial-pricing fix above.
 
 > Full history: [CHANGELOG.md](CHANGELOG.md)
 
