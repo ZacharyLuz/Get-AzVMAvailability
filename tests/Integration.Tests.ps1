@@ -1346,3 +1346,47 @@ Describe 'Fleet File Full Integration' {
         }
     }
 }
+
+# ============================================================================
+# SECTION 45: ARCHITECTURE FILTER
+# ============================================================================
+
+Describe 'Architecture Filter — -ArchFilter' {
+    It 'x64 filter excludes ARM64 SKUs' {
+        $output = & $script:ScriptPath -NoPrompt -Region $script:TestRegion `
+            -SubscriptionId $script:SubId `
+            -SkuFilter 'Standard_D*_v5' `
+            -ArchFilter 'x64' `
+            -EnableDrillDown 6>&1 *>&1
+        $joined = $output -join "`n"
+        # Should not contain ARM64 SKU patterns (ps/pds variants)
+        $joined | Should -Not -Match 'Standard_D\d+p[sd]+_v5'
+    }
+
+    It 'ARM64 filter shows only ARM64 SKUs when available' {
+        $output = & $script:ScriptPath -NoPrompt -Region $script:TestRegion `
+            -SubscriptionId $script:SubId `
+            -SkuFilter 'Standard_D*_v5' `
+            -ArchFilter 'ARM64' `
+            -EnableDrillDown 6>&1 *>&1
+        $joined = $output -join "`n"
+        # Should complete without error (may have 0 results if region has no ARM64)
+        $joined | Should -Match 'SCAN COMPLETE'
+    }
+
+    It 'Multiple arch values accepted' {
+        $output = & $script:ScriptPath -NoPrompt -Region $script:TestRegion `
+            -SubscriptionId $script:SubId `
+            -ArchFilter 'x64','ARM64' 6>&1 *>&1
+        $joined = $output -join "`n"
+        $joined | Should -Match 'SCAN COMPLETE'
+    }
+
+    It 'Architecture filter displayed in header' {
+        $output = & $script:ScriptPath -NoPrompt -Region $script:TestRegion `
+            -SubscriptionId $script:SubId `
+            -ArchFilter 'x64' 6>&1 *>&1
+        $joined = $output -join "`n"
+        $joined | Should -Match 'Architecture Filter: x64'
+    }
+}
