@@ -20,10 +20,9 @@ on:
           - minor
           - major
       changelog_summary:
-        description: "One-line summary for CHANGELOG stub (leave blank to fill in PR)"
-        required: false
+        description: "One-line summary for CHANGELOG and psd1 ReleaseNotes (REQUIRED)"
+        required: true
         type: string
-        default: ""
       draft_pr:
         description: "Open PR as draft"
         required: false
@@ -154,11 +153,10 @@ jobs:
           $changelog = Get-Content $changelogPath -Raw
           $date = (Get-Date -Format 'yyyy-MM-dd')
           $summary = $env:CHANGELOG_SUMMARY
-          $summaryLine = if ([string]::IsNullOrWhiteSpace($summary)) {
-              '- _TODO: describe the change before merging._'
-          } else {
-              "- $summary"
+          if ([string]::IsNullOrWhiteSpace($summary)) {
+              throw 'changelog_summary is required. Provide a one-line description of the release.'
           }
+          $summaryLine = "- $summary"
           $stubLines = @(
               "## [$newVersion] - $date",
               '',
@@ -183,11 +181,7 @@ jobs:
 
           $psdPath = 'AzVMAvailability/AzVMAvailability.psd1'
           $psdContent = Get-Content $psdPath -Raw
-          $releaseDesc = if ([string]::IsNullOrWhiteSpace($env:CHANGELOG_SUMMARY)) {
-              "TODO: describe changes for $newVersion before merging."
-          } else {
-              $env:CHANGELOG_SUMMARY
-          }
+          $releaseDesc = $env:CHANGELOG_SUMMARY
           $releaseDescEscaped = $releaseDesc -replace "'", "''"
           $psdRnPattern = "(?m)^(\s*ReleaseNotes\s*=\s*')((?:''|[^'])*)(')\s*$"
           $psdRnReplacement = "`${1}v${newVersion}: ${releaseDescEscaped}`${3}"
@@ -311,11 +305,7 @@ jobs:
           $tableRows = @($tableRows) + @("| CHANGELOG stub prepended for $($env:NEW_VERSION) | CHANGELOG.md - release header inserted before prior top release | [OBSERVED] |")
           $tableRows = @($tableRows) + @("| psd1 ReleaseNotes updated to v$($env:NEW_VERSION) | AzVMAvailability/AzVMAvailability.psd1 - version prefix + changelog_summary | [OBSERVED] |")
 
-          $summaryDisplay = if ([string]::IsNullOrWhiteSpace($env:CHANGELOG_SUMMARY)) {
-              '_Not provided at dispatch - fill in before requesting review._'
-          } else {
-              $env:CHANGELOG_SUMMARY
-          }
+          $summaryDisplay = $env:CHANGELOG_SUMMARY
 
           $bodyLines = @(
               '## Description',

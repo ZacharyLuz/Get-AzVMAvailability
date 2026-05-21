@@ -84,6 +84,13 @@ jobs:
               throw "ScriptVersion changed ($baseVersion -> $headVersion) but CHANGELOG.md is missing heading: ## [$headVersion]"
             }
             Write-Host "CHANGELOG heading ## [$headVersion] found."
+
+            # Block merge if CHANGELOG entry still has a TODO stub
+            $versionSection = [regex]::Match($changelog, "(?s)## \[$([regex]::Escape($headVersion))\][^\n]*\n(.*?)(?=\n## \[|\z)")
+            if ($versionSection.Success -and $versionSection.Groups[1].Value -match '_TODO:') {
+              throw "CHANGELOG ## [$headVersion] still contains a _TODO: stub. Fill in the release notes before merging."
+            }
+            Write-Host "CHANGELOG ## [$headVersion] has no TODO stubs."
           } else {
             Write-Host "ScriptVersion unchanged ($headVersion). Verifying [Unreleased] section has content..."
             # Capture content between ## [Unreleased] heading and the next ## [ heading
