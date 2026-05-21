@@ -15,23 +15,26 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 
 ## What's New
 
-### v2.2.0 — Availability Zones in lifecycle reports
-- **`-AZ` switch (auto-enabled by `-LifecycleRecommendations`)** — adds **`Zones (Deployed)`** on SubMap / Resource Group Map (which zones your VMs run in today) and **`Zones (Supported)`** on Lifecycle Summary / High Risk / Medium Risk (which zones the recommended replacement supports — OK, Limited, Restricted). No extra flag needed in lifecycle mode.
-- **GOV / sovereign cloud fixes** — Savings Plan columns now omitted automatically for sovereign tenants; Reserved Instance / Savings Plan / Spot retail rates are preserved when negotiated price sheet succeeds (previously RI/SP/Spot columns came back empty). Per-sub `Quota: need ...` text stripped from the Lifecycle Summary `Risk Reasons` (still surfaced on SubMap / RGMap). Cross-region ACU fallback for upgrade-path candidates.
+### v2.3.0 — Architecture Filter (May 2026)
+- **`-ArchFilter` parameter** — filter scan results to specific CPU architectures (`x64`, `ARM64`). Supports multiple values, applied during SKU enumeration for cleaner results and faster scans. Header displays an interpretability hint when active.
 
-### v2.0.0 — Module Conversion (April 2026)
-- **Smart default regions** — defaults now auto-detect based on cloud environment (Gov, China) and local timezone (Americas, Europe, APAC, etc.) — no more commercial defaults when connected to sovereign clouds
-- **PowerShell module** — install via `Install-Module AzVMAvailability` from PSGallery, or import directly from the repo
-- **Core interface unchanged** — all 39 parameters, output formats, and interactive prompts are identical to v1.14.0; only the default region selection is smarter
-- **Thin wrapper** — `Get-AzVMAvailability.ps1` still works as a standalone entry point (imports the module and forwards parameters)
-- **Private functions** — 43 helper functions are now truly private; only `Get-AzVMAvailability` is exported
-- **CI/CD publishing** — automated PSGallery + GitHub Release publishing on merge to main
+### v2.2.2 — PSGallery Package Parity (May 2026)
+- **PSGallery installs now include all runtime assets** — UpgradePath data, README, LICENSE, CHANGELOG, examples, and curated docs are staged into the module package before publishing. A Pester test guards the layout.
+- **Version bump workflow coverage** — README badge, demo guide, ROADMAP header, and psd1 `ReleaseNotes` are now updated atomically alongside existing version stamps.
 
-### v1.14.0 — Lifecycle & Deployment Mapping (April 2026)
-- **Lifecycle Recommendations** — run `-LifecycleRecommendations` for a fully autonomous scan: pulls live VM inventory via Azure Resource Graph, analyzes retirement risk, and provides up to 6 upgrade alternatives per SKU with pricing, powered by a curated upgrade-path knowledge base. Optionally use `-LifecycleFile` to load VMs from a CSV/JSON/XLSX instead of live scan
-- **`-SubMap` / `-RGMap`** — new deployment mapping sheets in XLSX exports, grouping affected VMs by subscription or resource group with risk-level enrichment
-- **`-Tag` filter** — filter live VM inventory scans by Azure resource tags (key=value or key=`*`)
-- **`-RateOptimization`** — opt-in Savings Plan and Reserved Instance pricing columns alongside PAYG
+### v2.2.1 — Pricing Correctness Follow-up (April 2026)
+- **Tier 2 region scoping** — Cost Management fallback now groups by `ResourceLocation` so multi-region subscriptions don't cross-contaminate cached rates.
+- **Spot/Low-Priority laundering fix** — Tier 2 no longer silently caches spot rates as negotiated PAYG.
+- **Savings Plan alias resolution** — SP1Yr/SP3Yr maps now apply the same ARM→cache alias pass as the Regular PAYG map, fixing silent retail fallback in commercial regions.
+
+### v2.2.0 — Pricing Correctness & Lifecycle UX (April 2026)
+- **`-AZ` switch** — adds `Zones (Deployed)` and `Zones (Supported)` columns in lifecycle reports (auto-enabled by `-LifecycleRecommendations`)
+- **Commercial pricing fix** — 70+ region ARM→cache alias table resolves negotiated rates that were silently falling back to retail
+- **GOV / sovereign cloud fixes** — Savings Plan columns omitted for sovereign tenants; RI/SP/Spot retail rates preserved when negotiated price sheet succeeds
+
+### v2.1.1 — Retirement Data & CI Fixes (April 2026)
+- **Retirement data freshness** — staleness check is opt-in via environment variable; structural assertions are always-on
+- **CI reliability** — PSScriptAnalyzer empty-catch fixes, UTF-8 BOM alignment, unreachable bash heredoc removed
 
 > Full history: [CHANGELOG.md](CHANGELOG.md)
 
@@ -156,7 +159,7 @@ As of v2.0.0, Get-AzVMAvailability is available as both a standalone script and 
 
 | Topic | Description |
 |-------|-------------|
-| [Parameters](docs/parameters.md) | Reference table for all 39 parameters, including names, types, and descriptions |
+| [Parameters](docs/parameters.md) | Reference table for all parameters, including names, types, and descriptions |
 | [Usage Examples](docs/usage-examples.md) | Common scanning patterns — GPU, pricing, export, multi-region |
 | [Inventory Planning](docs/inventory-planning.md) | Validate capacity and quota for an entire VM BOM |
 | [Lifecycle Recommendations](docs/lifecycle-recommendations.md) | Retirement risk analysis with upgrade alternatives |

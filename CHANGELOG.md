@@ -7,18 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.3.0] - 2026-05-21
 
-### Changed
-- _TODO: describe the change before merging._
-
-## [Unreleased]
-
 ### Added
 - **`-ArchFilter` parameter** — filter scan results to specific CPU architectures (x64, ARM64)
   - Supports multiple values: `-ArchFilter "x64","ARM64"` to include both
   - Applied during SKU enumeration (reduces scan payload and improves performance)
   - Works with all existing filters (`-FamilyFilter`, `-SkuFilter`, `-ImageURN`)
-  - Header displays active architecture filter for transparency
+  - Header displays active architecture filter with interpretability hint
   - Validates against Azure capability metadata (normalizes ARM64 vs Arm64)
+
+### Fixed
+- **ValidateSet cleanup** — removed redundant `Arm64` from `-ArchFilter` ValidateSet (PowerShell is case-insensitive)
+- **Serial scan path** — inlined `CpuArchitectureType` extraction to match parallel block pattern; unknown-arch SKUs now excluded (was defaulting to x64)
+- **CHANGELOG placement** — moved ArchFilter entry from premature `[2.3.0]` to `[Unreleased]` (corrected in this release)
+- **Docs accuracy** — removed hardcoded "39 parameters" from copilot-instructions.md; removed contributor scratch file
+
+## [Unreleased]
 
 ### Fixed (docs)
 - **ROADMAP v2.2.2 blockquote accuracy (Copilot reviews on PR #154 and PR #156)** — corrected the description of `release-publish.yml`'s lint gate. Initial fix removed the inaccurate "reports PSScriptAnalyzer warnings via SARIF and only blocks on errors" wording (workflow has no SARIF emitter or `security-events: write` permission). Follow-up Copilot review on PR #156 (ID 3211981166) flagged the replacement "Error/Warning severity" wording as still inaccurate; final wording now reads "PSScriptAnalyzer with `-Severity Error` (only Error-severity findings block; uses shared `PSScriptAnalyzerSettings.psd1`)" — verified against `.github/workflows/release-publish.yml:47-48`.
