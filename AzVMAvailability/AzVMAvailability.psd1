@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AzVMAvailability.psm1'
-    ModuleVersion     = '2.2.2'
+    ModuleVersion     = '2.3.0'
     GUID              = '7f42e8d6-e85d-4e31-a541-d9af648a5269'
     Author            = 'Zachary Luz'
     CompanyName       = 'Community'
@@ -23,7 +23,7 @@
             Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
             LicenseUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability'
-            ReleaseNotes = 'v2.2.2: PSGallery package parity — release publishing now stages the runtime UpgradePath data, README, LICENSE, CHANGELOG, examples, and curated docs into the module package before publishing, so PSGallery installs ship the same assets as repo-based usage. A package-layout Pester test guards those assets. Also: version-bump workflow now updates all eight version stamps; release-publish gate logs non-blocking PSScriptAnalyzer diagnostics but only blocks on errors; release-publish.yml supports manual workflow_dispatch retry against an existing tag. See CHANGELOG.md.'
+            ReleaseNotes = 'v2.3.0: TODO: describe changes for 2.3.0 before merging.'
         }
     }
 }
