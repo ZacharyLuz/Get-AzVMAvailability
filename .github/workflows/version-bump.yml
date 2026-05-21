@@ -200,6 +200,67 @@ jobs:
           }
           Write-Host "Updated $psdPath ReleaseNotes -> v${newVersion}: ${releaseDesc}"
 
+          # ── Auto-generate README "What's New" from last 5 CHANGELOG releases ──
+          $readmePath = 'README.md'
+          $clContent = Get-Content $changelogPath -Raw
+          # Extract version headers and their bodies (up to next ## [ or EOF)
+          $versionPattern = '(?ms)^## \[([0-9]+\.[0-9]+\.[0-9]+)\][^\n]*\n(.*?)(?=^## \[|\z)'
+          $allVersions = [regex]::Matches($clContent, $versionPattern)
+          
+          # Skip [Unreleased] entries — only take actual version releases (last 5)
+          $releases = @()
+          foreach ($v in $allVersions) {
+              $ver = $v.Groups[1].Value
+              $body = $v.Groups[2].Value.Trim()
+              # Skip versions with only TODO stubs
+              if ($body -match '_TODO:' -and $body.Split("`n").Count -le 4) { continue }
+              # Skip if body is empty after stripping [Unreleased] sub-sections
+              if ([string]::IsNullOrWhiteSpace($body)) { continue }
+              $releases += @{ Version = $ver; Body = $body }
+              if ($releases.Count -ge 5) { break }
+          }
+          
+          if ($releases.Count -ge 3) {
+              # Build condensed What's New entries from ### headers and first bullet per section
+              $whatsNewLines = @('## What''s New', '')
+              foreach ($r in $releases) {
+                  # Extract the first ### Added/Fixed/Changed line and first meaningful bullet
+                  $sections = [regex]::Matches($r.Body, '(?ms)^### (\w+[^\n]*)\n(.*?)(?=^### |\z)')
+                  $headline = "### v$($r.Version)"
+                  $bullets = @()
+                  foreach ($s in $sections) {
+                      $sBody = $s.Groups[2].Value
+                      $sLines = $sBody -split "`n" | Where-Object { $_ -match '^\s*-\s+\*\*' } | Select-Object -First 3
+                      $bullets += $sLines
+                  }
+                  if ($bullets.Count -eq 0) {
+                      # Fallback: take first 3 bullet lines from body
+                      $bullets = $r.Body -split "`n" | Where-Object { $_ -match '^\s*-\s+' } | Select-Object -First 3
+                  }
+                  $whatsNewLines += $headline
+                  $whatsNewLines += $bullets
+                  $whatsNewLines += ''
+              }
+              $whatsNewLines += '> Full history: [CHANGELOG.md](CHANGELOG.md)'
+              
+              $readmeContent = Get-Content $readmePath -Raw
+              $whatsNewBlock = ($whatsNewLines -join "`n")
+              $wnPattern = '(?ms)^## What''s New\s*\n.*?(?=^## (?!What))'
+              if ($readmeContent -match $wnPattern) {
+                  $readmeUpdated = [regex]::Replace($readmeContent, $wnPattern, "$whatsNewBlock`n`n")
+                  $rnHadTrailing = $readmeContent.EndsWith("`n")
+                  Set-Content -Path $readmePath -Value $readmeUpdated -NoNewline -Encoding utf8
+                  if ($rnHadTrailing -and -not $readmeUpdated.EndsWith("`n")) {
+                      Add-Content -Path $readmePath -Value '' -Encoding utf8
+                  }
+                  Write-Host "README What's New auto-generated from last $($releases.Count) CHANGELOG releases"
+              } else {
+                  Write-Warning "Could not locate README What's New section — skipping auto-generation"
+              }
+          } else {
+              Write-Host "Only $($releases.Count) CHANGELOG releases found — skipping What's New auto-generation (need >= 3)"
+          }
+
           "current_version=$currentVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "new_version=$newVersion"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           $landmarkJson = $observedLines | ConvertTo-Json -Compress
