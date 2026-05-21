@@ -30,6 +30,18 @@ Thank you for your interest in contributing! This document provides guidelines f
 5. Commit with clear messages (git commit -m Add amazing feature)
 6. Push to your branch (git push origin feature/amazing-feature)
 7. Open a Pull Request
+8. **Resolve all review comments** (see Review Comment Policy below)
+
+### Review Comment Policy (Required)
+
+GitHub Copilot and other reviewers will leave comments on your PR automatically. **All review threads must be resolved before the PR can be merged.** A CI check enforces this — PRs with unresolved threads cannot pass the gate.
+
+For each review comment, you must do one of:
+
+1. **Agree** — fix the issue in a follow-up commit and resolve the thread.
+2. **Disagree** — reply with a specific rationale explaining why the suggestion doesn't apply, then resolve the thread yourself.
+
+Simply ignoring review comments is not acceptable. The maintainer will not merge PRs with open threads.
 
 ### PR Description Formatting (Required)
 
