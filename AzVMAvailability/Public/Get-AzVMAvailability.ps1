@@ -1654,6 +1654,7 @@ if ($SkuFilter -and $SkuFilter.Count -gt 0) {
 }
 if ($ArchFilter -and $ArchFilter.Count -gt 0) {
     Write-Host "Architecture Filter: $($ArchFilter -join ', ')" -ForegroundColor Yellow
+    Write-Host "  SKU counts and family summaries reflect only $($ArchFilter -join '/') architecture. Omit -ArchFilter to see all." -ForegroundColor DarkGray
 }
 Write-Host "Icons: $(if ($supportsUnicode) { 'Unicode' } else { 'ASCII' }) | Pricing: $(if ($FetchPricing) { 'Enabled' } else { 'Disabled' })" -ForegroundColor DarkGray
 if ($script:RunContext.ImageReqs) {
