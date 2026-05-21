@@ -173,12 +173,11 @@ Describe 'Get-AzVMAvailability Parameter Parity' {
             $attr.ValidValues | Should -Contain 'AzureChinaCloud'
         }
 
-        It 'ArchFilter has x64, ARM64, Arm64' {
+        It 'ArchFilter has x64, ARM64' {
             $attr = $script:params['ArchFilter'].Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
             $attr | Should -Not -BeNullOrEmpty
             $attr.ValidValues | Should -Contain 'x64'
             $attr.ValidValues | Should -Contain 'ARM64'
-            $attr.ValidValues | Should -Contain 'Arm64'
         }
     }
 

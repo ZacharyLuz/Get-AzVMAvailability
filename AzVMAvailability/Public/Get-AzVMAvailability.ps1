@@ -296,7 +296,7 @@ param(
     [string[]]$SkuFilter,
 
     [Parameter(Mandatory = $false, HelpMessage = "Filter to specific CPU architectures (x64, ARM64, or Arm64). SKUs without explicit architecture metadata are excluded when filter is active.")]
-    [ValidateSet("x64", "ARM64", "Arm64")]
+    [ValidateSet("x64", "ARM64")]
     [string[]]$ArchFilter,
 
     [Parameter(Mandatory = $false, HelpMessage = "Show hourly pricing (auto-detects negotiated rates, falls back to retail)")]
@@ -1956,8 +1956,15 @@ try {
                     })
                     $allSkus = @($allSkus | Where-Object {
                         $sku = $_
-                        $caps = Get-SkuCapabilities -Sku $sku
-                        $skuArch = $caps.CpuArchitecture
+                        $skuArch = $null
+                        if ($sku.Capabilities) {
+                            foreach ($cap in $sku.Capabilities) {
+                                if ($cap.Name -eq 'CpuArchitectureType') {
+                                    $skuArch = $cap.Value
+                                    break
+                                }
+                            }
+                        }
                         # Only include SKUs with explicit architecture match (exclude unknown/missing)
                         $null -ne $skuArch -and $normalizedFilters -contains $skuArch
                     })

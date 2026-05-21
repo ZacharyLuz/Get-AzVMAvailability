@@ -69,7 +69,7 @@ param(
     [string[]]$SkuFilter,
 
     [Parameter(Mandatory = $false, HelpMessage = "Filter to specific CPU architectures")]
-    [ValidateSet("x64", "ARM64", "Arm64")]
+    [ValidateSet("x64", "ARM64")]
     [string[]]$ArchFilter,
 
     [Parameter(Mandatory = $false, HelpMessage = "Show hourly pricing (auto-detects negotiated rates, falls back to retail)")]
