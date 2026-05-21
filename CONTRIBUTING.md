@@ -26,11 +26,26 @@ Thank you for your interest in contributing! This document provides guidelines f
 1. Fork the repository
 2. Create a feature branch (git checkout -b feature/amazing-feature)
 3. Make your changes
-4. Test thoroughly with different scenarios
-5. Commit with clear messages (git commit -m Add amazing feature)
-6. Push to your branch (git push origin feature/amazing-feature)
-7. Open a Pull Request
-8. **Resolve all review comments** (see Review Comment Policy below)
+4. **Update documentation** (see Documentation Requirements below)
+5. Test thoroughly with different scenarios
+6. Commit with clear messages (git commit -m Add amazing feature)
+7. Push to your branch (git push origin feature/amazing-feature)
+8. Open a Pull Request
+9. **Resolve all review comments** (see Review Comment Policy below)
+
+### Documentation Requirements (Required)
+
+Every PR that adds or changes user-facing behavior must include documentation updates in the same PR. The maintainer will not merge code-only PRs for features or behavioral changes.
+
+Update whichever of these apply to your change:
+
+- **README.md** — if you add a new parameter, mode, or output format
+- **demo/DEMO-GUIDE.md** — if your feature should appear in the demo walkthrough
+- **examples/** — add or update usage examples showing the new behavior
+- **`Get-Help` comments** — update `.SYNOPSIS`, `.DESCRIPTION`, `.PARAMETER`, or `.EXAMPLE` blocks in the function
+- **CHANGELOG.md** — add an entry under `## [Unreleased]` describing what changed
+
+If your change is purely internal (refactoring, test fixes, CI changes) with no user-visible impact, documentation updates are not required — but note this in your PR description.
 
 ### Review Comment Policy (Required)
 
