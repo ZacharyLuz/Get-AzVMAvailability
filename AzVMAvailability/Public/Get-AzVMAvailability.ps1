@@ -4971,9 +4971,9 @@ if ($ExportPath) {
                 [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "STATUS (X/Y)"; Description = "X = SKUs with no returned ARM restriction, Y = total SKUs in family for that region" }
                 [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "Example: OK (5/8)"; Description = "5 out of 8 SKUs returned no ARM restriction with OK status" }
                 [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
-                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "OK"; Description = "No ARM SKU restriction returned for the scanned scope. Not a live capacity guarantee." }
+                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "OK"; Description = "No ARM restriction returned. Not a live capacity or allocation guarantee." }
                 [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "LIMITED"; Description = "Subscription/SKU access restriction; request access if needed." }
-                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "CAPACITY-CONSTRAINED"; Description = "Some zones returned ARM restriction records; verify placement/deployment." }
+                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "CAPACITY-CONSTRAINED"; Description = "Some zones have ARM restrictions; others are clear. Verify placement before deploying." }
                 [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "PARTIAL"; Description = "Mixed zone restriction state; zone redundancy may be limited." }
                 [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "RESTRICTED"; Description = "Blocking ARM restriction returned; pick another region or SKU." }
                 [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "N/A"; Description = "SKU family not returned in this region." }
@@ -4989,11 +4989,11 @@ if ($ExportPath) {
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "vCPU"; Description = "Number of virtual CPUs" }
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "MemGiB"; Description = "Memory in GiB" }
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Zones"; Description = "Availability zones where SKU is available" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Capacity"; Description = "Legacy field name containing ARM SKU restriction status" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Capacity"; Description = "ARM SKU restriction status (will be renamed to RestrictionStatus in a future release)" }
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Restrictions"; Description = "ARM SKU restriction reason codes and messages" }
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "QuotaAvail"; Description = "Available vCPU quota for this family (Limit - Current Usage)" }
                 [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
-                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Green"; Description = "No ARM SKU restriction returned; still validate quota and placement." }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Green"; Description = "No ARM restriction returned; still validate quota, placement, and policy." }
                 [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Yellow/Orange"; Description = "ARM restriction signal present; review status and zones." }
                 [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Red"; Description = "Blocking ARM restriction returned; pick another region or SKU." }
                 [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Gray"; Description = "Not returned in this region." }
