@@ -16,7 +16,9 @@ function Write-RecommendOutputContract {
 
     Write-Host "`n" -NoNewline
     Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
-    Write-Host "CAPACITY RECOMMENDER" -ForegroundColor Green
+    Write-Host "SKU RECOMMENDER" -ForegroundColor Green
+    Write-Host "The Capacity column shows ARM SKU restriction status, not live allocatable capacity." -ForegroundColor DarkYellow
+    Write-Host "OK = no restriction returned. Deployment can still fail due to quota, placement, or policy." -ForegroundColor DarkYellow
     Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
     Write-Host ""
 
@@ -60,7 +62,7 @@ function Write-RecommendOutputContract {
     $unavailableRegions = @($targetAvailability | Where-Object { $_.Status -ne 'OK' })
     if ($availableRegions.Count -gt 0) {
         $availableRegionNames = @($availableRegions | ForEach-Object { $_.Region })
-        Write-Host "  $($Icons.Check) Available in: $($availableRegionNames -join ', ')" -ForegroundColor Green
+        Write-Host "  $($Icons.Check) Unrestricted in: $($availableRegionNames -join ', ')" -ForegroundColor Green
     }
     foreach ($ur in $unavailableRegions) {
         Write-Host "  $($Icons.Error) $($ur.Region): $($ur.Status)" -ForegroundColor Red
@@ -154,7 +156,7 @@ function Write-RecommendOutputContract {
 
         if ($smallerOK.Count -gt 0) {
             Write-Host ""
-            Write-Host "  $($Icons.Warning) CONSIDER SMALLER (better availability, if your workload supports it):" -ForegroundColor Yellow
+            Write-Host "  $($Icons.Warning) CONSIDER SMALLER (fewer restrictions, if your workload supports it):" -ForegroundColor Yellow
             foreach ($s in $smallerOK) {
                 Write-Host "    $($s.sku) ($($s.vCPU) vCPU / $($s.memGiB) GiB) — $($s.capacity) in $($s.region)" -ForegroundColor DarkYellow
             }
@@ -163,11 +165,12 @@ function Write-RecommendOutputContract {
 
     Write-Host ''
     Write-Host 'STATUS KEY:' -ForegroundColor DarkGray
-    Write-Host '  OK                    = Ready to deploy. No restrictions.' -ForegroundColor Green
-    Write-Host '  CAPACITY-CONSTRAINED  = Azure is low on hardware. Try a different zone or wait.' -ForegroundColor Yellow
-    Write-Host "  LIMITED               = Your subscription can't use this. Request access via support ticket." -ForegroundColor Yellow
-    Write-Host '  PARTIAL               = Some zones work, others are blocked. No zone redundancy.' -ForegroundColor Yellow
-    Write-Host '  BLOCKED               = Cannot deploy. Pick a different region or SKU.' -ForegroundColor Red
+    Write-Host '  OK                    = No ARM restriction returned. Not a capacity guarantee.' -ForegroundColor Green
+    Write-Host '  CAPACITY-CONSTRAINED  = Some zones have ARM restrictions; others are clear. Verify before deploying.' -ForegroundColor Yellow
+    Write-Host '  LIMITED               = Subscription/SKU access restriction; request access if needed.' -ForegroundColor Yellow
+    Write-Host '  PARTIAL               = Mixed zone restriction state; zone redundancy may be limited.' -ForegroundColor Yellow
+    Write-Host '  BLOCKED               = Blocking ARM restriction returned; pick another region or SKU.' -ForegroundColor Red
+    Write-Host '  NOTE                  = These reflect ARM restriction metadata, not live physical capacity.' -ForegroundColor DarkYellow
     Write-Host ''
     Write-Host 'DISK CODES:' -ForegroundColor DarkGray
     Write-Host '  NV+T = NVMe + local temp disk   NVMe = NVMe only (no temp disk)' -ForegroundColor DarkGray
