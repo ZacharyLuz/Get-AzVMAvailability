@@ -11,7 +11,7 @@ A PowerShell tool for scanning Azure VM SKU restriction status, quota, pricing, 
 
 ## Overview
 
-Get-AzVMAvailability scans Azure regions for VM SKU restriction status, quota headroom, zone support, pricing, placement signals, and image compatibility. It helps you identify where ARM returns no blocking restrictions for your subscription and plan deployments accordingly.
+Get-AzVMAvailability scans Azure regions for VM SKU restriction status, quota headroom, zone support, pricing, placement signals, and image compatibility. It helps you identify where ARM returns no blocking restrictions for your subscription so you can plan deployments accordingly.
 
 ## Important Framing
 

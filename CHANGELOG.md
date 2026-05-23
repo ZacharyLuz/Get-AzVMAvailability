@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Inventory readiness: disclaimer reworded to match other surfaces
 - README: added "What This Tool Proves vs What It Does NOT" evidence model table
 - SKILL.md: description now says "restriction status" and "readiness signals"
+- **Clarified SKU status semantics across runtime output and docs** — console legends, inventory readiness text, Excel legends, README, lifecycle docs, and the Copilot skill now state that `OK` / `LIMITED` / `CAPACITY-CONSTRAINED` are derived from ARM `Microsoft.Compute/skus` restriction metadata. `OK` now means no ARM SKU restriction was returned for the scanned scope; it is not presented as a live physical capacity guarantee.
 
 ### Note
 - The `Capacity` field name and `CAPACITY-CONSTRAINED` status label are unchanged in this release
@@ -43,11 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Serial scan path** — inlined `CpuArchitectureType` extraction to match parallel block pattern; unknown-arch SKUs now excluded (was defaulting to x64)
 - **CHANGELOG placement** — moved ArchFilter entry from premature `[2.3.0]` to `[Unreleased]` (corrected in this release)
 - **Docs accuracy** — removed hardcoded "39 parameters" from copilot-instructions.md; removed contributor scratch file
-
-## [Unreleased]
-
-### Changed
-- **Clarified SKU status semantics across runtime output and docs** — console legends, inventory readiness text, Excel legends, README, lifecycle docs, and the Copilot skill now state that `OK` / `LIMITED` / `CAPACITY-CONSTRAINED` are derived from ARM `Microsoft.Compute/skus` restriction metadata. `OK` now means no ARM SKU restriction was returned for the scanned scope; it is not presented as a live physical capacity guarantee.
 
 ### Fixed (docs)
 - **ROADMAP v2.2.2 blockquote accuracy (Copilot reviews on PR #154 and PR #156)** — corrected the description of `release-publish.yml`'s lint gate. Initial fix removed the inaccurate "reports PSScriptAnalyzer warnings via SARIF and only blocks on errors" wording (workflow has no SARIF emitter or `security-events: write` permission). Follow-up Copilot review on PR #156 (ID 3211981166) flagged the replacement "Error/Warning severity" wording as still inaccurate; final wording now reads "PSScriptAnalyzer with `-Severity Error` (only Error-severity findings block; uses shared `PSScriptAnalyzerSettings.psd1`)" — verified against `.github/workflows/release-publish.yml:47-48`.
