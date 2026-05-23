@@ -4,12 +4,12 @@ function Get-AzVMAvailability {
     Get-AzVMAvailability - SKU availability, ARM restriction, quota, and pricing scanner.
 
 .DESCRIPTION
-    Scans Azure regions for VM SKU availability, ARM SKU restriction status, and quota to help plan deployments.
+    Scans Azure regions for VM SKU restriction status, quota headroom, and deployment readiness signals.
     ARM SKU restriction status is not a live physical capacity guarantee. OK means the Microsoft.Compute/skus API did
     not return a blocking restriction record for that SKU/region/zone; allocation can still fail because of quota,
     placement, transient platform capacity, policy, or deployment-time constraints.
     Provides a comprehensive view of:
-    - All VM SKU families available in each region
+    - All VM SKU families in each region
     - ARM SKU restriction status (OK, LIMITED, CAPACITY-CONSTRAINED, RESTRICTED)
     - Subscription-level restrictions
     - Available vCPU quota per family
@@ -111,11 +111,11 @@ function Get-AzVMAvailability {
 
 .PARAMETER MinvCPU
     Minimum vCPU count for recommended alternatives. SKUs below this are excluded.
-    If smaller SKUs have better availability, a suggestion note is shown.
+    If smaller SKUs have fewer restrictions, a suggestion note is shown.
 
 .PARAMETER MinMemoryGB
     Minimum memory in GB for recommended alternatives. SKUs below this are excluded.
-    If smaller SKUs have better availability, a suggestion note is shown.
+    If smaller SKUs have fewer restrictions, a suggestion note is shown.
 
 .PARAMETER JsonOutput
     Emit structured JSON instead of console tables. Designed for the AzVMAvailability-Agent
