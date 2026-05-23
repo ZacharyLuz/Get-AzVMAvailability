@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/header-dark.png" alt="Get-AzVMAvailability — Discover Available Azure VM Capacity Across Regions" />
+  <img src="assets/header-dark.png" alt="Get-AzVMAvailability - Azure VM SKU restriction, quota, pricing, and placement signals" />
 </p>
 
-A PowerShell tool for checking Azure VM SKU availability across regions - find where your VMs can deploy.
+A PowerShell tool for scanning Azure VM SKU restriction status, quota, pricing, and placement signals across regions.
 
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
@@ -11,7 +11,26 @@ A PowerShell tool for checking Azure VM SKU availability across regions - find w
 
 ## Overview
 
-Get-AzVMAvailability helps you identify which Azure regions have available capacity for your VM deployments. It scans multiple regions in parallel and provides detailed insights into SKU availability, zone restrictions, quota limits, pricing, and image compatibility.
+Get-AzVMAvailability scans Azure regions for VM SKU restriction status, quota headroom, zone support, pricing, placement signals, and image compatibility. It helps you identify where ARM returns no blocking restrictions for your subscription and plan deployments accordingly.
+
+## Important Framing
+
+The status labels come from the ARM `Microsoft.Compute/skus` API restriction metadata. `OK` means Azure did not return a blocking SKU restriction record for the scanned subscription, region, SKU, or zone. It does not prove live physical capacity, and deployment can still fail because of quota, allocation, policy, networking dependencies, or transient platform conditions.
+
+Use `-ShowPlacement`, capacity reservations/probes, or an actual deployment validation when you need stronger allocation confidence.
+
+### What This Tool Proves vs What It Does NOT
+
+| Signal | What It Tells You | What It Does NOT Tell You |
+|--------|-------------------|--------------------------|
+| **Restriction Status** (OK/LIMITED/etc.) | ARM returned no blocking SKU restriction for your subscription/region/zone | Whether Azure has physical hardware available right now |
+| **Quota Headroom** | How many vCPUs remain in your subscription quota | Whether those vCPUs can be allocated (quota ≠ capacity) |
+| **Zone Support** | Which availability zones the SKU is offered in | Whether those zones have allocatable capacity |
+| **Placement Score** | Spot VM allocation likelihood (High/Medium/Low) | Standard VM allocation likelihood |
+| **Pricing** | Retail or negotiated price per hour | Nothing about capacity |
+| **Image Compatibility** | Whether your image URN is compatible with the SKU | Nothing about capacity |
+
+> **The only ways to confirm actual capacity:** a successful deployment, a Capacity Reservation, or an internal Azure capacity signal.
 
 ## What's New
 
@@ -70,11 +89,11 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 - **Image Compatibility** - Verify Gen1/Gen2 and x64/ARM64 requirements
 - **Zone Availability** - Per-zone availability details
 - **Quota Tracking** - Available vCPU quota per family
-- **Multi-Region Matrix** - Color-coded comparison view
+- **Multi-Region Matrix** - Color-coded comparison of returned ARM SKU restriction status
 - **Interactive Drill-Down** - Explore specific families and SKUs
 - **Export Options** - CSV and styled XLSX with conditional formatting
 - **JSON Output** - Structured JSON for AI agent integration and automation pipelines
-- **Inventory Readiness** - Validate capacity and quota for an entire VM BOM in one command
+- **Inventory Readiness** - Validate returned SKU restriction status and quota for an entire VM BOM in one command
 - **Compatibility-Validated Recommendations** - Alternatives are validated to meet or exceed the target SKU's NICs, accelerated networking, premium IO, disk interface, ephemeral OS disk, and Ultra SSD requirements. Data disks and IOPS are scored as soft dimensions
 
 ## Quick Comparison
@@ -82,7 +101,7 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 | Task                           | Azure Portal            | This Script          |
 | ------------------------------ | ----------------------- | -------------------- |
 | Check 10 regions               | ~5 minutes              | ~15 seconds          |
-| Get quota + availability       | Multiple blades         | Single view          |
+| Get quota + restriction signal | Multiple blades         | Single view          |
 | Compare pricing across regions | Separate calculator     | Integrated           |
 | Filter to specific SKUs        | Scroll through hundreds | Wildcard filtering   |
 | Check image compatibility      | Manual research         | Automated validation |
@@ -92,10 +111,10 @@ Get-AzVMAvailability helps you identify which Azure regions have available capac
 ## Use Cases
 
 - **VM Lifecycle & Retirement Planning** - Identify old-gen and retiring SKUs across your fleet and get validated upgrade paths
-- **Disaster Recovery Planning** - Identify backup regions with capacity
-- **Multi-Region Deployments** - Find regions where all required SKUs are available
-- **GPU/HPC Workloads** - NC, ND, NV series are often constrained; find where they're available
-- **Inventory Readiness Validation** - Verify capacity and quota for an entire VM BOM before deployment
+- **Disaster Recovery Planning** - Identify backup regions with no returned SKU restrictions
+- **Multi-Region Deployments** - Find regions where required SKUs are offered and unrestricted by ARM metadata
+- **GPU/HPC Workloads** - NC, ND, NV series are often constrained; find where ARM returns them without blocking restrictions
+- **Inventory Readiness Validation** - Verify SKU restriction status and quota for an entire VM BOM before deployment
 - **Image Compatibility** - Verify SKUs support your Gen2 or ARM64 images before deployment
 - **Troubleshooting Deployments** - Quickly identify why a deployment might be failing
 
