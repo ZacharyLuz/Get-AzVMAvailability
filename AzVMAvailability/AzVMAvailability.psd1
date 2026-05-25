@@ -5,7 +5,7 @@
     Author            = 'Zachary Luz'
     CompanyName       = 'Community'
     Copyright         = '(c) Zachary Luz. All rights reserved. MIT License.'
-    Description       = 'Scans Azure regions for VM SKU availability, capacity, quota, pricing, and image compatibility.'
+    Description       = 'Scans Azure regions for VM SKU restriction status, quota, pricing, placement signals, and image compatibility.'
     PowerShellVersion = '7.0'
     RequiredModules   = @(
         @{ ModuleName = 'Az.Accounts'; ModuleVersion = '2.0.0' }
