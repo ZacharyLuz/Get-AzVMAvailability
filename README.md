@@ -7,7 +7,7 @@ A PowerShell tool for scanning Azure VM SKU restriction status, quota, pricing, 
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.3.1-brightgreen)
+![Version](https://img.shields.io/badge/Version-3.0.0-brightgreen)
 
 ## Overview
 
@@ -34,6 +34,9 @@ Use `-ShowPlacement`, capacity reservations/probes, or an actual deployment vali
 
 ## What's New
 
+### v3.0.0
+- Breaking: Capacity field renamed to RestrictionStatus, CAPACITY-CONSTRAINED status renamed to ZONE-LIMITED, schemaVersion bumped to 2.0. All user-facing text clarified to reference ARM restriction metadata instead of capacity.
+
 ### v2.3.1
 - Metadata-only: updated README What's New section and CHANGELOG release notes for PSGallery parity
 
@@ -42,6 +45,8 @@ Use `-ShowPlacement`, capacity reservations/probes, or an actual deployment vali
 - **ValidateSet cleanup** — removed redundant `Arm64` from `-ArchFilter` ValidateSet (PowerShell is case-insensitive)
 - **Serial scan path** — inlined `CpuArchitectureType` extraction to match parallel block pattern; unknown-arch SKUs now excluded (was defaulting to x64)
 - **CHANGELOG placement** — moved ArchFilter entry from premature `[2.3.0]` to `[Unreleased]` (corrected in this release)
+- **ROADMAP v2.2.2 blockquote accuracy (Copilot reviews on PR #154 and PR #156)** — corrected the description of `release-publish.yml`'s lint gate. Initial fix removed the inaccurate "reports PSScriptAnalyzer warnings via SARIF and only blocks on errors" wording (workflow has no SARIF emitter or `security-events: write` permission). Follow-up Copilot review on PR #156 (ID 3211981166) flagged the replacement "Error/Warning severity" wording as still inaccurate; final wording now reads "PSScriptAnalyzer with `-Severity Error` (only Error-severity findings block; uses shared `PSScriptAnalyzerSettings.psd1`)" — verified against `.github/workflows/release-publish.yml:47-48`.
+- **`artifacts/copilot-review-log.md` append-only compliance (Copilot reviews on PR #154 and PR #156)** — initial PR #156 commit swapped the PR #155 and PR #154 (post-bump) sections to honor a Copilot suggestion (ID 3209405138) about chronological ordering. Follow-up Copilot review (ID 3211981185) flagged that swap as a violation of the documented "never overwrite — always append" rule. Final state: section order reverted to the original on-disk (append-arrival) order; new entries continue to land at strict EOF; placeholder `Reviewed head SHA: pending` replaced with actual commit SHA per Copilot ID 3211981197.
 
 ### v2.2.2
 - **PSGallery package parity** - release publishing now stages the runtime UpgradePath data, README, LICENSE, CHANGELOG, examples, and curated docs into the module package before publishing. A package-layout Pester test now guards those assets so PSGallery installs keep parity with repo-based usage.
@@ -56,23 +61,6 @@ Use `-ShowPlacement`, capacity reservations/probes, or an actual deployment vali
 - **`-LifecycleRecommendations <path>` legacy positional form preserved.** When `-LifecycleRecommendations` was reshaped from `[string]` to `[switch]` (with the path moving to `-LifecycleFile`), existing callers using the old positional form `-LifecycleRecommendations .\my-vms.csv` would error out. `-LifecycleFile` is now `Position = 0`, so the legacy invocation rebinds the path to `-LifecycleFile` and continues to work.
 - **`Get-SkuRetirementInfo.ps1`: Av1 (`Retired`) entry moved into the retired block** so the table sections match their statuses (was sitting under "Scheduled for retirement").
 - **`-AZ` HelpMessage** in the wrapper now matches the actual lifecycle output (`Zones (Deployed)` + `Zones (Supported)`); previously claimed a single `Zones (Available)` column.
-
-### v2.2.0
-- **Commercial regions silently used retail prices despite a populated negotiated cache.** The Consumption Price Sheet API publishes `meterLocation` values in `<geoShort><locality>` form (`uswest`, `useast2`, `euwest`, `apsoutheast`, `jaeast`, `dewestcentral`), but the resolver compared them against ARM `<locality><geo>` names (`westus`, `eastus2`, `westeurope`, `southeastasia`, `japaneast`, `germanywestcentral`). Only sovereign aliases were in the lookup table, so every commercial scan logged `no negotiated rates for '<region>' — falling back to retail` even when 70k+ SKUs across 87 regions were sitting in the cache. Resolver now (a) consults a 70+ entry explicit ARM→cache alias table covering every public commercial region observed in EA price sheets, including the non-obvious `japaneast → jaeast` (“ja”, not “jp”), and (b) falls back to a generic geo-token permutation derived from `australia↔au`, `germany↔de`, `europe↔eu`, `asia↔ap`, `india↔in`, `korea↔kr`, `brazil↔br`, `canada↔ca`, `mexico↔mx`, `france↔fr`, `sweden↔se`, `norway↔no`, `switzerland↔ch`, `italy↔it`, `spain↔es`, `poland↔pl`, `israel↔il`, `denmark↔dk`, `austria↔at`, `belgium↔be`, `newzealand↔nz`, `malaysia↔my`, `indonesia↔id`, `taiwan↔tw`, `uae↔ae`, `qatar↔qa`, `southafrica→za` so future regions auto-resolve before the table is updated. The cache-miss diagnostic also stops claiming “No sovereign keys present in cache” for non-sovereign regions where that hint is irrelevant.
-- **Misleading `Ns remaining` ETA stuck near 100%.** The parallel sub×region scanner divides remaining work by average throughput, but the last few items are usually slow regions / throttled subscriptions whose runtime exceeds the average by 5–20×. The bar would freeze at e.g. `1263 / 1266 · 11s remaining` while the final stragglers ran for several minutes. When `remaining ≤ max(3, 0.5%)`, the status now shows `finalizing N straggler(s)...` instead of an inaccurate countdown.
-- **Progress bar lingered during regrouping.** After the parallel poll loop exited, the bar's last frame stayed visible in some terminals while the per-subscription `[N/total]` announce lines scrolled. The bar is now force-completed immediately after the poll loop, and `$ProgressPreference` is pinned to `SilentlyContinue` for the regrouping phase so any stray inner write can't redraw it.
-- **`-AZ` switch — Availability Zones in lifecycle reports** — Adds two new zone columns; auto-enabled by `-LifecycleRecommendations` so the default lifecycle XLSX now includes zones with no extra flags.
-  - **`Zones (Deployed)`** on the **SubMap** and **Resource Group Map** sheets — shows the union of zones the affected VMs are *currently* deployed to (e.g., `1,2,3` or `Non-zonal`). Sourced from the ARG `zones` projection in live mode and from `Zone`/`Zones`/`AvailabilityZone` columns in file mode.
-  - **`Zones (Supported)`** on the **Lifecycle Summary**, **High Risk**, and **Medium Risk** sheets, inserted between `Alt Score` and `CPU +/-` — shows OK / Limited / Restricted zones for the *recommended alternative* SKU in the deployed region (e.g., `✓ Zones 1,2 | ⚠ Zones 3`, `Non-zonal`). Cross-region fallback applied when the SKU isn't indexed in the deployed region.
-- **Issue 1 — Generalized quota text on Summary** — Stripped per-sub `Quota: need NxNvCPU` fragments from the Lifecycle Summary `Risk Reasons` column. Per-sub quota detail remains on the SubMap / RGMap sheets where it is meaningful.
-- **Issue 2 — Missing ACU values for upgrade-path candidates** — Added cross-region ACU fallback: if a recommended alternative isn't indexed in the deployed region, scan all scanned regions for the same SKU before reporting `-`.
-- **Issue 3 — Savings Plan columns shown for sovereign clouds** — Auto-detect `$script:TargetEnvironment` (AzureCloud / AzureUSGovernment / AzureChinaCloud) and omit `SP 1-Year Savings` / `SP 3-Year Savings` columns entirely for tenants where Savings Plans aren't offered. RI columns are still emitted.
-- **Dedupe candidate pool in lifecycle recommendation loop (~100×)** — At-scale lifecycle phase reduced from ~7 hr to ~3–5 min on 196-sub × 224-SKU fleets by deduping the candidate pool before scoring.
-- **Parallel cross-sub scan** — `ForEach-Object -Parallel` across subscriptions for the lifecycle/quota path; per-region+restriction dedup before scoring.
-- **Tenant-wide ARG Advisor query** — Replaced N-subscription REST calls with a single tenant-wide `Microsoft.Advisor/recommendations` ARG query at module start.
-- **`tools/Probe-PriceSheetRI.ps1`** — Discovery probe that walks a subscription's Consumption Price Sheet API and buckets meters across 6 tiers (PAYG, Reservation 1Yr/3Yr, Savings Plan 1Yr/3Yr, Spot) to determine whether negotiated RI / SP rates are available for the parser to harvest. Supports both commercial and sovereign tenants.
-- **`tools/Dump-PriceSheetRaw.ps1`** — Captures every Price Sheet row verbatim (no source-side filtering) into per-page JSON files + zip for offline parser/schema design and support evidence.
-- **`tools/Inspect-PriceSheetCache.ps1`** (companion repo) — read-only diagnostic that loads the on-disk Price Sheet cache, lists every cache key, runs an ARM-name probe and an alias probe against suspected meterLocation conventions, and dumps a sample SKU entry. Output is teed to a timestamped `results.<yyyyMMdd-HHmmss>.log` with embedded ANSI color escapes. No Azure API calls. Used to prove the `<geoShort><locality>` mismatch in the commercial-pricing fix above.
 
 > Full history: [CHANGELOG.md](CHANGELOG.md)
 
