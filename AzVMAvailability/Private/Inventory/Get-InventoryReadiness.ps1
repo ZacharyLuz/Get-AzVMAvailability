@@ -50,7 +50,7 @@ function Get-InventoryReadiness {
                     $restrictions = Get-RestrictionDetails $sku
                     $status = $restrictions.Status
 
-                    # Rank: OK > LIMITED > ZONE-LIMITED > RESTRICTED > BLOCKED
+                    # Rank: OK > LIMITED > ZONE-LIMITED > PARTIAL > RESTRICTED > BLOCKED
                     $statusRank = switch ($status) {
                         'OK' { 5 }
                         'LIMITED' { 4 }

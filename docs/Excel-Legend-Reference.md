@@ -4,7 +4,7 @@ This document explains the Legend worksheet included in the Excel (XLSX) export 
 
 ## Important Framing
 
-The Excel export keeps the legacy **Capacity** column name for compatibility, but the value is derived from ARM `Microsoft.Compute/skus` restriction metadata. `OK` means no ARM SKU restriction was returned for the scanned scope. It does not prove live physical capacity, and deployment can still fail because of quota, placement, policy, or transient platform allocation.
+The Excel export uses the **RestrictionStatus** column, which contains values derived from ARM `Microsoft.Compute/skus` restriction metadata. `OK` means no ARM SKU restriction was returned for the scanned scope. It does not prove live physical capacity, and deployment can still fail because of quota, placement, policy, or transient platform allocation.
 
 ---
 
@@ -63,7 +63,7 @@ When you see a value like `OK (5/8)` in the Summary sheet, here's what it means:
 | **vCPU**         | Number of virtual CPUs                                       |
 | **MemGiB**       | Memory in GiB                                                |
 | **Zones**        | Availability zones where SKU is available (e.g., `1,2,3`)    |
-| **Capacity**     | Legacy field name containing ARM SKU restriction status      |
+| **RestrictionStatus** | ARM SKU restriction status (OK, LIMITED, ZONE-LIMITED, etc.) |
 | **Restrictions** | ARM SKU restriction reason codes and messages                |
 | **QuotaAvail**   | Available vCPU quota for this family (Limit - Current Usage) |
 | **$/Hr**         | Hourly price (if `-ShowPricing` enabled)                     |
@@ -98,7 +98,7 @@ The Excel status cells do not confirm that Azure can allocate the VM at deployme
 ├─────────────────────────────────────────────────────────────┤
 │  OK              → No ARM restriction returned              │
 │  LIMITED         → Subscription/SKU access restriction      │
-│  CAPACITY-CONST  → Some zones returned restrictions         │
+│  ZONE-LIMITED    → Some zones returned restrictions         │
 │  RESTRICTED      → Blocking ARM restriction returned        │
 │  N/A             → Not offered in this region               │
 ├─────────────────────────────────────────────────────────────┤

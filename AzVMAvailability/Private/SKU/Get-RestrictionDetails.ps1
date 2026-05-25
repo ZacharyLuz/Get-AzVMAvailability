@@ -6,6 +6,8 @@ function Get-RestrictionDetails {
         Examines ARM SKU restriction records to determine:
         - Which zones returned no restriction records (OK)
         - Which zones have subscription/SKU access restrictions (LIMITED)
+        - Which zones have partial subscription restrictions (ZONE-LIMITED: some zones limited, others OK)
+        - Which zones have mixed restriction types (PARTIAL)
         - Which zones have blocking restriction records (RESTRICTED)
         Returns a hashtable with status and zone breakdowns.
     #>

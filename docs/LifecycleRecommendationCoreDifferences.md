@@ -126,7 +126,7 @@ The fix in commit `d0bd321` added cascading path lookup (module root → repo ro
 **Recommendation for core:** when packaging the module for PSGallery distribution, ensure `data/UpgradePath.json` is shipped inside the module directory (`AzVMAvailability/data/`) so the first-tier lookup succeeds. Currently only the repo-root location works.
 
 ### D. Restriction status normalization
-The status rank used by Fix #1 (`OK > PARTIAL > ZONE-LIMITED > LIMITED > RESTRICTED > BLOCKED`) duplicates the ranking already used in `Invoke-RecommendMode.ps1` (line 43) and elsewhere. This should be lifted into a shared helper: `Get-StatusRank` or `Compare-SkuStatus` in `Private/Format/` or `Private/Utility/`. Until then, the duplication is intentional to avoid touching core helpers.
+The status rank used by Fix #1 (`OK > PARTIAL > ZONE-LIMITED > LIMITED > RESTRICTED > BLOCKED`) duplicates the ranking already used in `Invoke-RecommendMode.ps1` (`$statusRank` hashtable) and elsewhere. This should be lifted into a shared helper: `Get-StatusRank` or `Compare-SkuStatus` in `Private/Format/` or `Private/Utility/`. Until then, the duplication is intentional to avoid touching core helpers.
 
 ### E. Memory footprint of `$allSubscriptionData`
 At 196 subs × 3 regions × 526 SKUs × ~2 KB per SKU object, `$allSubscriptionData` consumes **~600 MB**. The deduped lifecycle view is ~3 MB. For very large tenants, core scan output could optionally store a deduped-with-per-sub-restriction-overlay structure to cut memory by ~99%.

@@ -17,7 +17,7 @@ function Write-RecommendOutputContract {
     Write-Host "`n" -NoNewline
     Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
     Write-Host "SKU RECOMMENDER" -ForegroundColor Green
-    Write-Host "The RestrictionStatus column shows ARM SKU restriction status, not live allocatable capacity." -ForegroundColor DarkYellow
+    Write-Host "The Status column shows ARM SKU restriction status, not live allocatable capacity." -ForegroundColor DarkYellow
     Write-Host "OK = no restriction returned. Deployment can still fail due to quota, placement, or policy." -ForegroundColor DarkYellow
     Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
     Write-Host ""
