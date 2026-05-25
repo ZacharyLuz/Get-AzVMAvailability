@@ -2,7 +2,9 @@
 
 [← Back to README](../README.md)
 
-Analyze your current VM inventory to identify SKUs that need lifecycle planning (old generation, capacity-constrained, or deprecated) and get compatibility-validated replacement recommendations for each.
+Analyze your current VM inventory to identify SKUs that need lifecycle planning (old generation, ARM restriction signals, or deprecated) and get compatibility-validated replacement recommendations for each.
+
+> **Important:** Availability and capacity-related labels in lifecycle output are based on ARM `Microsoft.Compute/skus` restriction metadata plus quota. `OK` means no blocking SKU restriction record was returned for the scanned scope; it does not guarantee live physical capacity or deployment-time allocation.
 
 The simplest way to run a lifecycle analysis is:
 
@@ -23,7 +25,7 @@ Standard_D8s_v5,centralus,20
 ```
 
 All columns except **SKU** are optional:
-- **Region** — where the SKU is deployed. When provided, capacity and quota are checked specifically in that region. Regions are auto-merged into the scan.
+- **Region** — where the SKU is deployed. When provided, ARM SKU restriction status and quota are checked specifically in that region. Regions are auto-merged into the scan.
 - **Qty** — number of VMs using this SKU (defaults to 1). Used to calculate required vCPUs for quota analysis. Duplicate SKU+Region rows have their quantities aggregated.
 
 Minimal format (SKU only):
@@ -90,7 +92,7 @@ For each SKU in your list:
      - `Upgrade: Drop-in` — lowest risk replacement (e.g., Dsv5 for Dv2)
      - `Upgrade: Future-proof` — latest generation (e.g., Dsv6 with NVMe)
      - `Upgrade: Cost-optimized` — AMD/alternative architecture at lower cost
-   - **Up to 3 weighted recommendations** from the real-time 8-dimension scoring engine, validated against actual region availability, capacity, and quota
+  - **Up to 3 weighted recommendations** from the real-time 8-dimension scoring engine, validated against region SKU metadata, ARM restriction status, and quota
 2. **Lifecycle risk assessment** — High / Medium / Low risk classification
 3. **Quota analysis** — current quota usage vs. limit for both the target SKU family and the recommended replacement's family, factoring in VM quantity (Qty × vCPUs)
 4. **Details column** — explains *why* each recommendation was selected (upgrade path rationale, family/version context, IOPS guarantees, resize impact, requirements like Gen2 OS or NVMe)
@@ -100,9 +102,9 @@ For each SKU in your list:
 The upgrade path knowledge base covers 19 VM families (11 retired, 8 scheduled for retirement) with vCPU-matched size maps. See [`data/UpgradePath.md`](../data/UpgradePath.md) for the full reference.
 
 Risk levels:
-- **High** — Retired/retiring SKU, capacity issues, quota insufficient, or no compatible alternatives found
+- **High** — Retired/retiring SKU, blocking ARM restriction signals, quota insufficient, or no compatible alternatives found
 - **Medium** — Old generation (v3 or below); plan migration to current generation
-- **Low** — Current generation with good availability and sufficient quota
+- **Low** — Current generation with no blocking ARM restriction signals and sufficient quota
 
 ## Pricing in Lifecycle Reports
 
