@@ -22,6 +22,8 @@ function Write-InventoryReadinessSummary {
     Write-Host "INVENTORY READINESS SUMMARY" -ForegroundColor Cyan
     Write-Host ("=" * 100) -ForegroundColor Gray
     Write-Host "Inventory: $($Inventory.Count) SKUs | $totalVMs VMs | $totalvCPU vCPUs total" -ForegroundColor White
+    Write-Host "The Capacity column shows ARM SKU restriction status, not live allocatable capacity." -ForegroundColor DarkYellow
+    Write-Host "OK = no restriction returned. Deployment can still fail due to quota, placement, or policy." -ForegroundColor DarkYellow
     Write-Host ""
 
     # Per-SKU table
@@ -64,11 +66,11 @@ function Write-InventoryReadinessSummary {
     Write-Host ""
     if ($allPass) {
         Write-Host "INVENTORY READINESS: PASS" -ForegroundColor Green -BackgroundColor Black
-        Write-Host "All SKUs have capacity and quota covers the inventory demand." -ForegroundColor Green
+        Write-Host "All SKUs returned no blocking ARM SKU restrictions and quota covers the inventory demand." -ForegroundColor Green
     }
     else {
         Write-Host "INVENTORY READINESS: FAIL" -ForegroundColor Red -BackgroundColor Black
-        Write-Host "One or more SKUs have capacity issues or insufficient quota." -ForegroundColor Red
+        Write-Host "One or more SKUs returned blocking ARM SKU restrictions or insufficient quota." -ForegroundColor Red
         Write-Host "Request quota increase: https://aka.ms/ProdportalCRP/?#create/Microsoft.Support/Parameters/" -ForegroundColor Yellow
     }
 

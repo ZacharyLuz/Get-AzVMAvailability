@@ -1,27 +1,31 @@
 ---
 name: azure-vm-availability
-description: "Scan Azure regions for real-time VM SKU availability, capacity status, quota, pricing, and image compatibility using Get-AzVMAvailability. USE FOR: where can I deploy VMs, check VM capacity, GPU availability, find available regions, VM SKU restricted, capacity constrained, find alternative SKU, recommend replacement VM, compare regions for VMs, DR region planning, check zone availability, is this SKU available, scan regions. DO NOT USE FOR: general VM size recommendations without Azure login (use azure-compute), quota management via CLI (use azure-quotas), deploying VMs (use azure-prepare)."
+description: "Scan Azure regions for VM SKU restriction status, quota headroom, pricing, placement signals, and image compatibility using Get-AzVMAvailability. Reports deployment readiness signals, not live capacity guarantees. USE FOR: where can I deploy VMs, check VM SKU restrictions, GPU availability, find available regions, VM SKU restricted, capacity constrained, find alternative SKU, recommend replacement VM, compare regions for VMs, DR region planning, check zone availability, is this SKU available, scan regions. DO NOT USE FOR: general VM size recommendations without Azure login (use azure-compute), quota management via CLI (use azure-quotas), deploying VMs (use azure-prepare)."
 license: MIT
 metadata:
   author: Zachary Luz
   version: "1.1.0"  # Skill version (independent of script version 1.11.0)
 ---
 
-# Azure VM Availability — Live Capacity Scanner
+# Azure VM Availability - SKU Restriction and Quota Scanner
 
 > **AUTHORITATIVE GUIDANCE** — This skill teaches you when and how to invoke
-> the `Get-AzVMAvailability.ps1` script via terminal for real-time Azure VM
-> capacity scanning. The script is the execution engine; this skill is the
+> the `Get-AzVMAvailability.ps1` script via terminal for Azure VM SKU
+> restriction, quota, pricing, and placement-signal scanning. The script is the
 > routing layer.
+
+> **Interpretation rule:** Status values come from ARM `Microsoft.Compute/skus`
+> restriction metadata. `OK` means no ARM SKU restriction was returned for the
+> scanned scope; it is not a live physical capacity guarantee.
 
 ## When to Use This Skill
 
 Invoke this skill when the user wants to:
-- Check **real-time** VM SKU availability across Azure regions
-- Find which regions have capacity for a specific VM family or SKU
+- Check VM SKU availability metadata across Azure regions
+- Find which regions return no ARM SKU restrictions for a specific VM family or SKU
 - Discover GPU/HPC SKU availability (NC, ND, NV series are often constrained)
-- Find **alternative SKUs** when a target VM is capacity-constrained or restricted
-- Plan **disaster recovery** by comparing capacity across region pairs
+- Find **alternative SKUs** when a target VM is constrained or restricted
+- Plan **disaster recovery** by comparing SKU restriction status across region pairs
 - Verify **image compatibility** (Gen1/Gen2, x64/ARM64) before deployment
 - See **pricing** alongside availability (retail or negotiated EA/MCA/CSP)
 - Export availability data to CSV/XLSX for reporting
@@ -95,7 +99,7 @@ User request
     ├─ "Where can I deploy Standard_D4s_v5?"
     │   └─ THIS SKILL → Scan mode
     │
-    ├─ "Is GPU capacity available in eastus?"
+    ├─ "Is this GPU SKU unrestricted in eastus?"
     │   └─ THIS SKILL → Scan mode with FamilyFilter
     │
     ├─ "E64pds_v6 is constrained, what else can I use?"
@@ -115,9 +119,9 @@ User request
 
 ## Core Workflows
 
-### Workflow 1: Region Capacity Scan
+### Workflow 1: Region Restriction Scan
 
-**Scenario:** Check which regions have capacity for specific VM SKUs or families.
+**Scenario:** Check which regions return no ARM SKU restrictions for specific VM SKUs or families.
 
 ```powershell
 # Basic scan — specific SKU across regions
@@ -196,7 +200,7 @@ User request
 
 ### Workflow 7: Fleet Readiness (BOM Validation)
 
-**Scenario:** Validate that an entire VM fleet (bill of materials) can be deployed — checks capacity and quota for every SKU in the BOM simultaneously.
+**Scenario:** Validate an entire VM fleet (bill of materials) against ARM SKU restriction status and quota for every SKU in the BOM simultaneously.
 
 ```powershell
 # Step 1: Generate template files (no Azure login needed)
@@ -240,7 +244,7 @@ Standard_D16ls_v6,1
 
 **Column name flexibility:** The parser accepts `SKU`, `Name`, or `VmSize` for the SKU column, and `Qty`, `Quantity`, or `Count` for the quantity column. Duplicate SKU rows are summed automatically.
 
-**Output:** Color-coded per-SKU capacity table + per-family quota pass/fail (Used/Available/Limit) + overall PASS/FAIL verdict.
+**Output:** Color-coded per-SKU restriction-status table + per-family quota pass/fail (Used/Available/Limit) + overall PASS/FAIL verdict.
 
 **When to route here vs Recommend mode:**
 - User has a specific BOM (list of SKUs + quantities) → **Fleet mode**
@@ -390,15 +394,17 @@ Max 5 regions per scan for performance.
 
 ---
 
-## Capacity Status Meanings
+## SKU Restriction Status Meanings
+
+`capacity` remains in JSON and table fields for schema compatibility. Interpret it as ARM SKU restriction status, not live allocation capacity.
 
 | Status | Meaning | Action |
 |--------|---------|--------|
-| OK | Ready to deploy, no restrictions | Proceed |
-| LIMITED | Subscription can't use this SKU | Request access via support ticket |
-| CAPACITY-CONSTRAINED | Azure low on hardware | Try different zone or wait |
-| PARTIAL | Some zones work, others blocked | No zone redundancy available |
-| RESTRICTED | Cannot deploy | Pick different region or SKU |
+| OK | No ARM SKU restriction returned | Validate quota, placement, and deployment dependencies |
+| LIMITED | Subscription/SKU access restriction | Request access or quota review if needed |
+| CAPACITY-CONSTRAINED | Some zones returned ARM restriction records | Try another zone and verify placement/deployment |
+| PARTIAL | Mixed zone restriction state | Treat zone redundancy as limited |
+| RESTRICTED | Blocking ARM restriction returned | Pick different region or SKU |
 
 ---
 
@@ -406,9 +412,9 @@ Max 5 regions per scan for performance.
 
 When presenting results to the user:
 
-1. **Scan mode**: Summarize which families/SKUs are available (OK) vs constrained, highlight best regions
+1. **Scan mode**: Summarize which families/SKUs returned no ARM restrictions (OK) vs constrained, highlight best regions
 2. **Recommend mode**: Present the top alternatives ranked by similarity score, note any fleet warnings (mixed CPU vendors, mixed disk types)
-3. **Always mention**: quota availability, zone coverage, and pricing if shown
+3. **Always mention**: quota availability, zone coverage, pricing if shown, and that OK is not a live capacity guarantee
 4. **If no OK results**: Suggest expanding regions, lowering MinScore, or trying different families
 
 ---

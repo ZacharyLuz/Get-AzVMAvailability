@@ -1,13 +1,16 @@
 function Get-AzVMAvailability {
 <#
 .SYNOPSIS
-    Get-AzVMAvailability - Comprehensive SKU availability and capacity scanner.
+    Get-AzVMAvailability - SKU availability, ARM restriction, quota, and pricing scanner.
 
 .DESCRIPTION
-    Scans Azure regions for VM SKU availability and capacity status to help plan deployments.
+    Scans Azure regions for VM SKU restriction status, quota headroom, and deployment readiness signals.
+    ARM SKU restriction status is not a live physical capacity guarantee. OK means the Microsoft.Compute/skus API did
+    not return a blocking restriction record for that SKU/region/zone; allocation can still fail because of quota,
+    placement, transient platform capacity, policy, or deployment-time constraints.
     Provides a comprehensive view of:
-    - All VM SKU families available in each region
-    - Capacity status (OK, LIMITED, CAPACITY-CONSTRAINED, RESTRICTED)
+    - All VM SKU families in each region
+    - ARM SKU restriction status (OK, LIMITED, CAPACITY-CONSTRAINED, RESTRICTED)
     - Subscription-level restrictions
     - Available vCPU quota per family
     - Zone availability information
@@ -16,7 +19,7 @@ function Get-AzVMAvailability {
     Key features:
     - Parallel region scanning for speed (~5 seconds for 3 regions)
     - Scans ALL VM families automatically
-    - Color-coded capacity reporting
+    - Color-coded ARM restriction reporting
     - Interactive drill-down by family/SKU
     - CSV/XLSX export with detailed breakdowns
     - Auto-detects Unicode support for icons
@@ -108,11 +111,11 @@ function Get-AzVMAvailability {
 
 .PARAMETER MinvCPU
     Minimum vCPU count for recommended alternatives. SKUs below this are excluded.
-    If smaller SKUs have better availability, a suggestion note is shown.
+    If smaller SKUs have fewer restrictions, a suggestion note is shown.
 
 .PARAMETER MinMemoryGB
     Minimum memory in GB for recommended alternatives. SKUs below this are excluded.
-    If smaller SKUs have better availability, a suggestion note is shown.
+    If smaller SKUs have fewer restrictions, a suggestion note is shown.
 
 .PARAMETER JsonOutput
     Emit structured JSON instead of console tables. Designed for the AzVMAvailability-Agent
@@ -1647,6 +1650,9 @@ Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "GET-AZVMAVAILABILITY v$ScriptVersion" -ForegroundColor Green
 Write-Host "Personal project — not an official Microsoft product. Provided AS IS." -ForegroundColor DarkGray
+Write-Host "Restriction status: labels come from ARM Microsoft.Compute/skus restriction metadata." -ForegroundColor DarkYellow
+Write-Host "OK = no blocking restriction returned. This is NOT a live capacity or allocation guarantee." -ForegroundColor DarkYellow
+Write-Host "Deployment can still fail due to quota, placement, policy, or transient platform conditions." -ForegroundColor DarkYellow
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
 if ($SkuFilter -and $SkuFilter.Count -gt 0) {
@@ -2004,7 +2010,6 @@ try {
                     $authPattern = $using:authErrorPattern
                     $skipQuota = $using:NoQuota.IsPresent
                     $counter = $using:scanCounter
-                    $total = $using:totalItems
 
                     # Inline retry — parallel runspaces cannot see script-scope functions
                     $retryCall = {
@@ -2516,7 +2521,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 }
             }
 
-            # Detect lifecycle risk: old generation, capacity issues, no alternatives
+            # Detect lifecycle risk: old generation, SKU restriction signals, no alternatives
             $generation = if ($target.Name -match '_v(\d+)$') { [int]$Matches[1] } else { 1 }
             $targetAvail = $recOutput.targetAvailability
 
@@ -2554,7 +2559,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                     $aggLimit = 0; $aggCurrent = 0
                     foreach ($pair in $perSubMap.GetEnumerator()) {
                         $pSubId = [string]$pair.Key
-                        $pQty = [int]$pair.Value
                         $quotaTotalDeployingSubs++
                         $subQuotaLookup = $lcPerSubQuota["$pSubId|$deployedRegion"]
                         if (-not $subQuotaLookup) { continue }
@@ -2696,7 +2700,7 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 if ($riskLevel -ne 'High') { $riskLevel = 'High' }
             }
 
-            if ($hasCapacityIssues) { $riskReasons.Add("Capacity$(if ($deployedRegion) { " ($deployedRegion)" } else { '' })"); $riskLevel = 'High' }
+            if ($hasCapacityIssues) { $riskReasons.Add("SKU restriction$(if ($deployedRegion) { " ($deployedRegion)" } else { '' })"); $riskLevel = 'High' }
             if ($quotaInsufficient) {
                 $qReason = if ($quotaTotalDeployingSubs -gt 0) {
                     "Quota: family over limit in $quotaDeficitSubs of $quotaTotalDeployingSubs deploying sub(s)"
@@ -3610,12 +3614,12 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
                 @{ Marker = '-N';  Meaning = "Recommended SKU costs LESS than current, or has fewer resources (e.g. -10 = saves `$10/mo per VM)." }
                 @{ Marker = '0';   Meaning = "No change between current and recommended (price, vCPU, memory, disks, or IOPS)." }
                 @{ Marker = '-';   Meaning = "Data not available (capability missing from SKU index, or price unavailable for region)." }
-                @{ Marker = '✓ Zones N'; Meaning = "Recommended SKU is fully available in those availability zone(s) of the deployed region." }
-                @{ Marker = '⚠ Zones N'; Meaning = "Recommended SKU has LIMITED availability in those zone(s) — capacity-constrained or quota-restricted. Deployment may succeed but consider widening the region or alternate zones." }
+                @{ Marker = '✓ Zones N'; Meaning = "Recommended SKU returned no ARM restriction in those availability zone(s) of the deployed region." }
+                @{ Marker = '⚠ Zones N'; Meaning = "Recommended SKU returned LIMITED restriction/access signals in those zone(s). Verify placement or consider alternate zones." }
                 @{ Marker = '✗ Zones N'; Meaning = "Recommended SKU is RESTRICTED in those zone(s) — Microsoft has marked the SKU as unavailable for new deployments there. Choose a different zone or SKU." }
                 @{ Marker = 'Non-zonal'; Meaning = "Region or SKU does not advertise per-zone availability (regional deployment only)." }
                 @{ Marker = 'No alternatives'; Meaning = "No same-family or compatible-profile SKU was found in the scanned regions AND no Microsoft-documented upgrade path applies. Treat as HIGH risk — the workload may be locked to a retiring/constrained SKU. Widening -Regions scope often resolves this for SAP/HANA M-series and other niche families." }
-                @{ Marker = 'No alternatives in scanned regions (advisory only)'; Meaning = "Microsoft has a documented successor SKU for this family (shown in the Best-fit row with 'Advisory' capacity), but it is not deployable in any of the regions you scanned. Widen -Regions to include a region that offers the successor, or treat the advisory SKU as a planning target." }
+                @{ Marker = 'No alternatives in scanned regions (advisory only)'; Meaning = "Microsoft has a documented successor SKU for this family (shown in the Best-fit row with legacy Capacity value 'Advisory'), but it was not returned as an unrestricted option in any scanned region. Widen -Regions to include a region that offers the successor, or treat the advisory SKU as a planning target." }
                 @{ Marker = 'Advisory'; Meaning = "Recommendation is informational only — the SKU is Microsoft's documented successor (from data/UpgradePath.json) but was NOT found in any scanned region. Capability deltas, prices, and zones are unavailable. Use to identify migration targets; widen -Regions to validate deployability." }
             )
 
@@ -4466,11 +4470,11 @@ $script:OutputWidth = [Math]::Max($matrixWidth, $DefaultTerminalWidth)
 
 # Display section header with dynamic width
 Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
-Write-Host "MULTI-REGION CAPACITY MATRIX" -ForegroundColor Green
+Write-Host "MULTI-REGION SKU RESTRICTION MATRIX" -ForegroundColor Green
 Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
 Write-Host ""
-Write-Host "SUMMARY: Best-case status for each VM family (e.g., D, F, NC) per region." -ForegroundColor DarkGray
-Write-Host "This shows if ANY SKUs in the family are available - not all SKUs." -ForegroundColor DarkGray
+Write-Host "SUMMARY: Best-case ARM SKU restriction status for each VM family (e.g., D, F, NC) per region." -ForegroundColor DarkGray
+Write-Host "This shows if ANY SKUs in the family returned no restriction - not all SKUs." -ForegroundColor DarkGray
 Write-Host "For individual SKU details, see the detailed table above." -ForegroundColor DarkGray
 Write-Host ""
 
@@ -4506,22 +4510,23 @@ foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
 
 Write-Host ""
 Write-Host "HOW TO READ THIS:" -ForegroundColor Cyan
-Write-Host "  Green row  = At least one SKU in this family is fully available." -ForegroundColor Green
-Write-Host "  Yellow row = Some SKUs may work, but there are constraints." -ForegroundColor Yellow
-Write-Host "  Gray row   = No SKUs from this family available in scanned regions." -ForegroundColor Gray
+Write-Host "  Green row  = At least one SKU in this family returned no ARM restriction." -ForegroundColor Green
+Write-Host "  Yellow row = Some SKUs have ARM restriction signals or zone constraints." -ForegroundColor Yellow
+Write-Host "  Gray row   = No SKUs from this family were returned in scanned regions." -ForegroundColor Gray
 Write-Host ""
 Write-Host "STATUS MEANINGS:" -ForegroundColor Cyan
-Write-Host ("  $($Icons.OK)".PadRight(16) + "= Ready to deploy. No restrictions.") -ForegroundColor Green
-Write-Host ("  $($Icons.CAPACITY)".PadRight(16) + "= Azure is low on hardware. Try a different zone or wait.") -ForegroundColor Yellow
-Write-Host ("  $($Icons.LIMITED)".PadRight(16) + "= Your subscription can't use this. Request access via support ticket.") -ForegroundColor Yellow
-Write-Host ("  $($Icons.PARTIAL)".PadRight(16) + "= Some zones work, others are blocked. No zone redundancy.") -ForegroundColor Yellow
-Write-Host ("  $($Icons.BLOCKED)".PadRight(16) + "= Cannot deploy. Pick a different region or SKU.") -ForegroundColor Red
+Write-Host ("  $($Icons.OK)".PadRight(16) + "= No ARM SKU restriction returned for the scanned scope.") -ForegroundColor Green
+Write-Host ("  $($Icons.CAPACITY)".PadRight(16) + "= Some zones returned ARM restriction records; verify placement/deployment.") -ForegroundColor Yellow
+Write-Host ("  $($Icons.LIMITED)".PadRight(16) + "= Subscription/SKU access restriction; request access if needed.") -ForegroundColor Yellow
+Write-Host ("  $($Icons.PARTIAL)".PadRight(16) + "= Mixed zone restriction state; zone redundancy may be limited.") -ForegroundColor Yellow
+Write-Host ("  $($Icons.BLOCKED)".PadRight(16) + "= Blocking ARM restriction returned; pick another region or SKU.") -ForegroundColor Red
 Write-Host ""
-Write-Host "NOTE: 'OK' means SOME SKUs work, not ALL. Check the detailed table above" -ForegroundColor DarkYellow
-Write-Host "      for specific SKU availability (e.g., Standard_D4s_v5 vs Standard_D8s_v5)." -ForegroundColor DarkYellow
+Write-Host "NOTE: These labels are restriction metadata from Microsoft.Compute/skus, not a live" -ForegroundColor DarkYellow
+Write-Host "      hardware capacity check. Use -ShowPlacement, capacity reservation/probe, or" -ForegroundColor DarkYellow
+Write-Host "      deployment validation when allocation confidence matters." -ForegroundColor DarkYellow
 Write-Host ""
-Write-Host "NEED MORE CAPACITY?" -ForegroundColor Cyan
-Write-Host "  LIMITED status: Request quota increase at:" -ForegroundColor Yellow
+Write-Host "NEED ACCESS OR QUOTA?" -ForegroundColor Cyan
+Write-Host "  LIMITED status: request SKU access or quota review at:" -ForegroundColor Yellow
 # Use environment-aware portal URL
 $quotaPortalUrl = if ($script:AzureEndpoints -and $script:AzureEndpoints.EnvironmentName) {
     switch ($script:AzureEndpoints.EnvironmentName) {
@@ -4541,11 +4546,11 @@ if ($FetchPricing) {
 }
 
 #endregion Multi-Region Matrix
-#region Deployment Recommendations
+#region Deployment Planning Notes
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-Write-Host "DEPLOYMENT RECOMMENDATIONS" -ForegroundColor Green
+Write-Host "DEPLOYMENT PLANNING NOTES" -ForegroundColor Green
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
 
@@ -4564,7 +4569,7 @@ foreach ($family in $allFamilyStats.Keys) {
 
 $hasBest = ($bestPerRegion.Values | Measure-Object -Property Count -Sum).Sum -gt 0
 if ($hasBest) {
-    Write-Host "Regions with full capacity:" -ForegroundColor Green
+    Write-Host "Regions with no returned ARM SKU restrictions for at least one scanned family:" -ForegroundColor Green
     foreach ($r in $allRegions) {
         $families = @($bestPerRegion[$r])
         if ($families.Count -gt 0) {
@@ -4574,8 +4579,8 @@ if ($hasBest) {
     }
 }
 else {
-    Write-Host "No regions have full capacity for the scanned families." -ForegroundColor Yellow
-    Write-Host "Best available options (with constraints):" -ForegroundColor Yellow
+    Write-Host "No scanned regions had fully unrestricted SKU-family status." -ForegroundColor Yellow
+    Write-Host "Best available options by returned restriction status:" -ForegroundColor Yellow
     foreach ($family in ($allFamilyStats.Keys | Sort-Object | Select-Object -First 5)) {
         $stats = $allFamilyStats[$family]
         $bestRegion = $stats.Regions.Keys | Sort-Object { $stats.Regions[$_].Available } -Descending | Select-Object -First 1
@@ -4587,7 +4592,7 @@ else {
     }
 }
 
-#endregion Deployment Recommendations
+#endregion Deployment Planning Notes
 #region Detailed Breakdown
 
 Write-Host "`n" -NoNewline
@@ -4595,7 +4600,7 @@ Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "DETAILED CROSS-REGION BREAKDOWN" -ForegroundColor Green
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host ""
-Write-Host "SUMMARY: Shows which regions have capacity for each VM family." -ForegroundColor DarkGray
+Write-Host "SUMMARY: Shows returned ARM SKU restriction status for each VM family." -ForegroundColor DarkGray
 Write-Host "  'Available'   = At least one SKU in this family can be deployed here" -ForegroundColor DarkGray
 Write-Host "  'Constrained' = Family has issues in this region (see reason in parentheses)" -ForegroundColor DarkGray
 Write-Host "  '(none)'      = No regions in that category for this family" -ForegroundColor DarkGray
@@ -4790,8 +4795,8 @@ if ($ExportPath) {
             #region Add Compact Legend to Summary Sheet
             $legendStartRow = $lastRow + 3  # Leave 2 blank rows
 
-            # Legend title - Capacity Status
-            $ws.Cells["A$legendStartRow"].Value = "CAPACITY STATUS"
+            # Legend title - legacy Capacity column contains ARM restriction status
+            $ws.Cells["A$legendStartRow"].Value = "SKU RESTRICTION STATUS"
             $ws.Cells["A$legendStartRow`:C$legendStartRow"].Merge = $true
             $ws.Cells["A$legendStartRow"].Style.Font.Bold = $true
             $ws.Cells["A$legendStartRow"].Style.Font.Size = 11
@@ -4801,11 +4806,11 @@ if ($ExportPath) {
 
             # Status codes table
             $statusItems = @(
-                @{ Status = "OK"; Desc = "Ready to deploy. No restrictions." }
-                @{ Status = "LIMITED"; Desc = "Your subscription can't use this. Request access via support ticket." }
-                @{ Status = "CAPACITY-CONSTRAINED"; Desc = "Azure is low on hardware. Try a different zone or wait." }
-                @{ Status = "PARTIAL"; Desc = "Some zones work, others are blocked. No zone redundancy." }
-                @{ Status = "RESTRICTED"; Desc = "Cannot deploy. Pick a different region or SKU." }
+                @{ Status = "OK"; Desc = "No ARM SKU restriction returned for the scanned scope." }
+                @{ Status = "LIMITED"; Desc = "Subscription/SKU access restriction; request access if needed." }
+                @{ Status = "CAPACITY-CONSTRAINED"; Desc = "Some zones returned ARM restriction records; verify placement/deployment." }
+                @{ Status = "PARTIAL"; Desc = "Mixed zone restriction state; zone redundancy may be limited." }
+                @{ Status = "RESTRICTED"; Desc = "Blocking ARM restriction returned; pick another region or SKU." }
             )
 
             $currentRow = $legendStartRow + 1
@@ -4893,7 +4898,7 @@ if ($ExportPath) {
             $currentRow += 2
             $ws.Cells["A$currentRow"].Value = "FORMAT:"
             $ws.Cells["A$currentRow"].Style.Font.Bold = $true
-            $ws.Cells["B$currentRow"].Value = "STATUS (X/Y) = X SKUs available out of Y total"
+            $ws.Cells["B$currentRow"].Value = "STATUS (X/Y) = X SKUs with no returned restriction out of Y total"
             $currentRow++
             $ws.Cells["A$currentRow`:C$currentRow"].Merge = $true
             $ws.Cells["A$currentRow"].Value = "See 'Legend' tab for detailed column descriptions"
@@ -4963,20 +4968,20 @@ if ($ExportPath) {
 
             #region Legend Sheet
             $legendData = @(
-                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "STATUS (X/Y)"; Description = "X = SKUs with full availability, Y = Total SKUs in family for that region" }
-                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "Example: OK (5/8)"; Description = "5 out of 8 SKUs are fully available with OK status" }
+                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "STATUS (X/Y)"; Description = "X = SKUs with no returned ARM restriction, Y = total SKUs in family for that region" }
+                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "Example: OK (5/8)"; Description = "5 out of 8 SKUs returned no ARM restriction with OK status" }
                 [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "OK"; Description = "Ready to deploy. No restrictions." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "LIMITED"; Description = "Your subscription can't use this. Request access via support ticket." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "CAPACITY-CONSTRAINED"; Description = "Azure is low on hardware. Try a different zone or wait." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "PARTIAL"; Description = "Some zones work, others are blocked. No zone redundancy." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "RESTRICTED"; Description = "Cannot deploy. Pick a different region or SKU." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "N/A"; Description = "SKU family not available in this region." }
+                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "OK"; Description = "No ARM restriction returned. Not a live capacity or allocation guarantee." }
+                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "LIMITED"; Description = "Subscription/SKU access restriction; request access if needed." }
+                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "CAPACITY-CONSTRAINED"; Description = "Some zones have ARM restrictions; others are clear. Verify placement before deploying." }
+                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "PARTIAL"; Description = "Mixed zone restriction state; zone redundancy may be limited." }
+                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "RESTRICTED"; Description = "Blocking ARM restriction returned; pick another region or SKU." }
+                [PSCustomObject]@{ Category = "SKU RESTRICTION STATUS"; Item = "N/A"; Description = "SKU family not returned in this region." }
                 [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
                 [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "Family"; Description = "VM family identifier (e.g., Dv5, Ev5, Mv2)" }
                 [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "Total_SKUs"; Description = "Total number of SKUs scanned across all regions" }
-                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "SKUs_OK"; Description = "Number of SKUs with full availability (OK status)" }
-                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "<Region>_Status"; Description = "Capacity status for that region with (Available/Total) count" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "SKUs_OK"; Description = "Number of SKUs with no returned ARM restriction (OK status)" }
+                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "<Region>_Status"; Description = "Restriction status for that region with (Unrestricted/Total) count" }
                 [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Family"; Description = "VM family identifier" }
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "SKU"; Description = "Full SKU name (e.g., Standard_D2s_v5)" }
@@ -4984,14 +4989,14 @@ if ($ExportPath) {
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "vCPU"; Description = "Number of virtual CPUs" }
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "MemGiB"; Description = "Memory in GiB" }
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Zones"; Description = "Availability zones where SKU is available" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Capacity"; Description = "Current capacity status" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Restrictions"; Description = "Any restrictions or capacity messages" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Capacity"; Description = "ARM SKU restriction status (will be renamed to RestrictionStatus in a future release)" }
+                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Restrictions"; Description = "ARM SKU restriction reason codes and messages" }
                 [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "QuotaAvail"; Description = "Available vCPU quota for this family (Limit - Current Usage)" }
                 [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
-                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Green"; Description = "Ready to deploy. No restrictions." }
-                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Yellow/Orange"; Description = "Constrained. Check status for what to do next." }
-                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Red"; Description = "Cannot deploy. Pick a different region or SKU." }
-                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Gray"; Description = "Not available in this region." }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Green"; Description = "No ARM restriction returned; still validate quota, placement, and policy." }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Yellow/Orange"; Description = "ARM restriction signal present; review status and zones." }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Red"; Description = "Blocking ARM restriction returned; pick another region or SKU." }
+                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Gray"; Description = "Not returned in this region." }
             )
 
             $excel = $legendData | Export-Excel -Path $xlsxFile -WorksheetName "Legend" -AutoSize -Append -PassThru
