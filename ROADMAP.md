@@ -51,7 +51,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ## Version 1.0.0 (Initial Release)
 - ✅ Multi-region parallel scanning
-- ✅ SKU availability and capacity status
+- ✅ SKU availability and restriction status
 - ✅ Zone-level restriction details
 - ✅ Quota tracking per family
 - ✅ Multi-region comparison matrix
@@ -173,7 +173,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 ---
 
 ## Version 1.8.0 (Released)
-**Theme: Capacity Recommender**
+**Theme: SKU Recommender**
 
 ### Completed Features
 - [x] **`-Recommend` Parameter** - Find alternatives when a target SKU is unavailable
@@ -188,7 +188,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ## Future Enhancements (Backlog)
 
-### Capacity Recommender Enhancements
+### SKU Recommender Enhancements
 - [x] **Fleet Planning** - Shipped in v1.12.0 as `-Fleet`/`-Inventory` hashtable and `-InventoryFile` CSV/JSON input
 - [ ] **Workload Profiles** - Pre-tuned scoring weights for MemoryOptimized, ComputeOptimized, GPU
 - [ ] **`-AnyRegion`** - Scan all public regions automatically
@@ -204,7 +204,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 - [x] **Current VM Inventory** - Shipped in v1.14.0 as `-LifecycleScan`
 - [x] **Cross-Subscription Discovery** - Shipped in v1.14.0 via `-ManagementGroup` parameter
 - [x] **Deployment Density** - Shipped in v1.14.0 as `-SubMap`/`-RGMap` deployment mapping
-- [ ] **Compare Available vs Deployed** - Side-by-side view of capacity vs current usage
+- [ ] **Compare Available vs Deployed** - Side-by-side view of restriction status vs current usage
 
 ### Enhanced Reporting
 - [ ] **HTML Report Export** - Self-contained HTML report with charts
@@ -218,7 +218,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ### Advanced Monitoring
 - [ ] **Watch Mode** - Continuous monitoring with alerts
-- [ ] **Capacity Alerts** - Notify when capacity status changes
+- [ ] **Restriction Status Alerts** - Notify when restriction status changes
 - [ ] **Azure Function Deployment** - Run as scheduled serverless function
 
 ---
@@ -243,8 +243,8 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 **Theme: Fleet Planning**
 
 ### Shipped in v1.12.0
-- ✅ **`-Fleet` Hashtable** — Validate a multi-SKU fleet against real capacity data via BOM hashtable
-- ✅ **`Get-FleetReadiness`** — Per-SKU capacity status across all requested regions
+- ✅ **`-Fleet` Hashtable** — Validate a multi-SKU fleet against real restriction/quota data via BOM hashtable
+- ✅ **`Get-FleetReadiness`** — Per-SKU restriction status across all requested regions
 - ✅ **`Write-FleetReadinessSummary`** — Color-coded fleet summary with zone and quota details
 - ✅ **Fuzzy quota matching** — Match quota family names to SKU families without exact naming alignment
 
@@ -278,7 +278,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 Expose VM availability data as MCP tools so AI coding agents (Copilot, Claude, etc.) can pre-validate SKU selection during Terraform/Bicep authoring — before deployment fails.
 
 ### MCP Tools
-- [ ] **`check_vm_availability`** - Check if a specific SKU is available in a region (capacity, restrictions, zones)
+- [ ] **`check_vm_availability`** - Check if a specific SKU is available in a region (restriction status, quota, zones)
 - [ ] **`find_alternatives`** - Find similar available SKUs when the target is unavailable (wraps `-Recommend`)
 - [ ] **`get_vm_pricing`** - Get retail/negotiated pricing for a SKU in a region
 - [ ] **`check_quota`** - Check subscription quota for a SKU family in a region
@@ -330,14 +330,14 @@ flowchart TB
 **Theme: Proactive Monitoring**
 
 - [ ] **Watch Mode** - Continuous monitoring with alerts
-- [ ] **Capacity Alerts** - Notify when capacity status changes
+- [ ] **Restriction Status Alerts** - Notify when restriction status changes
 - [ ] **Azure Monitor Integration** - Log results to Log Analytics
 - [ ] **Azure Function Deployment** - Run as scheduled serverless function
 - [ ] **REST API Wrapper** - Expose as lightweight API
 
 ---
 
-## Future: AVD Capacity Planning Mode
+## Future: AVD Deployment Planning Mode
 **Theme: Azure Virtual Desktop Host Pool Sizing**
 
 AVD deployments depend on VM SKU availability and quota (already covered), but a dedicated AVD mode would close the remaining gap between raw capacity data and host pool readiness.
@@ -349,7 +349,7 @@ AVD deployments depend on VM SKU availability and quota (already covered), but a
 - [ ] **Host Pool Quota Check** - Validate that subscription quota covers the full host pool VM count
 - [ ] **SKU Guidance** - Flag AVD-recommended families (DSv5, Dasv5, NVv4 for GPU) and warn on unsupported SKUs
 - [ ] **Spot Integration** - Flag pooled hosts as Spot-eligible when eviction tolerance is low (links to placement score feature)
-- [ ] **Capacity + Quota Pass/Fail Summary** - Single green/red readiness signal per region
+- [ ] **Restriction + Quota Pass/Fail Summary** - Single green/red readiness signal per region
 
 ### Notes
 - Builds on existing SKU availability + quota scan — no new Azure API dependency
@@ -361,15 +361,15 @@ AVD deployments depend on VM SKU availability and quota (already covered), but a
 ---
 
 ## Future: SKU Modernization Scanner
-**Theme: Proactive SKU Retirement & Capacity Risk Detection**
+**Theme: Proactive SKU Retirement & Restriction Risk Detection**
 
-Scan a subscription's deployed VMs to find SKUs that are scheduled for retirement, deprecated, or running in low-capacity regions — then recommend newer replacement SKUs with better availability.
+Scan a subscription's deployed VMs to find SKUs that are scheduled for retirement, deprecated, or running in restricted regions — then recommend newer replacement SKUs with better availability.
 
 ### Proposed Features
 - [ ] **`-Modernize` Parameter** - Interactive mode that discovers deployed VMs and flags at-risk SKUs
 - [ ] **ARG Inventory Scan** - Use Azure Resource Graph to enumerate all deployed VMs by region, SKU, and resource group
 - [ ] **Retirement Detection** - Cross-reference deployed SKUs against Azure's published retirement/deprecation schedule (Compute RP `resourceSkus` with `NotAvailableForNewDeployments` restrictions)
-- [ ] **Low-Capacity Flagging** - Identify deployed SKUs where current capacity status is `NotAvailable` or `Restricted` in the deployment region
+- [ ] **Restriction Flagging** - Identify deployed SKUs where current restriction status is `NotAvailable` or `Restricted` in the deployment region
 - [ ] **Upgrade Recommendations** - For each at-risk SKU, run the existing similarity scoring engine (`-Recommend`) to suggest newer replacements with `Available` capacity
 - [ ] **Generation Gap Detection** - Flag VMs running on older generations (v2/v3/v4) when v5/v6 equivalents exist in the same family
 - [ ] **Side-by-Side Comparison** - Table showing current SKU vs recommended upgrade with vCPU, memory, pricing, and capacity delta
@@ -379,16 +379,16 @@ Scan a subscription's deployed VMs to find SKUs that are scheduled for retiremen
 ### Data Sources
 - **Deployed VMs:** Azure Resource Graph (`Microsoft.Compute/virtualMachines`)
 - **SKU Retirement Status:** Compute RP `resourceSkus` API — restrictions array contains `NotAvailableForNewDeployments` for retiring SKUs
-- **Capacity Status:** Existing capacity scanning logic (already built)
+- **Restriction Status:** Existing restriction scanning logic (already built)
 - **Replacement Scoring:** Existing `Get-SkuSimilarityScore` engine (already built)
 - **Pricing:** Existing retail/negotiated pricing pipeline (already built)
 
 ### Interactive Flow
 1. Scan subscription via ARG → list all unique deployed SKUs by region
-2. Check each SKU for retirement restrictions and capacity status
-3. Flag at-risk SKUs (retiring, restricted, low capacity)
+2. Check each SKU for retirement restrictions and restriction status
+3. Flag at-risk SKUs (retiring, restricted, zone-limited)
 4. For each flagged SKU, run recommend engine to find available replacements
-5. Present color-coded summary: green (healthy), yellow (low capacity), red (retiring/unavailable)
+5. Present color-coded summary: green (healthy), yellow (zone-limited), red (retiring/unavailable)
 6. User selects which replacements to include in export report
 
 ### Dependencies

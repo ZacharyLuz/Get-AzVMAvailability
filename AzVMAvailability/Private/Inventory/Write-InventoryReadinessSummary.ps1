@@ -32,7 +32,7 @@ function Write-InventoryReadinessSummary {
     Write-Host ("-" * 100) -ForegroundColor Gray
 
     foreach ($row in $InventoryResult.SKUs) {
-        $capacityColor = switch ($row.RestrictionStatus) {
+        $statusColor = switch ($row.RestrictionStatus) {
             'OK'                    { 'Green' }
             'LIMITED'               { 'Yellow' }
             'ZONE-LIMITED'          { 'DarkYellow' }
@@ -41,7 +41,7 @@ function Write-InventoryReadinessSummary {
         }
         $needStr = "$($row.TotalvCPU) vCPU"
         $line = $headerFmt -f $row.SKU, $row.Qty, $row.vCPUEach, $row.MemGiBEach, $needStr, $row.RestrictionStatus, $row.BestRegion
-        Write-Host $line -ForegroundColor $capacityColor
+        Write-Host $line -ForegroundColor $statusColor
     }
 
     Write-Host ""

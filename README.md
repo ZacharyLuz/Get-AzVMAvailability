@@ -199,13 +199,13 @@ As of v2.0.0, Get-AzVMAvailability is available as both a standalone script and 
 |-------|-------------|
 | [Parameters](docs/parameters.md) | Reference table for all parameters, including names, types, and descriptions |
 | [Usage Examples](docs/usage-examples.md) | Common scanning patterns — GPU, pricing, export, multi-region |
-| [Inventory Planning](docs/inventory-planning.md) | Validate capacity and quota for an entire VM BOM |
+| [Inventory Planning](docs/inventory-planning.md) | Validate restriction status and quota for an entire VM BOM |
 | [Lifecycle Recommendations](docs/lifecycle-recommendations.md) | Retirement risk analysis with upgrade alternatives |
 | [Region Presets](docs/region-presets.md) | Pre-built region sets for US, Europe, Asia-Pacific, sovereign clouds |
 | [Image Compatibility](docs/image-compatibility.md) | Gen1/Gen2 and x64/ARM64 image checking |
 | [Output & Pricing](docs/output-and-pricing.md) | Console output, pricing auto-detection, Excel export, status legend |
 | [Cloud Environments](docs/cloud-environments.md) | Supported Azure clouds (Commercial, Government, China) |
-| [AI Agent Integration](docs/agent-integration.md) | Copilot skill for natural-language VM capacity queries |
+| [AI Agent Integration](docs/agent-integration.md) | Copilot skill for natural-language VM restriction/quota queries |
 | [GitHub Codespaces](docs/codespaces.md) | Run in a browser with zero local setup |
 | [Local Installation](docs/local-installation.md) | Clone, install modules, and import |
 

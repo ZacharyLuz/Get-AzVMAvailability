@@ -34,7 +34,7 @@
 | `-MaxRetries`           | Int      | Maximum retry attempts for transient API errors (default 3). Uses exponential backoff                                     |
 | `-JsonOutput`           | Switch   | Emit structured JSON for GitHub Copilot CLI, AI agent integration, or automation pipelines                                |
 | `-SkipRegionValidation` | Switch   | Skip Azure region metadata validation (use only when Azure metadata lookup is unavailable)                                |
-| `-Inventory`            | Hashtable| Inventory BOM as hashtable: `@{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}` — validates capacity + quota for entire inventory     |
+| `-Inventory`            | Hashtable| Inventory BOM as hashtable: `@{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}` — validates restriction status + quota for entire inventory     |
 | `-InventoryFile`        | String   | Path to CSV or JSON file with inventory BOM. CSV: columns `SKU,Qty`. JSON: array of `{"SKU":"...","Qty":N}` objects. Easiest input method for spreadsheet users |
 | `-GenerateInventoryTemplate`| Switch   | Creates `inventory-template.csv` and `inventory-template.json` in the current directory, then exits. No Azure login required |
 | `-LifecycleRecommendations`| String  | Path to CSV, JSON, or XLSX file listing current VM SKUs (column: SKU/Size/VmSize, optional: Region, Qty). XLSX files exported from the Azure portal VM blade are supported natively. Runs compatibility-validated recommendations with quantity-aware quota analysis |
@@ -48,7 +48,7 @@
 
 > **Backward compatibility:** The previous parameter names `-Fleet`, `-FleetFile`, and `-GenerateFleetTemplate` still work as aliases.
 
-> **Tuning tip:** Use `-MinScore 0` to see all candidates when capacity is tight, or raise it (e.g., 70) to prioritize closer matches.
+> **Tuning tip:** Use `-MinScore 0` to see all candidates when restrictions are widespread, or raise it (e.g., 70) to prioritize closer matches.
 
 ## Compatibility Gate
 
