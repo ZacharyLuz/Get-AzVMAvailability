@@ -17,7 +17,7 @@ function Write-RecommendOutputContract {
     Write-Host "`n" -NoNewline
     Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
     Write-Host "SKU RECOMMENDER" -ForegroundColor Green
-    Write-Host "The Capacity column shows ARM SKU restriction status, not live allocatable capacity." -ForegroundColor DarkYellow
+    Write-Host "The Status column shows ARM SKU restriction status, not live allocatable capacity." -ForegroundColor DarkYellow
     Write-Host "OK = no restriction returned. Deployment can still fail due to quota, placement, or policy." -ForegroundColor DarkYellow
     Write-Host ("=" * $OutputWidth) -ForegroundColor Gray
     Write-Host ""
@@ -79,37 +79,37 @@ function Write-RecommendOutputContract {
 
     if ($FetchPricing -and $placementEnabled -and $spotPricingEnabled) {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-8} {11,-5} {12,-8} {13,-8} {14,-10} {15,-10}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Alloc', 'Zones', '$/Hr', '$/Mo', 'Spot$/Hr', 'Spot$/Mo') -ForegroundColor White
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Status', 'Alloc', 'Zones', '$/Hr', '$/Mo', 'Spot$/Hr', 'Spot$/Mo') -ForegroundColor White
         Write-Host (' ' + ('-' * 169)) -ForegroundColor DarkGray
     }
     elseif ($FetchPricing -and $placementEnabled) {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-8} {11,-5} {12,-8} {13,-8}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Alloc', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Status', 'Alloc', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
         Write-Host (' ' + ('-' * 147)) -ForegroundColor DarkGray
     }
     elseif ($FetchPricing -and $spotPricingEnabled) {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5} {11,-8} {12,-8} {13,-10} {14,-10}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Zones', '$/Hr', '$/Mo', 'Spot$/Hr', 'Spot$/Mo') -ForegroundColor White
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Status', 'Zones', '$/Hr', '$/Mo', 'Spot$/Hr', 'Spot$/Mo') -ForegroundColor White
         Write-Host (' ' + ('-' * 159)) -ForegroundColor DarkGray
     }
     elseif ($FetchPricing) {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5} {11,-8} {12,-8}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Status', 'Zones', '$/Hr', '$/Mo') -ForegroundColor White
         Write-Host (' ' + ('-' * 137)) -ForegroundColor DarkGray
     }
     elseif ($placementEnabled) {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-8} {11,-5}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Alloc', 'Zones') -ForegroundColor White
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Status', 'Alloc', 'Zones') -ForegroundColor White
         Write-Host (' ' + ('-' * 129)) -ForegroundColor DarkGray
     }
     else {
         $headerFmt = " {0,-3} {1,-28} {2,-12} {3,-5} {4,-7} {5,-6} {6,-6} {7,-5} {8,-20} {9,-12} {10,-5}"
-        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Capacity', 'Zones') -ForegroundColor White
+        Write-Host ($headerFmt -f '#', 'SKU', 'Region', 'vCPU', 'Mem(GB)', 'Score', 'CPU', 'Disk', 'Type', 'Status', 'Zones') -ForegroundColor White
         Write-Host (' ' + ('-' * 119)) -ForegroundColor DarkGray
     }
 
     foreach ($r in $recommendations) {
-        $rowColor = switch ($r.capacity) {
+        $rowColor = switch ($r.restrictionStatus) {
             'OK' { 'Green' }
             'LIMITED' { 'Yellow' }
             default { 'DarkYellow' }
@@ -121,33 +121,33 @@ function Write-RecommendOutputContract {
             $spotMoStr = if ($null -ne $r.spotPriceMo) { '$' + ([double]$r.spotPriceMo).ToString('0') } else { '-' }
             if ($placementEnabled -and $spotPricingEnabled) {
                 $allocStr = if ($r.allocScore) { [string]$r.allocScore } else { '-' }
-                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $allocStr, $r.zonesOK, $hrStr, $moStr, $spotHrStr, $spotMoStr
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.restrictionStatus, $allocStr, $r.zonesOK, $hrStr, $moStr, $spotHrStr, $spotMoStr
             }
             elseif ($placementEnabled) {
                 $allocStr = if ($r.allocScore) { [string]$r.allocScore } else { '-' }
-                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $allocStr, $r.zonesOK, $hrStr, $moStr
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.restrictionStatus, $allocStr, $r.zonesOK, $hrStr, $moStr
             }
             elseif ($spotPricingEnabled) {
-                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK, $hrStr, $moStr, $spotHrStr, $spotMoStr
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.restrictionStatus, $r.zonesOK, $hrStr, $moStr, $spotHrStr, $spotMoStr
             }
             else {
-                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK, $hrStr, $moStr
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.restrictionStatus, $r.zonesOK, $hrStr, $moStr
             }
         }
         else {
             if ($placementEnabled) {
                 $allocStr = if ($r.allocScore) { [string]$r.allocScore } else { '-' }
-                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $allocStr, $r.zonesOK
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.restrictionStatus, $allocStr, $r.zonesOK
             }
             else {
-                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.capacity, $r.zonesOK
+                $line = $headerFmt -f $r.rank, $r.sku, $r.region, $r.vCPU, $r.memGiB, ("$($r.score)%"), $r.cpu, $r.disk, $r.purpose, $r.restrictionStatus, $r.zonesOK
             }
         }
         Write-Host $line -ForegroundColor $rowColor
     }
 
-    $hasOkCapacity = (@($recommendations | Where-Object { $_.capacity -eq 'OK' }).Count -gt 0)
-    if (-not $hasOkCapacity -and @($Contract.belowMinSpec).Count -gt 0) {
+    $hasOkStatus = (@($recommendations | Where-Object { $_.restrictionStatus -eq 'OK' }).Count -gt 0)
+    if (-not $hasOkStatus -and @($Contract.belowMinSpec).Count -gt 0) {
         $smallerOK = $Contract.belowMinSpec |
         Sort-Object @{Expression = 'score'; Descending = $true } |
         Group-Object sku |
@@ -158,7 +158,7 @@ function Write-RecommendOutputContract {
             Write-Host ""
             Write-Host "  $($Icons.Warning) CONSIDER SMALLER (fewer restrictions, if your workload supports it):" -ForegroundColor Yellow
             foreach ($s in $smallerOK) {
-                Write-Host "    $($s.sku) ($($s.vCPU) vCPU / $($s.memGiB) GiB) — $($s.capacity) in $($s.region)" -ForegroundColor DarkYellow
+                Write-Host "    $($s.sku) ($($s.vCPU) vCPU / $($s.memGiB) GiB) — $($s.restrictionStatus) in $($s.region)" -ForegroundColor DarkYellow
             }
         }
     }
@@ -166,7 +166,7 @@ function Write-RecommendOutputContract {
     Write-Host ''
     Write-Host 'STATUS KEY:' -ForegroundColor DarkGray
     Write-Host '  OK                    = No ARM restriction returned. Not a capacity guarantee.' -ForegroundColor Green
-    Write-Host '  CAPACITY-CONSTRAINED  = Some zones have ARM restrictions; others are clear. Verify before deploying.' -ForegroundColor Yellow
+    Write-Host '  ZONE-LIMITED          = Some zones have ARM restrictions; others are clear. Verify before deploying.' -ForegroundColor Yellow
     Write-Host '  LIMITED               = Subscription/SKU access restriction; request access if needed.' -ForegroundColor Yellow
     Write-Host '  PARTIAL               = Mixed zone restriction state; zone redundancy may be limited.' -ForegroundColor Yellow
     Write-Host '  BLOCKED               = Blocking ARM restriction returned; pick another region or SKU.' -ForegroundColor Red

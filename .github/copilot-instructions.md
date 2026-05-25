@@ -98,7 +98,7 @@ The standalone `Get-AzVMAvailability.ps1` script has been converted into a **pro
 
 - **Primary Language:** PowerShell 7+
 - **Cloud Platform:** Microsoft Azure (Az PowerShell modules)
-- **Purpose:** Scan Azure regions for VM SKU availability, capacity, quota, pricing, image compatibility, lifecycle risk, and upgrade paths.
+- **Purpose:** Scan Azure regions for VM SKU restriction status, quota, pricing, image compatibility, lifecycle risk, and upgrade paths.
 - **No Azure CLI dependency** — only Az PowerShell modules required.
 
 ---

@@ -2,6 +2,10 @@
 
 [← Back to README](../README.md)
 
+## Status Framing
+
+Status values are derived from ARM `Microsoft.Compute/skus` restriction metadata. `OK` means no ARM SKU restriction was returned for the scanned scope; it is not a live physical capacity guarantee. Quota, placement, policy, and deployment-time allocation can still fail.
+
 ## Console Output (with Pricing)
 ```
 ====================================================================================
@@ -18,7 +22,7 @@ Family    SKUs  OK   Largest       Zones            Status     Quota   $/Hr    $
 D         1     0    2vCPU/8GB     ⚠ Zones 1,2,3   LIMITED    100     $0.10   $70
 
 ====================================================================================
-MULTI-REGION CAPACITY MATRIX
+MULTI-REGION SKU RESTRICTION MATRIX
 ====================================================================================
 
 Family     | eastus          | eastus2
@@ -52,8 +56,8 @@ With `-ShowPricing`, the script automatically detects the best pricing source:
 
 | Icon | Status               | Description                    |
 | ---- | -------------------- | ------------------------------ |
-| ✓    | OK                   | Full capacity available        |
-| ⚠    | CAPACITY-CONSTRAINED | Limited in some zones          |
-| ⚠    | LIMITED              | Subscription-level restriction |
-| ⚡    | PARTIAL              | Mixed zone availability        |
-| ✗    | RESTRICTED           | Not available                  |
+| ✓    | OK                   | No ARM SKU restriction returned |
+| ⚠    | ZONE-LIMITED | Some zones returned restriction records |
+| ⚠    | LIMITED              | Subscription/SKU access restriction |
+| ⚡    | PARTIAL              | Mixed zone restriction state |
+| ✗    | RESTRICTED           | Blocking ARM restriction returned |

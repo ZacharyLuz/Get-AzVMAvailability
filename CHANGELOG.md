@@ -7,22 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+- **Renamed `Capacity` field → `RestrictionStatus`** in all output objects (JSON, CSV, XLSX, pipeline)
+- **Renamed `CAPACITY-CONSTRAINED` status → `ZONE-LIMITED`** — the status value string has changed
+- **Renamed `availableRegionCount` → `unrestrictedRegionCount`** in scan mode JSON output
+- **Bumped `schemaVersion` to `'2.0'`** in both scan and recommend JSON output contracts
+- **Renamed internal variables**: `$hasCapacityIssues` → `$hasRestrictionIssues`, `AltCapacity` → `AltRestrictionStatus`
+- **Renamed icon key**: `$Icons.CAPACITY` → `$Icons.ZONE_LIMITED`, display text `⚠ CONSTRAINED` → `⚠ ZN-LIMITED`
+
 ### Changed
 - Clarified all user-facing status descriptions to state ARM restriction metadata, not capacity
 - Startup banner: "restriction status" language, explicit "NOT a live capacity or allocation guarantee"
 - Recommend mode header: "CAPACITY RECOMMENDER" → "SKU RECOMMENDER"
 - Recommend mode: "Available in:" → "Unrestricted in:", "better availability" → "fewer restrictions"
-- Status key legend: tightened OK, CAPACITY-CONSTRAINED, and NOTE descriptions
-- Excel legend: updated OK, CAPACITY-CONSTRAINED descriptions; Capacity column notes future rename
+- Status key legend: tightened OK, ZONE-LIMITED, and NOTE descriptions
+- Excel legend: updated OK, ZONE-LIMITED descriptions
 - Help text (.DESCRIPTION): "availability" → "deployment readiness signals"
-- Inventory readiness: disclaimer reworded to match other surfaces
+- Inventory readiness: column header renamed from "Capacity" to "RestrictionStatus"
 - README: added "What This Tool Proves vs What It Does NOT" evidence model table
 - SKILL.md: description now says "restriction status" and "readiness signals"
-- **Clarified SKU status semantics across runtime output and docs** — console legends, inventory readiness text, Excel legends, README, lifecycle docs, and the Copilot skill now state that `OK` / `LIMITED` / `CAPACITY-CONSTRAINED` are derived from ARM `Microsoft.Compute/skus` restriction metadata. `OK` now means no ARM SKU restriction was returned for the scanned scope; it is not presented as a live physical capacity guarantee.
-
-### Note
-- The `Capacity` field name and `CAPACITY-CONSTRAINED` status label are unchanged in this release
-- A future release will rename these — see GitHub Issues for timeline
 
 ## [2.3.1] - 2026-05-21
 

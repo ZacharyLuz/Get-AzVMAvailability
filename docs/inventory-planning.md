@@ -2,7 +2,9 @@
 
 [← Back to README](../README.md)
 
-Validate whether your entire VM deployment can be provisioned in a target region.
+Validate whether your VM inventory returns no blocking ARM SKU restrictions and has enough quota in a target region.
+
+> **Important:** Inventory readiness uses ARM `Microsoft.Compute/skus` restriction metadata plus quota. `OK` does not prove live physical capacity; deployment can still fail because of placement, policy, dependencies, or transient allocation conditions.
 
 ## Step 1: Create your inventory file
 
@@ -40,4 +42,4 @@ Standard_D8s_v5,5
 
 ## Step 3: Read the verdict
 
-The output shows per-SKU capacity status, per-family quota pass/fail (Used/Available/Limit), and an overall **PASS/FAIL** verdict.
+The output shows per-SKU ARM restriction status, per-family quota pass/fail (Used/Available/Limit), and an overall **PASS/FAIL** verdict. Treat PASS as a planning signal, not a deployment guarantee.

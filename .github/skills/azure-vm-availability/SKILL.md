@@ -371,7 +371,7 @@ Max 5 regions per scan for performance.
       "memGiB": 512,
       "family": "E",
       "score": 93,
-      "capacity": "OK",
+      "restrictionStatus": "OK",
       "allocScore": "N/A",
       "zonesOK": 3,
       "priceHr": null,
@@ -402,7 +402,7 @@ Max 5 regions per scan for performance.
 |--------|---------|--------|
 | OK | No ARM SKU restriction returned | Validate quota, placement, and deployment dependencies |
 | LIMITED | Subscription/SKU access restriction | Request access or quota review if needed |
-| CAPACITY-CONSTRAINED | Some zones returned ARM restriction records | Try another zone and verify placement/deployment |
+| ZONE-LIMITED | Some zones returned ARM restriction records | Try another zone and verify placement/deployment |
 | PARTIAL | Mixed zone restriction state | Treat zone redundancy as limited |
 | RESTRICTED | Blocking ARM restriction returned | Pick different region or SKU |
 

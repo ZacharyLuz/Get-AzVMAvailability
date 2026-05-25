@@ -91,18 +91,18 @@ Describe 'Basic Scan Mode — -NoPrompt -Region' {
         $joined | Should -Match 'SKU FAMILIES'
     }
 
-    It 'Shows MULTI-REGION CAPACITY MATRIX section' {
+    It 'Shows MULTI-REGION SKU RESTRICTION MATRIX section' {
         $output = & $script:ScriptPath -NoPrompt -Region $script:TestRegion `
             -SubscriptionId $script:SubId 6>&1 *>&1
         $joined = $output -join "`n"
-        $joined | Should -Match 'MULTI-REGION CAPACITY MATRIX'
+        $joined | Should -Match 'MULTI-REGION SKU RESTRICTION MATRIX'
     }
 
-    It 'Shows DEPLOYMENT RECOMMENDATIONS section' {
+    It 'Shows DEPLOYMENT PLANNING NOTES section' {
         $output = & $script:ScriptPath -NoPrompt -Region $script:TestRegion `
             -SubscriptionId $script:SubId 6>&1 *>&1
         $joined = $output -join "`n"
-        $joined | Should -Match 'DEPLOYMENT RECOMMENDATIONS'
+        $joined | Should -Match 'DEPLOYMENT PLANNING NOTES'
     }
 
     It 'Shows DETAILED CROSS-REGION BREAKDOWN section' {
@@ -284,7 +284,7 @@ Describe 'Recommend Mode — -Recommend' {
             -SubscriptionId $script:SubId `
             -Recommend $script:TestSku 6>&1 *>&1
         $joined = $output -join "`n"
-        $joined | Should -Match 'CAPACITY RECOMMENDER'
+        $joined | Should -Match 'SKU RECOMMENDER'
         $joined | Should -Match "TARGET: $($script:TestSku)"
         $joined | Should -Match 'RECOMMENDED ALTERNATIVES'
     }
@@ -327,7 +327,7 @@ Describe 'Recommend Mode — -Recommend' {
             -SubscriptionId $script:SubId `
             -Recommend 'Standard_D8s_v5' -MinvCPU 4 6>&1 *>&1
         $joined = $output -join "`n"
-        $joined | Should -Match 'CAPACITY RECOMMENDER'
+        $joined | Should -Match 'SKU RECOMMENDER'
     }
 
     It '-MinMemoryGB filters out lower memory SKUs' {
@@ -335,7 +335,7 @@ Describe 'Recommend Mode — -Recommend' {
             -SubscriptionId $script:SubId `
             -Recommend 'Standard_D8s_v5' -MinMemoryGB 16 6>&1 *>&1
         $joined = $output -join "`n"
-        $joined | Should -Match 'CAPACITY RECOMMENDER'
+        $joined | Should -Match 'SKU RECOMMENDER'
     }
 
     It 'Shows name breakdown with family/purpose/suffix info' {
@@ -807,7 +807,7 @@ Describe 'Mixed Architecture — -AllowMixedArch' {
             -SubscriptionId $script:SubId `
             -Recommend $script:TestSku -AllowMixedArch -MinScore 0 6>&1 *>&1
         $joined = $output -join "`n"
-        $joined | Should -Match 'CAPACITY RECOMMENDER'
+        $joined | Should -Match 'SKU RECOMMENDER'
         # There should be at least some output - ARM64 or not
         $joined | Should -Match 'RECOMMENDED ALTERNATIVES|No alternatives'
     }
@@ -892,7 +892,7 @@ Describe 'Recommend + Multi-Region' {
             -SubscriptionId $script:SubId `
             -Recommend $script:TestSku 6>&1 *>&1
         $joined = $output -join "`n"
-        $joined | Should -Match 'CAPACITY RECOMMENDER'
+        $joined | Should -Match 'SKU RECOMMENDER'
         # Target availability should show both regions
         $joined | Should -Match 'eastus'
     }
@@ -908,7 +908,7 @@ Describe 'Recommend + Region Preset' {
             -SubscriptionId $script:SubId `
             -Recommend $script:TestSku -TopN 3 6>&1 *>&1
         $joined = $output -join "`n"
-        $joined | Should -Match 'CAPACITY RECOMMENDER'
+        $joined | Should -Match 'SKU RECOMMENDER'
     }
 }
 
@@ -932,7 +932,7 @@ Describe 'Placement Scores — -ShowPlacement' {
             -Recommend $script:TestSku -ShowPlacement -DesiredCount 5 6>&1 *>&1
         $joined = $output -join "`n"
         # No crash = success; placement may or may not have RBAC
-        $joined | Should -Match 'CAPACITY RECOMMENDER'
+        $joined | Should -Match 'SKU RECOMMENDER'
     }
 }
 
@@ -969,7 +969,7 @@ Describe 'Recommend Full Feature Combination' {
             -Recommend $script:TestSku `
             -ShowPricing -ShowSpot -ShowPlacement 6>&1 *>&1
         $joined = $output -join "`n"
-        $joined | Should -Match 'CAPACITY RECOMMENDER'
+        $joined | Should -Match 'SKU RECOMMENDER'
         $joined | Should -Match '\$/Hr'
         $joined | Should -Match 'Spot'
     }
@@ -1058,7 +1058,7 @@ Describe 'Recommend JSON Contract Fields' {
         $script:Contract.pricingEnabled | Should -Be $true
     }
 
-    It 'Recommendations have sku, region, vCPU, memGiB, score, capacity fields' {
+    It 'Recommendations have sku, region, vCPU, memGiB, score, restrictionStatus fields' {
         if ($script:Contract.recommendations.Count -gt 0) {
             $first = $script:Contract.recommendations[0]
             $first.sku | Should -Not -BeNullOrEmpty
@@ -1066,7 +1066,7 @@ Describe 'Recommend JSON Contract Fields' {
             $first.vCPU | Should -BeGreaterThan 0
             $first.memGiB | Should -BeGreaterThan 0
             $first.score | Should -BeGreaterOrEqual 0
-            $first.capacity | Should -Not -BeNullOrEmpty
+            $first.restrictionStatus | Should -Not -BeNullOrEmpty
         }
     }
 

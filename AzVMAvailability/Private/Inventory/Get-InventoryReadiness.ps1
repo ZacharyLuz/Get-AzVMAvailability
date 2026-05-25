@@ -6,7 +6,7 @@ function Get-InventoryReadiness {
     .DESCRIPTION
         Takes an Inventory hashtable (SKU=Qty) and scan data, then checks:
         1. Does each SKU exist in the scanned regions?
-        2. What is the capacity status for each SKU?
+        2. What ARM SKU restriction status was returned for each SKU?
         3. Does the quota family have enough available vCPUs for the aggregated demand?
     #>
     param(
@@ -50,11 +50,11 @@ function Get-InventoryReadiness {
                     $restrictions = Get-RestrictionDetails $sku
                     $status = $restrictions.Status
 
-                    # Rank: OK > LIMITED > CAPACITY-CONSTRAINED > RESTRICTED > BLOCKED
+                    # Rank: OK > LIMITED > ZONE-LIMITED > PARTIAL > RESTRICTED > BLOCKED
                     $statusRank = switch ($status) {
                         'OK' { 5 }
                         'LIMITED' { 4 }
-                        'CAPACITY-CONSTRAINED' { 3 }
+                        'ZONE-LIMITED' { 3 }
                         'PARTIAL' { 2 }
                         'RESTRICTED' { 1 }
                         default { 0 }
@@ -62,7 +62,7 @@ function Get-InventoryReadiness {
                     $bestRank = switch ($bestStatus) {
                         'OK' { 5 }
                         'LIMITED' { 4 }
-                        'CAPACITY-CONSTRAINED' { 3 }
+                        'ZONE-LIMITED' { 3 }
                         'PARTIAL' { 2 }
                         'RESTRICTED' { 1 }
                         'NOT FOUND' { -1 }
@@ -112,7 +112,7 @@ function Get-InventoryReadiness {
             MemGiBEach    = $skuMemGiB
             TotalvCPU     = $totalVcpuDemand
             QuotaFamily   = if ($skuFamily) { $skuFamily } else { '?' }
-            Capacity      = $bestStatus
+            RestrictionStatus = $bestStatus
             BestRegion    = if ($bestRegion) { $bestRegion } else { '-' }
             QuotaUsed     = if ($null -ne $quotaCurrent) { $quotaCurrent } else { '?' }
             QuotaAvail    = if ($null -ne $quotaAvailable) { $quotaAvailable } else { '?' }
