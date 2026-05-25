@@ -6,7 +6,7 @@ function Get-StatusIcon {
     )
     switch ($Status) {
         'OK' { return $Icons.OK }
-        'CAPACITY-CONSTRAINED' { return $Icons.CAPACITY }
+        'ZONE-LIMITED' { return $Icons.CAPACITY }
         'LIMITED' { return $Icons.LIMITED }
         'PARTIAL' { return $Icons.PARTIAL }
         'RESTRICTED' { return $Icons.BLOCKED }

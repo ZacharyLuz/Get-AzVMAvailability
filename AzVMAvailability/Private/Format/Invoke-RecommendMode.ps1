@@ -43,7 +43,7 @@ function Invoke-RecommendMode {
     $targetSku = $null
     # Deduplicate region status across subscriptions — keep the best (most permissive) status per region.
     # Per-subscription detail is captured in SubMap/RGMap tabs; the summary shows the region-level picture.
-    $statusRank = @{ 'OK' = 0; 'PARTIAL' = 1; 'CAPACITY-CONSTRAINED' = 2; 'LIMITED' = 3; 'RESTRICTED' = 4; 'BLOCKED' = 5 }
+    $statusRank = @{ 'OK' = 0; 'PARTIAL' = 1; 'ZONE-LIMITED' = 2; 'LIMITED' = 3; 'RESTRICTED' = 4; 'BLOCKED' = 5 }
     $regionBest = @{}   # region → best [pscustomobject] seen so far
 
     foreach ($subData in $SubscriptionData) {
@@ -209,7 +209,7 @@ function Invoke-RecommendMode {
                         MaxNICs  = $caps.MaxNetworkInterfaces
                         IOPS     = $caps.UncachedDiskIOPS
                         Score    = $simScore
-                        Capacity = $restrictions.Status
+                        RestrictionStatus = $restrictions.Status
                         ZonesOK  = $restrictions.ZonesOK.Count
                         PriceHr  = $priceHr
                         PriceMo  = $priceMo
@@ -225,13 +225,13 @@ function Invoke-RecommendMode {
     $belowMinSpecDict = @{}
     $filtered = @($candidates)
     if ($MinvCPU) {
-        $filtered | Where-Object { $_.vCPU -lt $MinvCPU -and $_.Capacity -eq 'OK' } | ForEach-Object {
+        $filtered | Where-Object { $_.vCPU -lt $MinvCPU -and $_.RestrictionStatus -eq 'OK' } | ForEach-Object {
             if (-not $belowMinSpecDict.ContainsKey($_.SKU)) { $belowMinSpecDict[$_.SKU] = $_ }
         }
         $filtered = @($filtered | Where-Object { $_.vCPU -ge $MinvCPU })
     }
     if ($MinMemoryGB) {
-        $filtered | Where-Object { $_.MemGiB -lt $MinMemoryGB -and $_.Capacity -eq 'OK' } | ForEach-Object {
+        $filtered | Where-Object { $_.MemGiB -lt $MinMemoryGB -and $_.RestrictionStatus -eq 'OK' } | ForEach-Object {
             if (-not $belowMinSpecDict.ContainsKey($_.SKU)) { $belowMinSpecDict[$_.SKU] = $_ }
         }
         $filtered = @($filtered | Where-Object { $_.MemGiB -ge $MinMemoryGB })
@@ -256,7 +256,7 @@ function Invoke-RecommendMode {
 
     $ranked = $filtered |
     Sort-Object @{Expression = 'Score'; Descending = $true },
-    @{Expression = { if ($_.Capacity -eq 'OK') { 0 } elseif ($_.Capacity -eq 'LIMITED') { 1 } else { 2 } } },
+    @{Expression = { if ($_.RestrictionStatus -eq 'OK') { 0 } elseif ($_.RestrictionStatus -eq 'LIMITED') { 1 } else { 2 } } },
     @{Expression = 'ZonesOK'; Descending = $true } |
     Group-Object SKU |
     ForEach-Object { $_.Group | Select-Object -First 1 } |
@@ -285,7 +285,7 @@ function Invoke-RecommendMode {
                     MaxNICs   = $item.MaxNICs
                     IOPS      = $item.IOPS
                     Score     = $item.Score
-                    Capacity  = $item.Capacity
+                    RestrictionStatus = $item.RestrictionStatus
                     AllocScore = $allocScore
                     ZonesOK   = $item.ZonesOK
                     PriceHr   = $item.PriceHr
@@ -316,7 +316,7 @@ function Invoke-RecommendMode {
                     MaxNICs   = $item.MaxNICs
                     IOPS      = $item.IOPS
                     Score     = $item.Score
-                    Capacity  = $item.Capacity
+                    RestrictionStatus = $item.RestrictionStatus
                     AllocScore = $null
                     ZonesOK   = $item.ZonesOK
                     PriceHr   = $item.PriceHr
