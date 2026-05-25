@@ -1,17 +1,17 @@
 function Get-RestrictionDetails {
     <#
     .SYNOPSIS
-        Analyzes SKU restrictions and returns detailed zone-level availability status.
+        Analyzes SKU restrictions and returns detailed zone-level restriction status.
     .DESCRIPTION
-        Examines Azure SKU restrictions to determine:
-        - Which zones are fully available (OK)
-        - Which zones have capacity constraints (LIMITED)
-        - Which zones are completely restricted (RESTRICTED)
+        Examines ARM SKU restriction records to determine:
+        - Which zones returned no restriction records (OK)
+        - Which zones have subscription/SKU access restrictions (LIMITED)
+        - Which zones have blocking restriction records (RESTRICTED)
         Returns a hashtable with status and zone breakdowns.
     #>
     param([object]$Sku)
 
-    # If no restrictions, SKU is fully available in all zones
+    # If no restrictions are returned, no ARM SKU restriction was observed for the zones.
     if (-not $Sku -or -not $Sku.Restrictions -or $Sku.Restrictions.Count -eq 0) {
         $zones = if ($Sku -and $Sku.LocationInfo -and $Sku.LocationInfo[0].Zones) {
             $Sku.LocationInfo[0].Zones
@@ -58,7 +58,7 @@ function Get-RestrictionDetails {
         if ($zonesOK.Count -eq 0) { 'RESTRICTED' } else { 'PARTIAL' }
     }
     elseif ($zonesLimited.Count -gt 0) {
-        if ($zonesOK.Count -eq 0) { 'LIMITED' } else { 'CAPACITY-CONSTRAINED' }
+        if ($zonesOK.Count -eq 0) { 'LIMITED' } else { 'ZONE-LIMITED' }
     }
     else { 'OK' }
 
