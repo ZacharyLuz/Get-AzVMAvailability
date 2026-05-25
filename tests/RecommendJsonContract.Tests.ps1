@@ -13,7 +13,7 @@ BeforeAll {
 
     function Get-RestrictionDetails {
         param($Sku)
-        $status = if ($Sku.Name -eq 'Standard_D4s_v5') { 'CAPACITY-CONSTRAINED' } else { 'OK' }
+        $status = if ($Sku.Name -eq 'Standard_D4s_v5') { 'ZONE-LIMITED' } else { 'OK' }
         @{ Status = $status; ZonesOK = @(1, 2); Reason = $null }
     }
 

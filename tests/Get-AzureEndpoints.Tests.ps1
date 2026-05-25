@@ -166,10 +166,10 @@ Describe "Drill-Down Display Logic" {
     BeforeAll {
         # Mock data for testing drill-down display
         $script:mockFamilyDetails = @(
-            [PSCustomObject]@{ Family = 'D'; SKU = 'Standard_D2s_v3'; Region = 'eastus'; vCPU = 2; MemGiB = 8; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2,3'; Capacity = 'OK'; QuotaAvail = 100; QuotaLimit = 200; QuotaCurrent = 100 }
-            [PSCustomObject]@{ Family = 'D'; SKU = 'Standard_D4s_v3'; Region = 'eastus'; vCPU = 4; MemGiB = 16; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2,3'; Capacity = 'OK'; QuotaAvail = 100; QuotaLimit = 200; QuotaCurrent = 100 }
-            [PSCustomObject]@{ Family = 'D'; SKU = 'Standard_D2s_v3'; Region = 'westus'; vCPU = 2; MemGiB = 8; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2'; Capacity = 'LIMITED'; QuotaAvail = 50; QuotaLimit = 100; QuotaCurrent = 50 }
-            [PSCustomObject]@{ Family = 'E'; SKU = 'Standard_E2s_v3'; Region = 'eastus'; vCPU = 2; MemGiB = 16; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2,3'; Capacity = 'OK'; QuotaAvail = 200; QuotaLimit = 300; QuotaCurrent = 100 }
+            [PSCustomObject]@{ Family = 'D'; SKU = 'Standard_D2s_v3'; Region = 'eastus'; vCPU = 2; MemGiB = 8; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2,3'; RestrictionStatus = 'OK'; QuotaAvail = 100; QuotaLimit = 200; QuotaCurrent = 100 }
+            [PSCustomObject]@{ Family = 'D'; SKU = 'Standard_D4s_v3'; Region = 'eastus'; vCPU = 4; MemGiB = 16; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2,3'; RestrictionStatus = 'OK'; QuotaAvail = 100; QuotaLimit = 200; QuotaCurrent = 100 }
+            [PSCustomObject]@{ Family = 'D'; SKU = 'Standard_D2s_v3'; Region = 'westus'; vCPU = 2; MemGiB = 8; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2'; RestrictionStatus = 'LIMITED'; QuotaAvail = 50; QuotaLimit = 100; QuotaCurrent = 50 }
+            [PSCustomObject]@{ Family = 'E'; SKU = 'Standard_E2s_v3'; Region = 'eastus'; vCPU = 2; MemGiB = 16; Gen = 'V2'; Arch = 'x64'; ZoneStatus = '1,2,3'; RestrictionStatus = 'OK'; QuotaAvail = 200; QuotaLimit = 300; QuotaCurrent = 100 }
         )
     }
 
