@@ -22,25 +22,25 @@ function Write-InventoryReadinessSummary {
     Write-Host "INVENTORY READINESS SUMMARY" -ForegroundColor Cyan
     Write-Host ("=" * 100) -ForegroundColor Gray
     Write-Host "Inventory: $($Inventory.Count) SKUs | $totalVMs VMs | $totalvCPU vCPUs total" -ForegroundColor White
-    Write-Host "The Capacity column shows ARM SKU restriction status, not live allocatable capacity." -ForegroundColor DarkYellow
+    Write-Host "The RestrictionStatus column shows ARM SKU restriction status, not live allocatable capacity." -ForegroundColor DarkYellow
     Write-Host "OK = no restriction returned. Deployment can still fail due to quota, placement, or policy." -ForegroundColor DarkYellow
     Write-Host ""
 
     # Per-SKU table
     $headerFmt = "{0,-28} {1,4} {2,5} {3,5} {4,10} {5,22} {6,-12}"
-    Write-Host ($headerFmt -f 'SKU', 'Qty', 'vCPU', 'Mem', 'Need', 'Capacity', 'Region') -ForegroundColor White
+    Write-Host ($headerFmt -f 'SKU', 'Qty', 'vCPU', 'Mem', 'Need', 'RestrictionStatus', 'Region') -ForegroundColor White
     Write-Host ("-" * 100) -ForegroundColor Gray
 
     foreach ($row in $InventoryResult.SKUs) {
-        $capacityColor = switch ($row.Capacity) {
+        $capacityColor = switch ($row.RestrictionStatus) {
             'OK'                    { 'Green' }
             'LIMITED'               { 'Yellow' }
-            'CAPACITY-CONSTRAINED'  { 'DarkYellow' }
+            'ZONE-LIMITED'          { 'DarkYellow' }
             'NOT FOUND'             { 'Red' }
             default                 { 'Gray' }
         }
         $needStr = "$($row.TotalvCPU) vCPU"
-        $line = $headerFmt -f $row.SKU, $row.Qty, $row.vCPUEach, $row.MemGiBEach, $needStr, $row.Capacity, $row.BestRegion
+        $line = $headerFmt -f $row.SKU, $row.Qty, $row.vCPUEach, $row.MemGiBEach, $needStr, $row.RestrictionStatus, $row.BestRegion
         Write-Host $line -ForegroundColor $capacityColor
     }
 
