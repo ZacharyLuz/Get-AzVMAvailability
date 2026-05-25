@@ -15,7 +15,7 @@ function New-ScanOutputContract {
             [pscustomobject]@{
                 family                 = $family
                 totalSkusDiscovered    = $familyData.TotalSkus
-                availableRegionCount   = $familyData.AvailableRegions.Count
+                unrestrictedRegionCount = $familyData.AvailableRegions.Count
                 constrainedRegionCount = $familyData.ConstrainedRegions.Count
                 largestSku             = $familyData.LargestSKU
             }
@@ -36,7 +36,7 @@ function New-ScanOutputContract {
     }
 
     return [pscustomobject]@{
-        schemaVersion = '1.0'
+        schemaVersion = '2.0'
         mode          = 'scan'
         generatedAt   = (Get-Date).ToString('o')
         subscriptions = @($SubscriptionIds)

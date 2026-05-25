@@ -34,7 +34,7 @@ function New-RecommendOutputContract {
             maxNICs    = $item.MaxNICs
             iops       = $item.IOPS
             score      = $item.Score
-            capacity   = $item.Capacity
+            restrictionStatus = $item.RestrictionStatus
             allocScore = $item.AllocScore
             zonesOK    = $item.ZonesOK
             priceHr    = $item.PriceHr
@@ -54,12 +54,12 @@ function New-RecommendOutputContract {
             vCPU     = $item.vCPU
             memGiB   = $item.MemGiB
             score    = $item.Score
-            capacity = $item.Capacity
+            restrictionStatus = $item.RestrictionStatus
         })
     }
 
     return [pscustomobject]@{
-        schemaVersion      = '1.0'
+        schemaVersion      = '2.0'
         mode               = 'recommend'
         generatedAt        = (Get-Date).ToString('o')
         minScore           = $MinScore
