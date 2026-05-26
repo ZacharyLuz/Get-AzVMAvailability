@@ -1,11 +1,11 @@
 @{
     RootModule        = 'AzVMAvailability.psm1'
-    ModuleVersion     = '2.3.1'
+    ModuleVersion     = '3.0.0'
     GUID              = '7f42e8d6-e85d-4e31-a541-d9af648a5269'
     Author            = 'Zachary Luz'
     CompanyName       = 'Community'
     Copyright         = '(c) Zachary Luz. All rights reserved. MIT License.'
-    Description       = 'Scans Azure regions for VM SKU availability, capacity, quota, pricing, and image compatibility.'
+    Description       = 'Scans Azure regions for VM SKU restriction status, quota, pricing, placement signals, and image compatibility.'
     PowerShellVersion = '7.0'
     RequiredModules   = @(
         @{ ModuleName = 'Az.Accounts'; ModuleVersion = '2.0.0' }
@@ -23,7 +23,7 @@
             Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
             LicenseUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability'
-            ReleaseNotes = 'v2.3.1: Metadata-only: updated README What''s New section and CHANGELOG release notes for PSGallery parity'
+            ReleaseNotes = 'v3.0.0: Breaking: Capacity field renamed to RestrictionStatus, CAPACITY-CONSTRAINED status renamed to ZONE-LIMITED, schemaVersion bumped to 2.0. All user-facing text clarified to reference ARM restriction metadata instead of capacity.'
         }
     }
 }
