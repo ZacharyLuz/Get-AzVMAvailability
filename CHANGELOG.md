@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README: added "What This Tool Proves vs What It Does NOT" evidence model table
 - SKILL.md: description now says "restriction status" and "readiness signals"
 
+### Fixed
+- **Export pipeline (`-AutoExport`)** — restored the per-family `$exportRow` construction so the `SKUs_OK` aggregation no longer crashes inside `Where-Object` with `'.RestrictionStatus' is not recognized as a name of a cmdlet`. CSV/XLSX summary writers now complete successfully for all family roll-ups. Resolves #170.
+
 ## [2.3.1] - 2026-05-21
 
 ### Changed
