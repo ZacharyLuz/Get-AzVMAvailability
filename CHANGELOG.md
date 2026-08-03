@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - Unreleased
+
+### Fixed
+- **Removed 15,376 duplicated lines from `AzVMAvailability/Public/Get-AzVMAvailability.ps1`.** A malformed hunk in the v3.0.0 release commit pasted a full copy of the file over the `$_` token in the middle of line 4697, splitting that line in half and injecting nested copies of the orchestration body. The file still parsed and imported cleanly, so CI syntax and module-import checks passed and the defect shipped in v3.0.0. The file is now 5,125 lines, byte-identical in structure to the pre-release baseline apart from the intended rename.
+- **Pinned Pester to the 5.x line** in the lint, release-publish, and scheduled-health-check workflows and in `tools/Validate-Script.ps1`. CI installed Pester with an unpinned `-MinimumVersion 5.0.0` and silently drifted onto Pester 6, which removed `Assert-MockCalled`.
+- **Replaced `Assert-MockCalled` with `Should -Invoke`** in `tests/PlacementScore.Tests.ps1` (valid in both Pester 5 and 6).
+- **Exempted bot-authored PRs from the PR verification gate.** Dependabot and `github-actions` PRs cannot populate the Verified Landmark Table, so the gate failed on every automated PR. The exemption returns early inside the script rather than using a job-level `if:`, so the check still reports success and can remain a required status check.
+- **Suppressed a false-positive `PSReviewUnusedParameter` for `tokenBag`.** PSScriptAnalyzer does not traverse nested scriptblocks and therefore did not see the parameter being consumed inside the nested `$buildHeaders` scriptblock.
+
 ## [3.0.0] - 2026-05-25
 
 ### Changed
