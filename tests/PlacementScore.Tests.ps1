@@ -88,6 +88,6 @@ Describe 'Get-PlacementScores' {
 
         $first.Count | Should -Be 0
         $second.Count | Should -Be 0
-        Assert-MockCalled Write-Warning -Times 1 -Exactly
+        Should -Invoke Write-Warning -Times 1 -Exactly
     }
 }

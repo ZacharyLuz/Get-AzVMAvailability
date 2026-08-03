@@ -99,7 +99,7 @@ else {
         Write-Host "  SKIP  Pester v5+ not installed (Install-Module Pester -Force -SkipPublisherCheck)" -ForegroundColor DarkYellow
     }
     else {
-        Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
+        Import-Module Pester -MinimumVersion 5.0 -MaximumVersion 5.99.99 -ErrorAction Stop
         $unitTests = Get-ChildItem (Join-Path $testsDir '*.Tests.ps1') | Where-Object Name -ne 'Integration.Tests.ps1'
         $pesterConfig = New-PesterConfiguration
         $pesterConfig.Run.Path = $unitTests.FullName
