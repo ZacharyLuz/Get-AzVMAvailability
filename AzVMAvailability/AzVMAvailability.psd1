@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AzVMAvailability.psm1'
-    ModuleVersion     = '3.0.0'
+    ModuleVersion     = '3.0.1'
     GUID              = '7f42e8d6-e85d-4e31-a541-d9af648a5269'
     Author            = 'Zachary Luz'
     CompanyName       = 'Community'
@@ -23,7 +23,7 @@
             Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
             LicenseUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability'
-            ReleaseNotes = 'v3.0.0: Breaking: Capacity field renamed to RestrictionStatus, CAPACITY-CONSTRAINED status renamed to ZONE-LIMITED, schemaVersion bumped to 2.0. All user-facing text clarified to reference ARM restriction metadata instead of capacity.'
+            ReleaseNotes = 'v3.0.1: Auto-published patch release rolling up changes since v3.0.0. See CHANGELOG.md for the commit list.'
         }
     }
 }
