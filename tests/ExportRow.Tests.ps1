@@ -29,7 +29,7 @@ BeforeAll {
 
     if ($parseErrors -and $parseErrors.Count -gt 0) {
         $messages = ($parseErrors | ForEach-Object { $_.Message }) -join '; '
-        throw "Public file failed to parse: $messages"
+        throw "Public file failed to parse: $publicFile :: $messages"
     }
 
     # Find every hashtable in the public file that contains an 'SKUs_OK' key.
