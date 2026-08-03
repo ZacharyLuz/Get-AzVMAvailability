@@ -20,7 +20,7 @@ jobs:
       - name: Install required modules
         shell: pwsh
         run: |
-          Install-Module -Name Pester -Force -SkipPublisherCheck -Scope CurrentUser -MinimumVersion 5.0
+          Install-Module -Name Pester -Force -SkipPublisherCheck -Scope CurrentUser -MinimumVersion 5.0 -MaximumVersion 5.99.99
           Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -Scope CurrentUser
           Install-Module -Name Az.Accounts -Force -SkipPublisherCheck -Scope CurrentUser -AllowClobber
           Install-Module -Name Az.Compute -Force -SkipPublisherCheck -Scope CurrentUser -AllowClobber

@@ -34,7 +34,7 @@ jobs:
         run: |
           Set-PSRepository PSGallery -InstallationPolicy Trusted
           Install-Module PSScriptAnalyzer -Force -SkipPublisherCheck
-          Install-Module Pester -Force -SkipPublisherCheck -MinimumVersion 5.0.0
+          Install-Module Pester -Force -SkipPublisherCheck -MinimumVersion 5.0.0 -MaximumVersion 5.99.99
           Install-Module Az.Accounts -Force -SkipPublisherCheck -AllowClobber
           Install-Module Az.Compute -Force -SkipPublisherCheck -AllowClobber
           Install-Module Az.Resources -Force -SkipPublisherCheck -AllowClobber
