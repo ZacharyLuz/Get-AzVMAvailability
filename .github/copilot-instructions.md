@@ -6,7 +6,14 @@
 Before proposing refactors, architecture diagrams, or structural claims:
 1. Inventory the repo structure (top-level files/folders).
 2. Verify entrypoints (script vs module).
-3. Produce a **Verified Landmark Table** with columns: What you observed | How you observed it (read/search) | What remains unknown.
+3. Produce a **Verified Landmark Table**. For PR bodies the columns are enforced by
+   `.github/workflows/pr-verification-gate.yml` and must match
+   `.github/PULL_REQUEST_TEMPLATE.md` exactly:
+   `| Landmark / Claim | Evidence (file + how verified) | Tag |`
+   The gate also requires the literal headings `## Verification Checklist`,
+   `### Verified Landmark Table`, `### Behavior Parity`, and `## Quality Checklist`,
+   plus at least one row whose third column is a bare evidence tag such as `[OBSERVED]`.
+   Cell text cannot contain the `|` character.
 
 ### No "Plausible Precision"
 You MUST NOT invent or estimate:
