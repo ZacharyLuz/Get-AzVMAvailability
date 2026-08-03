@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Exempted bot-authored PRs from the PR verification gate.** Dependabot PRs cannot populate the Verified Landmark Table, so the gate failed on every automated PR. The exemption returns early inside the script rather than using a job-level `if:`, so the check still reports success and can remain a required status check.
 - **Suppressed a false-positive `PSReviewUnusedParameter` for `tokenBag`.** PSScriptAnalyzer does not traverse nested scriptblocks and so did not see the parameter being consumed inside the nested `$buildHeaders` scriptblock.
 - **Created the `dependencies` and `github-actions` labels** referenced by `.github/dependabot.yml`. Neither existed, so Dependabot commented on every PR that it could not apply them.
+- **Fixed `auto-publish.yml` throwing on every clean merge.** The in-flight-branch check called `.Trim()` on the output of `git ls-remote --heads origin <branch>`, which emits nothing when the branch does not exist — the normal case. The resulting `$null` method call failed the `Detect whether auto-bump is needed` step, so the workflow errored on the exact path where it should have proceeded. The output is now joined instead of trimmed.
 
 ### Added
 - **Check 8 — Duplicate Function Definition Guard** in `tools/Validate-Script.ps1`. Parses every module `.ps1` file and fails if any function name is defined more than once, closing the gap that let the v3.0.0 duplication ship undetected.
