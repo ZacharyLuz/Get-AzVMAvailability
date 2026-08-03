@@ -270,6 +270,8 @@ function Get-AzVMAvailability {
 #>
 
 [CmdletBinding()]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'tokenBag',
+    Justification = 'tokenBag is a parameter of the $scanRegionScript parallel scriptblock and is consumed inside the nested $buildHeaders scriptblock. PSScriptAnalyzer does not traverse nested scriptblocks, so it reports a false positive.')]
 param(
     [Parameter(Mandatory = $false, HelpMessage = "Azure subscription ID(s) to scan")]
     [Alias("SubId", "Subscription")]
