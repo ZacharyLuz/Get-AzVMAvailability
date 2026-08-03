@@ -23,6 +23,16 @@ jobs:
               return;
             }
 
+            // Bots (Dependabot, GitHub Actions) author PRs without the repo template.
+            // Exempt them here rather than skipping the job, so the check still reports
+            // success and can remain a required status check.
+            const botAuthors = ["dependabot[bot]", "dependabot-preview[bot]", "github-actions[bot]"];
+            const author = pr.user && pr.user.login;
+            if (botAuthors.includes(author)) {
+              core.info(`✅ Skipping verification gate for bot author '${author}'.`);
+              return;
+            }
+
             const body = (pr.body || "").trim();
 
             // Sentinel markers — must match headings in PULL_REQUEST_TEMPLATE.md exactly.
