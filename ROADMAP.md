@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Release: v3.0.0
+## Current Release: v3.0.1
 
 > **v2.2.2:** PSGallery package parity with the GitHub repo — release publishing now stages the runtime `UpgradePath` data, README, LICENSE, CHANGELOG, examples, and curated docs into the module package before publishing, with a Pester package-layout guard. `version-bump.yml` now also updates the README badge, demo guide, ROADMAP current-release header, and psd1 `ReleaseNotes`. `release-publish.yml` runs PSScriptAnalyzer with `-Severity Error` (only Error-severity findings block; uses shared `PSScriptAnalyzerSettings.psd1`) before publishing, supports manual retry against an existing tag, and serializes runs per release. See [CHANGELOG.md](CHANGELOG.md) for details.
 >
