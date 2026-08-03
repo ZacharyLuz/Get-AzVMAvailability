@@ -135,7 +135,8 @@ jobs:
           # If the branch already exists upstream, an auto-publish PR is in flight.
           # git ls-remote emits nothing when the branch is absent, so the result must be
           # joined (not .Trim()'d) — calling a method on the resulting $null throws.
-          $existing = (& git ls-remote --heads origin $branch) -join "`n"
+          # @(...) forces array semantics so -join always sees a collection.
+          $existing = @(& git ls-remote --heads origin $branch) -join "`n"
           if (-not [string]::IsNullOrWhiteSpace($existing)) {
               Write-Host "Auto-publish branch '$branch' already exists upstream — PR likely in flight. Exiting."
               "should_bump=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
