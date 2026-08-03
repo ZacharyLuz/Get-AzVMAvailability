@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.1] - 2026-08-03
 
+_Auto-published from changes since v3.0.0._
 
 ### Fixed
 - **Removed 15,376 duplicated lines from `AzVMAvailability/Public/Get-AzVMAvailability.ps1`.** A malformed hunk in the v3.0.0 release commit pasted a full copy of the file over the `$_` token in the middle of line 4697, splitting that line in half and injecting three nested copies of the orchestration body (4 total definitions of `Get-AzVMAvailability`, at lines 1, 4697, 9393, and 14089). The file still parsed and imported cleanly, so the syntax and module-import checks passed and the defect shipped in v3.0.0. The file is now a single 5,127-line definition.
@@ -21,8 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Check 8 — Duplicate Function Definition Guard** in `tools/Validate-Script.ps1`. Parses every module `.ps1` file and fails if any function name is defined more than once, closing the gap that let the v3.0.0 duplication ship undetected.
-
-_Auto-published from changes since v3.0.0._
 
 ## [3.0.0] - 2026-05-25
 
