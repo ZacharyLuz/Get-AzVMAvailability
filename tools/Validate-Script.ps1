@@ -2,9 +2,10 @@
 .SYNOPSIS
     Pre-commit validation script for Get-AzVMAvailability.
 .DESCRIPTION
-    Runs seven checks in sequence: syntax validation, PSScriptAnalyzer linting,
+    Runs eight checks in sequence: syntax validation, PSScriptAnalyzer linting,
     Pester tests, AI-comment pattern scan, version consistency, gh CLI
-    anti-pattern detection in tools/ scripts, and module import validation.
+    anti-pattern detection in tools/ scripts, module import validation, and a
+    duplicate function definition guard.
     Run this before every commit.
 
     Exit code 0 = all checks passed. Non-zero = at least one check failed.
@@ -44,7 +45,7 @@ Write-Host " GET-AZVMAVAILABILITY VALIDATION" -ForegroundColor Cyan
 Write-Host "========================================`n" -ForegroundColor Cyan
 
 # ── Check 1: Syntax Validation ──────────────────────────────────────
-Write-Host "[1/7] Syntax Check" -ForegroundColor Yellow
+Write-Host "[1/8] Syntax Check" -ForegroundColor Yellow
 try {
     $content = Get-Content $mainScript -Raw -ErrorAction Stop
     [scriptblock]::Create($content) | Out-Null
@@ -56,7 +57,7 @@ catch {
 }
 
 # ── Check 2: PSScriptAnalyzer ───────────────────────────────────────
-Write-Host "[2/7] PSScriptAnalyzer" -ForegroundColor Yellow
+Write-Host "[2/8] PSScriptAnalyzer" -ForegroundColor Yellow
 $hasAnalyzer = Get-Module -ListAvailable PSScriptAnalyzer -ErrorAction SilentlyContinue
 if (-not $hasAnalyzer) {
     Write-Host "  SKIP  PSScriptAnalyzer not installed (Install-Module PSScriptAnalyzer)" -ForegroundColor DarkYellow
@@ -88,7 +89,7 @@ else {
 }
 
 # ── Check 3: Pester Tests ──────────────────────────────────────────
-Write-Host "[3/7] Pester Tests" -ForegroundColor Yellow
+Write-Host "[3/8] Pester Tests" -ForegroundColor Yellow
 if ($SkipTests) {
     Write-Host "  SKIP  -SkipTests specified" -ForegroundColor DarkYellow
 }
@@ -117,7 +118,7 @@ else {
 }
 
 # ── Check 4: AI Comment Pattern Scan ───────────────────────────────
-Write-Host "[4/7] AI Comment Pattern Scan" -ForegroundColor Yellow
+Write-Host "[4/8] AI Comment Pattern Scan" -ForegroundColor Yellow
 $aiPatterns = @(
     @{ Pattern = '# Must be (after|before|placed)'; Desc = 'Instructional placement comment' }
     @{ Pattern = '# Note:.*see (below|above)'; Desc = 'Cross-reference instruction' }
@@ -161,7 +162,7 @@ else {
 }
 
 # ── Check 5: Version Consistency ────────────────────────────────────
-Write-Host "[5/7] Version Consistency" -ForegroundColor Yellow
+Write-Host "[5/8] Version Consistency" -ForegroundColor Yellow
 $versionMismatches = @()
 
 # Extract $ScriptVersion from the main script (source of truth)
@@ -356,7 +357,7 @@ else {
 }
 
 # ── Check 6: gh CLI Anti-Pattern Scan ──────────────────────────────
-Write-Host "[6/7] gh CLI Anti-Pattern Scan" -ForegroundColor Yellow
+Write-Host "[6/8] gh CLI Anti-Pattern Scan" -ForegroundColor Yellow
 $toolsDir = Join-Path $repoRoot 'tools'
 $ghHits = @()
 if (Test-Path $toolsDir) {
@@ -408,7 +409,7 @@ else {
 }
 
 # ── Check 7: Module Import Validation ──────────────────────────────
-Write-Host "[7/7] Module Import Validation" -ForegroundColor Yellow
+Write-Host "[7/8] Module Import Validation" -ForegroundColor Yellow
 $moduleDir = Join-Path $repoRoot 'AzVMAvailability'
 if (Test-Path (Join-Path $moduleDir 'AzVMAvailability.psd1')) {
     try {
@@ -428,6 +429,46 @@ if (Test-Path (Join-Path $moduleDir 'AzVMAvailability.psd1')) {
     }
     catch {
         Write-Host "  FAIL  Module import failed: $($_.Exception.Message)" -ForegroundColor Red
+        $failCount++
+    }
+}
+else {
+    Write-Host "  SKIP  AzVMAvailability module not found at $moduleDir" -ForegroundColor DarkYellow
+}
+
+# ── Check 8: Duplicate Function Definition Guard ────────────────────
+# v3.0.0 shipped with 15,376 lines accidentally pasted into the public
+# function, producing four nested copies of the orchestration body. The
+# file still parsed and imported, so every other check passed. This guard
+# closes that gap by rejecting any file that defines the same function
+# name more than once.
+Write-Host "[8/8] Duplicate Function Definition Guard" -ForegroundColor Yellow
+if (Test-Path $moduleDir) {
+    $dupFindings = @()
+    $moduleFiles = Get-ChildItem -Path $moduleDir -Filter '*.ps1' -Recurse -File
+    foreach ($file in $moduleFiles) {
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $file.FullName, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) {
+            $dupFindings += "$($file.Name): $($parseErrors.Count) parse error(s)"
+            continue
+        }
+        $funcs = $ast.FindAll(
+            { $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $dupes = $funcs | Group-Object Name | Where-Object { $_.Count -gt 1 }
+        foreach ($d in $dupes) {
+            $relPath = $file.FullName.Substring($repoRoot.Length + 1)
+            $lineNums = ($d.Group.Extent.StartLineNumber | Sort-Object) -join ', '
+            $dupFindings += "$relPath : '$($d.Name)' defined $($d.Count) times (lines $lineNums)"
+        }
+    }
+    if ($dupFindings.Count -eq 0) {
+        Write-Host "  PASS  No duplicate function definitions ($($moduleFiles.Count) file(s) checked)" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  FAIL  $($dupFindings.Count) duplicate definition(s) found:" -ForegroundColor Red
+        $dupFindings | ForEach-Object { Write-Host "         $_" -ForegroundColor Red }
         $failCount++
     }
 }
