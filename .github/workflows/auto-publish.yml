@@ -279,7 +279,7 @@ jobs:
           $psdPath = 'AzVMAvailability/AzVMAvailability.psd1'
           $psdContent = Get-Content $psdPath -Raw
           $psdRnPattern     = "(?m)^\s*ReleaseNotes\s*=\s*'[^']+'"
-          $psdRnReplacement = "        ReleaseNotes = 'v${newVersion}: Auto-published patch release rolling up changes since ${latestTag}. See CHANGELOG.md for the commit list.'"
+          $psdRnReplacement = "            ReleaseNotes = 'v${newVersion}: Auto-published patch release rolling up changes since ${latestTag}. See CHANGELOG.md for the commit list.'"
           $psdUpdated = [regex]::Replace($psdContent, $psdRnPattern, $psdRnReplacement)
           if ($psdUpdated -eq $psdContent) { throw "ReleaseNotes pattern did not match in $psdPath" }
           $psdHadNL = $psdContent.EndsWith("`n")

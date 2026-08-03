@@ -23,7 +23,7 @@
             Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
             LicenseUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability'
-        ReleaseNotes = 'v3.0.1: Auto-published patch release rolling up changes since v3.0.0. See CHANGELOG.md for the commit list.'
+            ReleaseNotes = 'v3.0.1: Auto-published patch release rolling up changes since v3.0.0. See CHANGELOG.md for the commit list.'
         }
     }
 }
