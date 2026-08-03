@@ -103,3 +103,11 @@
 **Assessment:** Agree
 **Reasoning:** Verified directly. `Tags`, `LicenseUri`, and `ProjectUri` are indented 12 spaces inside the `PSData` hashtable; `ReleaseNotes` was at 8. Root cause is `.github/workflows/auto-publish.yml` line 282, where `\` hardcodes an 8-space prefix. Because the regex `(?m)^\s*ReleaseNotes\s*=\s*'[^']+'` consumes the leading whitespace, the replacement string fully controls indentation, so every auto-published release would reintroduce the same misalignment.
 **Action taken:** Corrected the indentation to 12 spaces in the manifest AND fixed the generator in `auto-publish.yml` so the defect does not recur. The 12-space form also naturally aligns the `=` with the sibling keys.
+
+## PR #177 - test/exportrow-regression-170 - branch commit for ExportRow test
+
+**File:** `tests/ExportRow.Tests.ps1:33`
+**Copilot finding:** "The parse-failure exception omits the target file path, which makes failures harder to diagnose in CI logs (especially when multiple AST parses happen in the suite). Include `\` in the thrown message (similar to tests/TestHarness.psm1)."
+**Assessment:** Agree
+**Reasoning:** Verified. The throw read `"Public file failed to parse: $messages"` with no path. Multiple test files in this suite parse module files via AST, so a bare parse-failure message is ambiguous in CI output. `tests/TestHarness.psm1` already includes the path in comparable errors, so this also aligns the new file with existing convention. Low risk - the change touches only an error string on a path that is not exercised when the module parses cleanly.
+**Action taken:** Changed the throw to `"Public file failed to parse: $publicFile :: $messages"`. Full validation re-run: 8/8 checks PASS, 611 tests pass, exit 0.

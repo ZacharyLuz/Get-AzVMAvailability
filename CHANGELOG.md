@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Regression test `tests/ExportRow.Tests.ps1`** covering the per-family `$exportRow` `SKUs_OK` value expression. The test extracts the live expression from the public function via AST and evaluates it against mock per-region stats, and asserts the extracted expression contains no nested `function Get-AzVMAvailability` definition — a second, independent guard against the v3.0.0 duplication signature alongside `Validate-Script.ps1` check 8. Test authored by @opsmax in PR #171.
+
 ## [3.0.1] - 2026-08-03
 
 _Auto-published from changes since v3.0.0._
