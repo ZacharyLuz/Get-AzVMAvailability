@@ -95,9 +95,9 @@ if ($SkipTests) {
 }
 else {
     $hasPester = Get-Module -ListAvailable Pester -ErrorAction SilentlyContinue |
-    Where-Object { $_.Version.Major -ge 5 }
+    Where-Object { $_.Version.Major -eq 5 }
     if (-not $hasPester) {
-        Write-Host "  SKIP  Pester v5+ not installed (Install-Module Pester -Force -SkipPublisherCheck)" -ForegroundColor DarkYellow
+        Write-Host "  SKIP  Pester 5.x not installed (Install-Module Pester -RequiredVersion 5.7.1 -Force -SkipPublisherCheck)" -ForegroundColor DarkYellow
     }
     else {
         Import-Module Pester -MinimumVersion 5.0 -MaximumVersion 5.99.99 -ErrorAction Stop
@@ -467,7 +467,7 @@ if (Test-Path $moduleDir) {
         Write-Host "  PASS  No duplicate function definitions ($($moduleFiles.Count) file(s) checked)" -ForegroundColor Green
     }
     else {
-        Write-Host "  FAIL  $($dupFindings.Count) duplicate definition(s) found:" -ForegroundColor Red
+        Write-Host "  FAIL  $($dupFindings.Count) finding(s):" -ForegroundColor Red
         $dupFindings | ForEach-Object { Write-Host "         $_" -ForegroundColor Red }
         $failCount++
     }
