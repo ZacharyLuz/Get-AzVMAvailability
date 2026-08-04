@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.5] - 2026-08-04
+
+_Auto-published from changes since v3.0.4._
+
 ### Fixed
 - **`docs/parameters.md` documented `-LifecycleRecommendations` as a `String` taking a file path.** It has been a `[switch]` since v2.2.1, when the path moved to `-LifecycleFile`. The table now shows the correct type and documents `-LifecycleFile` and `-LogFile`, which were both missing entirely. This file ships in the PSGallery package, so the wrong type was reaching installed users. Verified by diffing the table against the parameter block via AST — 43 of 43 parameters are now documented with no type mismatches.
 - **README `What's New` stopped at v3.0.0**, omitting v3.0.1 through v3.0.4 — including the fact that v3.0.0 shipped a duplicated-code defect that v3.0.1 fixed. Anyone reading the PSGallery page had no way to learn they should upgrade off 3.0.0.

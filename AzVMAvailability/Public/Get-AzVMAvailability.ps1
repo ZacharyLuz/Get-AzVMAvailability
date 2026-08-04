@@ -134,7 +134,7 @@ function Get-AzVMAvailability {
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
     Created:        2026-01-21
-    Version:        3.0.4
+    Version:        3.0.5
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
