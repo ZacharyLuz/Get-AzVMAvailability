@@ -39,7 +39,7 @@ Use `-ShowPlacement`, capacity reservations/probes, or an actual deployment vali
 - **Added a duplicate-function guard** to `tools/Validate-Script.ps1` that parses every module file and fails if any function is defined more than once, plus a regression test that extracts the live expression from the module via AST. Two independent mechanisms now have to fail for that defect class to ship again.
 - **Fixed `-AutoExport` crashing the per-family export roll-up** (#170, reported by @opsmax).
 - **CI and release-automation repairs** — pinned Pester to the 5.x line, exempted bot-authored PRs from the changelog and checklist gates, and closed a gap where releases merged by automation were never tagged.
-- **Documentation corrections.** `docs/parameters.md` — which ships inside this package — described `-LifecycleRecommendations` as a `String` taking a file path; it has been a `[switch]` since v2.2.1, with the path on `-LifecycleFile`. `-LifecycleFile` and `-LogFile` were undocumented. All 43 parameters are now verified against the parameter block.
+- **Documentation corrections.** `docs/parameters.md` — which ships inside this package — described `-LifecycleRecommendations` as a `String` taking a file path; it has been a `[switch]` since v2.2.1, with the path on `-LifecycleFile`. `-LifecycleFile` and `-LogFile` were undocumented. Every parameter in the table is now verified against the module's parameter block.
 
 > Per-release detail lives in [CHANGELOG.md](CHANGELOG.md), which also ships in this package.
 
