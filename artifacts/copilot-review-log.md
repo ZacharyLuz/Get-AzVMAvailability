@@ -111,3 +111,20 @@
 **Assessment:** Agree
 **Reasoning:** Verified. The throw read `"Public file failed to parse: $messages"` with no path. Multiple test files in this suite parse module files via AST, so a bare parse-failure message is ambiguous in CI output. `tests/TestHarness.psm1` already includes the path in comparable errors, so this also aligns the new file with existing convention. Low risk - the change touches only an error string on a path that is not exercised when the module parses cleanly.
 **Action taken:** Changed the throw to `"Public file failed to parse: $publicFile :: $messages"`. Full validation re-run: 8/8 checks PASS, 611 tests pass, exit 0.
+
+## PRs #180, #173, #172 - Copilot review outcomes (batch entry)
+
+**PR #180** (`chore/auto-publish-3.0.2` @ `1dd1f46`) - bot exemption for `release-metadata-guard.yml` + changelog blurb placement fix in `auto-publish.yml`.
+**Copilot finding:** None. Review body: "Copilot reviewed 9 out of 9 changed files in this pull request and generated no comments."
+**Assessment:** N/A - no findings to triage.
+**Action taken:** None required. Sourcery also reviewed with no issues. Merged after code-owner approval with 12/12 checks green and 0 unresolved threads.
+
+**PR #173** (`dependabot/github_actions/actions-minor-patch-83bd6e4a5a` @ `f981faa4`) - `github/codeql-action` 4 -> 4.37.4.
+**Copilot finding:** None. Review state COMMENTED with no inline comments.
+**Assessment:** N/A - no findings to triage.
+**Action taken:** None required. This PR was also the first verification that the new bot exemption works: its `Release Metadata Guard` check went from FAILURE (pre-fix) to SUCCESS (post-fix).
+
+**PR #172** (`dependabot/github_actions/actions/checkout-7` @ `2f2dc8ce`) - `actions/checkout` 6 -> 7 across 9 workflows.
+**Copilot finding:** None. Review state APPROVED, body reports "Comments generated: 0".
+**Assessment:** N/A - no findings to triage.
+**Action taken:** None required. Major-version action bump accepted on the evidence that both Pester suites (ubuntu-latest and windows-latest) exercise the updated checkout action end to end and passed on the rebased head.
