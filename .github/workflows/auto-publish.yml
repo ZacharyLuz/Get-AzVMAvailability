@@ -244,12 +244,15 @@ jobs:
 
               if (-not [string]::IsNullOrWhiteSpace($unreleasedBody)) {
                   # Promote [Unreleased] body under the new version section.
+                  # The blurb sits directly under the heading, before the body: this whole
+                  # section is extracted verbatim as the GitHub Release body, and a trailing
+                  # blurb reads as though it belongs to the last bullet.
                   $newSectionLines = @(
                       "## [$newVersion] - $date",
-                      ''
-                  ) + ($unreleasedBody -split "`n") + @(
                       '',
                       "_Auto-published from changes since $latestTag._",
+                      ''
+                  ) + ($unreleasedBody.Trim() -split "`n") + @(
                       ''
                   )
                   $newSection = ($newSectionLines -join "`n")

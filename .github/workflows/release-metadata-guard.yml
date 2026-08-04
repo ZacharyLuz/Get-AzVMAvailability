@@ -23,8 +23,21 @@ jobs:
       - name: Validate version/changelog parity
         id: version_check
         shell: pwsh
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           $ErrorActionPreference = 'Stop'
+
+          # Bots (Dependabot, GitHub Actions) cannot author CHANGELOG prose or tick
+          # PR-template checkboxes. Flag them here so the authoring requirements below
+          # are waived, while the version parity checks still run for everyone. Matches
+          # the exemption already used by pr-verification-gate.yml.
+          $botAuthors = @('dependabot[bot]', 'dependabot-preview[bot]', 'github-actions[bot]')
+          $isBot = $botAuthors -contains $env:PR_AUTHOR
+          "is_bot=$isBot" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ($isBot) {
+            Write-Host "Bot author '$($env:PR_AUTHOR)' detected. Changelog authoring requirements are waived; version parity checks still apply."
+          }
 
           if (-not (Test-Path "./docs/VERIFY-RELEASE.md")) {
             throw "Required closeout checklist missing: docs/VERIFY-RELEASE.md"
@@ -78,7 +91,10 @@ jobs:
 
           $changelog = Get-Content "./CHANGELOG.md" -Raw
 
-          if ($versionChanged) {
+          if ($isBot) {
+            Write-Host "Skipping CHANGELOG enforcement for bot author '$($env:PR_AUTHOR)'."
+          }
+          elseif ($versionChanged) {
             Write-Host "ScriptVersion changed in this PR. Verifying CHANGELOG entry for $headVersion..."
             if ($changelog -notmatch [regex]::Escape("## [$headVersion]")) {
               throw "ScriptVersion changed ($baseVersion -> $headVersion) but CHANGELOG.md is missing heading: ## [$headVersion]"
@@ -110,7 +126,7 @@ jobs:
           Write-Host "Release metadata guard passed."
 
       - name: Validate PR release plan checkbox for version bumps
-        if: steps.version_check.outputs.version_changed == 'True'
+        if: steps.version_check.outputs.version_changed == 'True' && steps.version_check.outputs.is_bot != 'True'
         uses: actions/github-script@v9
         with:
           script: |
