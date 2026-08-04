@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AzVMAvailability.psm1'
-    ModuleVersion     = '3.0.3'
+    ModuleVersion     = '3.0.4'
     GUID              = '7f42e8d6-e85d-4e31-a541-d9af648a5269'
     Author            = 'Zachary Luz'
     CompanyName       = 'Community'
@@ -23,7 +23,7 @@
             Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
             LicenseUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/zacharyluz/Get-AzVMAvailability'
-            ReleaseNotes = 'v3.0.3: Auto-published patch release rolling up changes since v3.0.2. See CHANGELOG.md for the commit list.'
+            ReleaseNotes = 'v3.0.4: Auto-published patch release rolling up changes since v3.0.3. See CHANGELOG.md for the commit list.'
         }
     }
 }
