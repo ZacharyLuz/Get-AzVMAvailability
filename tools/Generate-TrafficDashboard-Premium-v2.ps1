@@ -89,7 +89,7 @@ if (Test-Path $pathsPath) {
 Write-Host "Loaded: $($views.Count) view days, $($clones.Count) clone days, $($stars.Count) stars, $($referrers.Count) referrers, $($paths.Count) paths, $(@($releaseDownloads).Count) release download snapshots, $($releases.Count) releases, $($psGallery.Count) PSGallery snapshots" -ForegroundColor Cyan
 #endregion
 
-#region Build JSON — use @() to guarantee arrays for ConvertTo-Json
+#region Build JSON — ConvertTo-SafeJsonArray guarantees a literal [] on empty input
 # Piping an empty array to ConvertTo-Json emits nothing at all (the pipeline never
 # delivers an element, so -AsArray never fires). These values are interpolated
 # directly into the emitted JavaScript, so a $null here produces `labels: ,` —

@@ -128,3 +128,17 @@
 **Copilot finding:** None. Review state APPROVED, body reports "Comments generated: 0".
 **Assessment:** N/A - no findings to triage.
 **Action taken:** None required. Major-version action bump accepted on the evidence that both Pester suites (ubuntu-latest and windows-latest) exercise the updated checkout action end to end and passed on the rebased head.
+
+## PR #181 - fix/dashboard-empty-json-array - commit 422bc53
+
+**File:** `tools/Generate-TrafficDashboard-Premium-v2.ps1:92`
+**Copilot finding:** "The #region header still says it is using @() to guarantee arrays for ConvertTo-Json, but this block now relies on ConvertTo-SafeJsonArray to guarantee `[]` on empty input. Updating the header will keep the comment accurate for future maintenance."
+**Assessment:** Agree
+**Reasoning:** Correct and worth fixing. The header read "Build JSON - use @() to guarantee arrays for ConvertTo-Json", which described the exact mechanism this PR replaced because it does not work: `@()` guarantees an array in PowerShell, but piping that array to `ConvertTo-Json -AsArray` still emits nothing when it is empty. Leaving the header would assert the failed approach as the current one, which is the comment-rot pattern the project explicitly guards against.
+**Action taken:** Changed the header to "Build JSON - ConvertTo-SafeJsonArray guarantees a literal [] on empty input". Re-ran full validation: 8/8 checks PASS, 611 tests, exit 0.
+
+**Reviewer:** sourcery-ai (PR-level comment, not an inline thread)
+**Finding:** "ConvertTo-SafeJsonArray assumes `\` is non-null; consider defensively handling `\` input (e.g., treating it as an empty array) to avoid potential .Count access errors if future callers change."
+**Assessment:** Disagree
+**Reasoning:** Tested rather than assumed, on PowerShell 7.6.4. The `[array]` parameter cast turns `\` into `\`, and `\.Count` returns `0` in PowerShell 3.0+ instead of throwing. All three null-passing forms were exercised - positional `\`, named `-Data \`, and omitting the parameter entirely - and each returned `'[]'` with no error. The described `.Count` access error is therefore not reachable. Adding a guard would be error handling for an impossible scenario, which the project's Simplicity First rule prohibits. Every call site also wraps its argument in `@()`, so a null can never reach the parameter in practice.
+**Action taken:** None. Replied on the PR with the test results so the reasoning is visible to future reviewers.
