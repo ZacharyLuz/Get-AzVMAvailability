@@ -94,7 +94,7 @@ The standalone `Get-AzVMAvailability.ps1` script has been converted into a **pro
 
 - **Do not add new features.** Changes are allowed only for: modularization, testing, validation, CI/CD packaging, and publishing.
 - Publishing targets: **PowerShell Gallery (PSGallery)** + **GitHub Releases**.
-- Private function extraction into `AzVMAvailability/Private/` is **complete** (43 functions across 6 subdirectories).
+- Private function extraction into `AzVMAvailability/Private/` is **complete**, organized across 6 subdirectories (`Azure`, `Format`, `Image`, `Inventory`, `SKU`, `Utility`). Discover the current file count from the tree rather than quoting a number — it changes.
 - Public function `Get-AzVMAvailability` wraps the orchestration body in `AzVMAvailability/Public/`.
 - `Get-AzVMAvailability.ps1` at repo root is now a **thin wrapper** that imports the module and forwards `@PSBoundParameters`.
 - See `ROADMAP.md` for the full version plan.
@@ -114,7 +114,7 @@ The standalone `Get-AzVMAvailability.ps1` script has been converted into a **pro
 
 - `Get-AzVMAvailability.ps1` — **Thin wrapper script** that imports the module and forwards all parameters. Preserves backward compatibility for users who run the script directly.
 - `AzVMAvailability/` — **Module folder** (authoritative source):
-  - `AzVMAvailability.psd1` — Module manifest (v2.0.0, exports only `Get-AzVMAvailability`).
+  - `AzVMAvailability.psd1` - Module manifest (exports only `Get-AzVMAvailability`). Read `ModuleVersion` from the manifest rather than quoting a version here.
   - `AzVMAvailability.psm1` — Module loader: Write-Host override at module scope, dot-sources Private/ in dependency order, then Public/.
   - `Public/Get-AzVMAvailability.ps1` — The primary exported function containing the full orchestration body.
   - `Private/Azure/` — Endpoint, region, pricing, retry functions (11 files).

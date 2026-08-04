@@ -34,8 +34,15 @@ Use `-ShowPlacement`, capacity reservations/probes, or an actual deployment vali
 
 ## What's New
 
+### v3.0.1 – v3.0.4
+- **Fixed a packaging defect in v3.0.0.** A malformed hunk in the v3.0.0 release commit duplicated the module's orchestration body three times, leaving four definitions of `Get-AzVMAvailability` in one file. The file still parsed and imported cleanly — the last definition won — so the syntax and import checks passed and it shipped. v3.0.1 restores a single 5,127-line definition. **If you installed 3.0.0 from PSGallery, upgrade.**
+- **Added a duplicate-function guard** to `tools/Validate-Script.ps1` that parses every module file and fails if any function is defined more than once, plus a regression test that extracts the live expression from the module via AST. Two independent mechanisms now have to fail for that defect class to ship again.
+- **Fixed `-AutoExport` crashing the per-family export roll-up** (#170, reported by @opsmax).
+- **CI and release-automation repairs** — pinned Pester to the 5.x line, exempted bot-authored PRs from the changelog and checklist gates, and closed a gap where releases merged by automation were never tagged.
+
 ### v3.0.0
-- Breaking: Capacity field renamed to RestrictionStatus, CAPACITY-CONSTRAINED status renamed to ZONE-LIMITED, schemaVersion bumped to 2.0. All user-facing text clarified to reference ARM restriction metadata instead of capacity.
+- Breaking: Capacity field renamed to RestrictionStatus, CAPACITY-CONSTRAINED status renamed to ZONE-LIMITED. All user-facing text clarified to reference ARM restriction metadata instead of capacity.
+- JSON `schemaVersion` moved to `2.0` for **scan** and **recommend** modes. **Lifecycle mode still emits `1.0`** — that path was missed in the rename and is tracked in [#178](https://github.com/ZacharyLuz/Get-AzVMAvailability/issues/178). If you parse `-JsonOutput`, branch on the value rather than assuming it.
 
 ### v2.3.1
 - Metadata-only: updated README What's New section and CHANGELOG release notes for PSGallery parity
