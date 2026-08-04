@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.3] - 2026-08-04
+
+_Auto-published from changes since v3.0.2._
+
 ### Fixed
 - **Restored `ConvertTo-SafeJsonArray` in `tools/Generate-TrafficDashboard-Premium-v2.ps1`.** Piping an empty array to `ConvertTo-Json -AsArray` emits nothing at all, because the pipeline never delivers an element for `-AsArray` to act on. These values are interpolated directly into the dashboard's JavaScript, so an empty result produced `labels: ,` — a syntax error that blanks the entire dashboard. Any of the referrer, path, PSGallery, star, or view arrays can legitimately be empty on a fresh repo. The two downstream repos already carried this helper; without it, `sync-traffic-infra.yml` would have overwritten their working copies with the broken version.
 
