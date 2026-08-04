@@ -27,6 +27,17 @@ permissions:
   contents: write
   issues: write
 
+# Tag creation is read-then-write across two steps and is not atomic: a run reads
+# tag_exists, then later runs `git tag` + `git push`. Two overlapping runs can both
+# observe a missing tag and race, and the loser fails on a rejected tag push. Adding
+# the schedule makes overlap materially more likely, since a cron run can now start
+# while a push or dispatch run is mid-flight. Serialize instead of cancelling: a run
+# that is already past the drift check may have created the tag, and cancelling it
+# would leave a tag with no release.
+concurrency:
+  group: release-on-main
+  cancel-in-progress: false
+
 jobs:
   release_control:
     name: Release Drift Check and Publish
