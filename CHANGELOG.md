@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.6] - 2026-08-04
+
+_Auto-published from changes since v3.0.5._
+
 ### Fixed
 - **README `What's New` used a version-bounded heading (`v3.0.1 – v3.0.4`) that went stale on every patch release.** It shipped inside the v3.0.5 package still claiming to cover only through v3.0.4. The heading is now `v3.0.x patch series (v3.0.1 and later)`, which stays accurate without an edit per release, and a pointer to `CHANGELOG.md` was added for per-release detail. Also added the documentation-correction entry that v3.0.5 delivered.
 

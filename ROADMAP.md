@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Release: v3.0.5
+## Current Release: v3.0.6
 
 > **v3.0.1 – v3.0.4:** Remediation of a packaging defect that shipped in v3.0.0 — a malformed hunk in the release commit left four duplicate definitions of `Get-AzVMAvailability` in one file. It parsed and imported cleanly, so the existing syntax and module-import checks did not catch it. v3.0.1 republished a single clean definition to PSGallery, and `tools/Validate-Script.ps1` gained an AST duplicate-function guard so the defect class cannot ship again. Also fixes the `-AutoExport` per-family roll-up crash (#170) and a set of CI/release-automation gaps: Pester pinned to 5.x, bot-authored PRs exempted from the changelog and checklist gates, and a scheduled drift check so releases merged by automation still get tagged. See [CHANGELOG.md](CHANGELOG.md) for details.
 >
