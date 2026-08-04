@@ -3,6 +3,13 @@ name: "Release Drift Check and Publish"
 on:
   push:
     branches: ["main"]
+  # Safety net: a merge performed by github-actions[bot] using GITHUB_TOKEN does not
+  # emit a push event, so the push-triggered path above never fires for bot-merged
+  # version bumps (auto-publish.yml PRs). This schedule re-checks drift on a timer
+  # regardless of who merged. The drift check is idempotent - if the tag already
+  # exists and the script is unchanged, the job exits without acting.
+  schedule:
+    - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
       auto_publish:
@@ -97,7 +104,18 @@ jobs:
                 $msg += "- In Get-AzVMAvailability.ps1, bump the ScriptVersion value to a new version.`n"
                 $msg += "- Add a corresponding entry for that version to CHANGELOG.md.`n"
                 $msg += "- Commit the changes, push to main, and re-run this workflow."
-                throw $msg
+
+                # On the timed safety-net run, warn instead of throwing. The push and
+                # dispatch runs already fail loudly on this condition; repeating that
+                # failure every 6 hours would emit a run-failure notification per cycle
+                # for a state a human has to resolve, and that noise trains people to
+                # ignore the alert. The scheduled run exists to catch missing tags, not
+                # to re-report a condition push already reported.
+                if ("${{ github.event_name }}" -eq "schedule") {
+                  Write-Warning $msg
+                } else {
+                  throw $msg
+                }
               } else {
                 Write-Host "Tag $tag exists but only non-script files changed since ($commitsSinceTag commit(s)). No version bump required."
               }
@@ -161,7 +179,7 @@ jobs:
           throw "Release metadata drift detected for $tag and auto-publish is disabled."
 
       - name: Auto-publish release when drift detected
-        if: steps.drift.outputs.tag_exists == 'False' && (github.event_name == 'push' || inputs.auto_publish == true)
+        if: steps.drift.outputs.tag_exists == 'False' && (github.event_name == 'push' || github.event_name == 'schedule' || inputs.auto_publish == true)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Added a scheduled safety net to `release-on-main.yml` so bot-merged version bumps still get tagged.** A merge performed by `github-actions[bot]` using `GITHUB_TOKEN` does not emit a `push` event, which is GitHub's documented loop-prevention behavior. Every `auto-publish.yml` PR is merged by that identity, so the push-triggered release path never fired for them and v3.0.2 and v3.0.3 both required a manual `workflow_dispatch` to tag and release. The workflow now also runs every 6 hours; the drift check is idempotent, so a run with no drift exits without acting. On the scheduled run only, the version-stagnation guard warns instead of throwing — the push and dispatch runs already fail loudly on that condition, and repeating it on a timer would emit a failure notification every 6 hours for a state only a human can resolve.
+
 ## [3.0.3] - 2026-08-04
 
 _Auto-published from changes since v3.0.2._
