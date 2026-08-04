@@ -34,11 +34,14 @@ Use `-ShowPlacement`, capacity reservations/probes, or an actual deployment vali
 
 ## What's New
 
-### v3.0.1 – v3.0.4
+### v3.0.x patch series (v3.0.1 and later)
 - **Fixed a packaging defect in v3.0.0.** A malformed hunk in the v3.0.0 release commit duplicated the module's orchestration body three times, leaving four definitions of `Get-AzVMAvailability` in one file. The file still parsed and imported cleanly — the last definition won — so the syntax and import checks passed and it shipped. v3.0.1 restores a single 5,127-line definition. **If you installed 3.0.0 from PSGallery, upgrade.**
 - **Added a duplicate-function guard** to `tools/Validate-Script.ps1` that parses every module file and fails if any function is defined more than once, plus a regression test that extracts the live expression from the module via AST. Two independent mechanisms now have to fail for that defect class to ship again.
 - **Fixed `-AutoExport` crashing the per-family export roll-up** (#170, reported by @opsmax).
 - **CI and release-automation repairs** — pinned Pester to the 5.x line, exempted bot-authored PRs from the changelog and checklist gates, and closed a gap where releases merged by automation were never tagged.
+- **Documentation corrections.** `docs/parameters.md` — which ships inside this package — described `-LifecycleRecommendations` as a `String` taking a file path; it has been a `[switch]` since v2.2.1, with the path on `-LifecycleFile`. `-LifecycleFile` and `-LogFile` were undocumented. Every parameter in the table is now verified against the module's parameter block.
+
+> Per-release detail lives in [CHANGELOG.md](CHANGELOG.md), which also ships in this package.
 
 ### v3.0.0
 - Breaking: Capacity field renamed to RestrictionStatus, CAPACITY-CONSTRAINED status renamed to ZONE-LIMITED. All user-facing text clarified to reference ARM restriction metadata instead of capacity.
