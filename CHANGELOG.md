@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`docs/parameters.md` documented `-LifecycleRecommendations` as a `String` taking a file path.** It has been a `[switch]` since v2.2.1, when the path moved to `-LifecycleFile`. The table now shows the correct type and documents `-LifecycleFile` and `-LogFile`, which were both missing entirely. This file ships in the PSGallery package, so the wrong type was reaching installed users. Verified by diffing the table against the parameter block via AST — 43 of 43 parameters are now documented with no type mismatches.
+- **README `What's New` stopped at v3.0.0**, omitting v3.0.1 through v3.0.4 — including the fact that v3.0.0 shipped a duplicated-code defect that v3.0.1 fixed. Anyone reading the PSGallery page had no way to learn they should upgrade off 3.0.0.
+- **README overstated the v3.0.0 `schemaVersion` change.** It read "schemaVersion bumped to 2.0" without qualification, but only the scan and recommend contracts were bumped; lifecycle-mode `-JsonOutput` still emits `1.0`. The entry now states which modes carry which value and links to #178. No code behavior was changed here — altering the lifecycle contract is a breaking change and belongs in its own decision.
+- **`ROADMAP.md` release highlights stopped at v2.2.2** while the header already read v3.0.4. Added v3.0.0 and the v3.0.1–v3.0.4 remediation summary.
+- **`.github/copilot-instructions.md` carried two stale facts** — a hardcoded private-function count of 43 (actual: 46 files) and a manifest version of v2.0.0 (actual: 3.0.4). Both were replaced with instructions to read the current value, since the same file already warns against relying on static metrics.
+- **`.github/skills/azure-vm-availability/SKILL.md`** referenced "script version 1.11.0" in a comment; the comment no longer pins a version.
+
 ## [3.0.4] - 2026-08-04
 
 _Auto-published from changes since v3.0.3._

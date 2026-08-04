@@ -4,7 +4,7 @@ description: "Scan Azure regions for VM SKU restriction status, quota headroom, 
 license: MIT
 metadata:
   author: Zachary Luz
-  version: "1.1.0"  # Skill version (independent of script version 1.11.0)
+  version: "1.1.0"  # Skill version, intentionally independent of the module version
 ---
 
 # Azure VM Availability - SKU Restriction and Quota Scanner

@@ -37,7 +37,8 @@
 | `-Inventory`            | Hashtable| Inventory BOM as hashtable: `@{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}` — validates restriction status + quota for entire inventory     |
 | `-InventoryFile`        | String   | Path to CSV or JSON file with inventory BOM. CSV: columns `SKU,Qty`. JSON: array of `{"SKU":"...","Qty":N}` objects. Easiest input method for spreadsheet users |
 | `-GenerateInventoryTemplate`| Switch   | Creates `inventory-template.csv` and `inventory-template.json` in the current directory, then exits. No Azure login required |
-| `-LifecycleRecommendations`| String  | Path to CSV, JSON, or XLSX file listing current VM SKUs (column: SKU/Size/VmSize, optional: Region, Qty). XLSX files exported from the Azure portal VM blade are supported natively. Runs compatibility-validated recommendations with quantity-aware quota analysis |
+| `-LifecycleRecommendations`| Switch  | Run compatibility-validated lifecycle recommendations with quantity-aware quota analysis. Supply the input file with `-LifecycleFile`, or omit it and use `-LifecycleScan` to pull live inventory |
+| `-LifecycleFile`        | String   | Path to a CSV, JSON, or XLSX file listing current VM SKUs (column: SKU/Size/VmSize, optional: Region, Qty). XLSX files exported from the Azure portal VM blade are supported natively. Positional, so the legacy form `-LifecycleRecommendations .\my-vms.csv` still binds correctly |
 | `-LifecycleScan`        | Switch   | Pull live VM inventory from Azure via Resource Graph for lifecycle analysis. No file required — queries all deployed VMs from your tenant. Requires `Az.ResourceGraph` module |
 | `-ManagementGroup`      | String[] | Scope `-LifecycleScan` to specific management group(s) for cross-subscription scanning |
 | `-ResourceGroup`        | String[] | Filter `-LifecycleScan` to specific resource group(s) |
@@ -45,6 +46,7 @@
 | `-SubMap`               | Switch   | Include a Subscription Map sheet in lifecycle XLSX exports, grouping affected VMs by subscription with risk-level enrichment |
 | `-RGMap`                | Switch   | Include a Resource Group Map sheet in lifecycle XLSX exports, grouping affected VMs by subscription + resource group with risk-level enrichment |
 | `-AZ`                   | Switch   | Add Availability Zone columns to lifecycle XLSX exports: `Zones (Deployed)` on SubMap / RGMap (zones the VMs run in today) and `Zones (Supported)` on Lifecycle Summary / High Risk / Medium Risk (zones the recommended replacement supports). **Auto-enabled when `-LifecycleRecommendations` is used.** |
+| `-LogFile`              | Switch   | Enable transcript logging. A timestamped log file is written to the export directory |
 
 > **Backward compatibility:** The previous parameter names `-Fleet`, `-FleetFile`, and `-GenerateFleetTemplate` still work as aliases.
 
