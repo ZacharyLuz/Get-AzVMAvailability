@@ -16,7 +16,7 @@
     Name:           Get-AzVMAvailability
     Author:         Zachary Luz
     Created:        2026-01-21
-    Version:        3.0.5
+    Version:        3.0.6
     License:        MIT
     Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
 
@@ -188,7 +188,7 @@ param(
 )
 
 # Version for Validate-Script.ps1 parity check (must match .psd1 ModuleVersion)
-$ScriptVersion = "3.0.5"
+$ScriptVersion = "3.0.6"
 Write-Verbose "Get-AzVMAvailability wrapper v$ScriptVersion"
 
 # Import the AzVMAvailability module from the same directory as this script

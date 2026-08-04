@@ -7,7 +7,7 @@ A PowerShell tool for scanning Azure VM SKU restriction status, quota, pricing, 
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-3.0.5-brightgreen)
+![Version](https://img.shields.io/badge/Version-3.0.6-brightgreen)
 
 ## Overview
 
