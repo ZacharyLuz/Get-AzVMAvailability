@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-08-03
+
+_Auto-published from changes since v3.0.1._
+
 ### Added
-- **Regression test `tests/ExportRow.Tests.ps1`** covering the per-family `$exportRow` `SKUs_OK` value expression. The test extracts the live expression from the public function via AST and evaluates it against mock per-region stats, and asserts the extracted expression contains no nested `function Get-AzVMAvailability` definition — a second, independent guard against the v3.0.0 duplication signature alongside `Validate-Script.ps1` check 8. Test authored by @opsmax in PR #171.
+- **Regression test `tests/ExportRow.Tests.ps1`** covering the per-family `$exportRow` `SKUs_OK` value expression. The test extracts the live expression from the public function via AST and evaluates it against mock per-region stats, and asserts the extracted expression contains no nested `function Get-AzVMAvailability` definition - a second, independent guard against the v3.0.0 duplication signature alongside `Validate-Script.ps1` check 8. Test authored by @opsmax in PR #171.
+
+### Fixed
+- **Exempted bot-authored PRs from `release-metadata-guard.yml`.** Dependabot cannot author CHANGELOG prose or tick the PR-template release checkbox, so the guard failed on every Dependabot PR. Bots are now exempted from the changelog and checklist requirements while the version parity checks (`.NOTES` vs `$ScriptVersion` vs manifest `ModuleVersion`) still run for every author. Mirrors the exemption already present in `pr-verification-gate.yml`.
+- **Fixed the auto-publish CHANGELOG generator placing the release blurb at the bottom of the section.** The promoted `[Unreleased]` body was emitted before the `_Auto-published from changes since ..._` line, so the blurb trailed the final bullet. Because this section is extracted verbatim as the GitHub Release body, the blurb now sits directly under the version heading.
 
 ## [3.0.1] - 2026-08-03
 
